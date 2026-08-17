@@ -48,55 +48,35 @@ export function useSwapAssetDefaults(params: {
   };
 
   useEffect(() => {
-    let initialFromChainId: number | string | null = null;
-    let initialToChainId: number | string | null = null;
-    let initialSellSymbol = '';
-    let initialSellAddr = '';
-    let initialBuySymbol = '';
-    let initialBuyAddr = '';
-
     if (locationState?.selectedAsset) {
       const asset = locationState.selectedAsset;
-      initialFromChainId = asset.chainType === 'stellar' ? STELLAR_CHAIN_ID : asset.chainId || 1;
-      initialSellSymbol = asset.symbol;
-      initialSellAddr = asset.address || '';
-      if (locationState.isPerp) {
-        initialToChainId = initialFromChainId;
-      }
-    } else {
-      const fromParam = searchParams.get('fromChainId');
-      const toParam = searchParams.get('toChainId');
-      const sellAssetParam = searchParams.get('sellAsset');
-      const sellAddressParam = searchParams.get('sellAddress');
-      const buyAssetParam = searchParams.get('buyAsset');
-      const buyAddressParam = searchParams.get('buyAddress');
-
-      if (fromParam) initialFromChainId = parseChainId(fromParam);
-      if (toParam) initialToChainId = parseChainId(toParam);
-      if (sellAssetParam) initialSellSymbol = sellAssetParam;
-      if (sellAddressParam) initialSellAddr = sellAddressParam;
-      if (buyAssetParam) initialBuySymbol = buyAssetParam;
-      if (buyAddressParam) initialBuyAddr = buyAddressParam;
+      const targetChainId = asset.chainType === 'stellar' ? STELLAR_CHAIN_ID : asset.chainId || 1;
+      setFromChainId(targetChainId);
+      setSellAssetSymbol(asset.symbol);
+      setSellAssetAddress(asset.address || '');
+      if (locationState.isPerp) setToChainId(targetChainId);
+      urlParamsApplied.current = true;
+      hasInitializedDefaults.current = true;
+      return;
     }
 
-    const storeFromChain = useSwapStore.getState().fromChainId;
-    if (!initialFromChainId) {
-      const defaultChainId =
-        currentChainId || (connectedWallets[WalletType.STELLAR] ? STELLAR_CHAIN_ID : 1);
-      if (storeFromChain === 1 && defaultChainId !== 1) {
-        initialFromChainId = defaultChainId;
-      }
-    }
+    const fromParam = searchParams.get('fromChainId');
+    const toParam = searchParams.get('toChainId');
+    const sellAssetParam = searchParams.get('sellAsset');
+    const sellAddressParam = searchParams.get('sellAddress');
+    const buyAssetParam = searchParams.get('buyAsset');
+    const buyAddressParam = searchParams.get('buyAddress');
 
-    if (initialFromChainId !== null) setFromChainId(initialFromChainId);
-    if (initialToChainId !== null) setToChainId(initialToChainId);
-    if (initialSellSymbol) {
-      setSellAssetSymbol(initialSellSymbol);
-      setSellAssetAddress(initialSellAddr);
-    }
-    if (initialBuySymbol) {
-      setBuyAssetSymbol(initialBuySymbol);
-      setBuyAssetAddress(initialBuyAddr);
+    if (fromParam || toParam || sellAssetParam) {
+      if (fromParam) setFromChainId(parseChainId(fromParam));
+      if (toParam) setToChainId(parseChainId(toParam));
+      if (sellAssetParam) setSellAssetSymbol(sellAssetParam);
+      if (sellAddressParam) setSellAssetAddress(sellAddressParam);
+      if (buyAssetParam) setBuyAssetSymbol(buyAssetParam);
+      if (buyAddressParam) setBuyAssetAddress(buyAddressParam);
+      urlParamsApplied.current = true;
+      hasInitializedDefaults.current = true;
+      return;
     }
 
     urlParamsApplied.current = true;
@@ -104,39 +84,34 @@ export function useSwapAssetDefaults(params: {
 
   useEffect(() => {
     if (hasInitializedDefaults.current) return;
-    const hasFromParam = !!searchParams.get('fromChainId');
-    const hasToParam = !!searchParams.get('toChainId');
-    const hasLocationAsset = !!locationState?.selectedAsset;
 
-    if (!hasFromParam && !hasToParam && !hasLocationAsset) {
-      const stored = useSwapStore.getState();
-      const storedFrom = stored.fromChainId;
-      const storedTo = stored.toChainId;
-      const hasStoredPair =
-        String(storedFrom) !== '1' ||
-        String(storedTo) !== '1' ||
-        isStellar(storedFrom) ||
-        isStellar(storedTo);
+    const stored = useSwapStore.getState();
+    const hasStoredSelection =
+      stored.sellAssetSymbol !== '' ||
+      isStellar(stored.fromChainId) ||
+      (stored.fromChainId !== 'pubnet' && stored.fromChainId !== 1);
 
-      if (hasStoredPair) {
-        hasInitializedDefaults.current = true;
-        return;
-      }
+    if (hasStoredSelection) {
+      hasInitializedDefaults.current = true;
+      return;
+    }
 
+    if (connectedWallets[WalletType.STELLAR]) {
+      setFromChainId(STELLAR_CHAIN_ID);
+      setToChainId(STELLAR_CHAIN_ID);
+    } else if (connectedWallets[WalletType.EVM] && currentChainId) {
       const swapEnabledChains = getEvmSwapEnabledChains(currentNetwork);
-      if (currentChainId && swapEnabledChains.some(c => c.chainId === currentChainId)) {
+      if (swapEnabledChains.some(c => c.chainId === currentChainId)) {
         setFromChainId(currentChainId);
         setToChainId(currentChainId);
-        hasInitializedDefaults.current = true;
-      } else if (!isConnected && connectedWallets[WalletType.STELLAR]) {
-        setFromChainId(STELLAR_CHAIN_ID);
-        setToChainId(STELLAR_CHAIN_ID);
-        hasInitializedDefaults.current = true;
       }
     } else {
-      hasInitializedDefaults.current = true;
+      setFromChainId(STELLAR_CHAIN_ID);
+      setToChainId(STELLAR_CHAIN_ID);
     }
-  }, [currentChainId, isConnected, connectedWallets, searchParams, currentNetwork, locationState]);
+
+    hasInitializedDefaults.current = true;
+  }, [connectedWallets, currentChainId, currentNetwork]);
 
   useEffect(() => {
     if (!urlParamsApplied.current) return;

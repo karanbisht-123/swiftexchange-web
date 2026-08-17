@@ -133,7 +133,7 @@ const TradeTransactionUI = () => {
 
   if (!stellarWallet) {
     return (
-      <div className="bg-secondary lg:rounded-xl border border-border/50 p-6 h-full flex flex-col items-center justify-center text-center">
+      <div className="bg-secondary lg:rounded-xl  p-6 h-full flex flex-col items-center justify-center text-center">
         <div className="w-16 h-16 rounded-full bg-warning/10 flex items-center justify-center mb-4">
           <AlertCircle className="w-8 h-8 text-warning" />
         </div>

@@ -1,20 +1,23 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
-import { getFingerprint, prewarmFingerprint } from '../../../utils/fingerprint';
 import { type NetworkType } from '../config/chains';
 import {
   buildSiweMessage,
+  buildStellarChallenge,
   clearAccessToken,
+  getCurrentTokenInfo,
   logoutServer,
   restoreAuthSession,
   setAccessToken,
   verifySiwe,
+  verifyStellarChallenge,
 } from '../services/Siweauthservice';
 import type { ApiTradingKey } from '../services/apiTradingKeyService';
 import { WITHDRAW_PREF_KEY } from '../services/apiTradingKeyService';
 import { walletService } from '../services/walletService';
 import { usePortfolioStore } from '../store/portfolioStore';
+import { extractErrorMessage } from '../utils/walletErrorHandler';
 
 export const TRADING_AUTH_PREF_KEY = '_sx_trading_auth_pref';
 
@@ -45,13 +48,14 @@ export interface WalletState {
   isModalOpen: boolean;
   network: NetworkType;
   isRestoringSession: boolean;
+  isDisconnecting: boolean;
   sessionLastPingAt: Partial<Record<WalletType, number>>;
   session: any;
 
   isAuthenticated: boolean;
   isAuthenticating: boolean;
   authError: string | null;
-  authenticatedChain: 'evm' | null;
+  authenticatedChain: 'evm' | 'stellar' | null;
   linkedChains: ('evm' | 'stellar')[];
   tradingAuthEnabled: boolean;
 
@@ -80,6 +84,7 @@ interface WalletActions {
   updateSessionPing: (type: WalletType) => void;
 
   authenticateEvm: () => Promise<void>;
+  authenticateStellar: () => Promise<void>;
   logoutAuth: () => Promise<void>;
   setTradingAuthEnabled: (value: boolean) => void;
 
@@ -130,6 +135,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     isModalOpen: false,
     network: initialNetwork,
     isRestoringSession: false,
+    isDisconnecting: false,
     sessionLastPingAt: {},
     session: null,
 
@@ -149,7 +155,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     isExportPhraseModalOpen: false,
 
     connectWallet: async (type, walletId) => {
-      if (get().connectedWallets[type]) return;
+      if (get().connectedWallets[type] || get().isConnecting(type)) return;
 
       set(state => ({
         connectionStatus: {
@@ -198,14 +204,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
         if (type === 'evm') {
           get().authenticateEvm();
-        } else if (type === 'stellar') {
-          if (get().isAuthenticated && get().authenticatedChain === 'evm') {
-            set(state => ({
-              linkedChains: Array.from(new Set([...state.linkedChains, 'stellar'])) as (
-                'evm' | 'stellar'
-              )[],
-            }));
-          }
         }
       } catch (error: any) {
         set(state => ({
@@ -213,7 +211,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
             ...state.connectionStatus,
             [type]: {
               state: 'failed',
-              error: error instanceof Error ? error.message : 'Connection failed',
+              error: extractErrorMessage(error),
             },
           },
         }));
@@ -222,6 +220,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     },
 
     connectUnified: async walletId => {
+      if (get().isConnecting('evm') || get().isConnecting('stellar')) return;
       set(state => ({
         connectionStatus: {
           ...state.connectionStatus,
@@ -282,7 +281,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
             ...state.connectionStatus,
             evm: {
               state: 'failed',
-              error: error instanceof Error ? error.message : 'Connection failed',
+              error: extractErrorMessage(error),
             },
           },
         }));
@@ -366,18 +365,9 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         const message = await buildSiweMessage(evm.address, chainId);
         const signature = await walletService.signSiweMessage(evm.address, provider, message);
 
-        const fingerprint = await getFingerprint();
-        if (!fingerprint) {
-          throw new Error(
-            'Unable to verify device securely. Please disable ad blockers or privacy extensions and try again.'
-          );
-        }
-
         const { accessToken, expiresIn, refreshToken } = await verifySiwe(message, signature, {
           address: evm.address,
           chainId,
-          asLink: false,
-          fingerprint,
         });
 
         await setAccessToken(
@@ -406,9 +396,92 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           isAuthenticating: false,
           isAuthenticated: state.isAuthenticated,
           authError:
-            error?.message === 'USER_REJECTED'
-              ? 'Signature rejected'
-              : (error?.message ?? 'Authentication failed'),
+            error?.message === 'USER_REJECTED' ? 'Signature rejected' : extractErrorMessage(error),
+        }));
+      }
+    },
+
+    // NOT IN USE: Stellar wallets no longer require verification upon connection
+    authenticateStellar: async () => {
+      const state = get();
+      if (state.isAuthenticating) return;
+
+      set({ isAuthenticating: true, authError: null });
+
+      try {
+        const stellar = state.connectedWallets.stellar;
+
+        // 1. If already have an active valid session for this address, skip
+        const currentToken = getCurrentTokenInfo();
+        if (
+          currentToken &&
+          stellar &&
+          currentToken.address?.toLowerCase() === stellar.address.toLowerCase()
+        ) {
+          const hasEvm = Boolean(state.connectedWallets.evm);
+          const linked: ('evm' | 'stellar')[] = hasEvm ? ['evm', 'stellar'] : ['stellar'];
+          set({
+            isAuthenticated: true,
+            isAuthenticating: false,
+            authError: null,
+            authenticatedChain: 'stellar',
+            linkedChains: linked,
+          });
+          return;
+        }
+
+        if (!stellar) {
+          throw new Error('Stellar wallet not connected');
+        }
+
+        const provider = walletService.getProvider('stellar');
+        if (!provider) {
+          throw new Error('Stellar provider not found');
+        }
+
+        const { xdr, networkPassphrase } = await buildStellarChallenge(stellar.address);
+        const signedXdr = await walletService.signStellarChallenge(
+          xdr,
+          networkPassphrase,
+          provider
+        );
+
+        const { accessToken, expiresIn, refreshToken } = await verifyStellarChallenge(
+          signedXdr,
+          networkPassphrase,
+          {
+            address: stellar.address,
+            chainId: stellar.chainId ? Number(stellar.chainId) : undefined,
+          }
+        );
+
+        await setAccessToken(
+          {
+            accessToken,
+            expiresAt: Date.now() + expiresIn * 1000,
+            refreshToken,
+            address: stellar.address,
+            chainId: stellar.chainId ? Number(stellar.chainId) : undefined,
+          },
+          stellar.address
+        );
+
+        const hasEvm = Boolean(get().connectedWallets.evm);
+        const linked: ('evm' | 'stellar')[] = hasEvm ? ['evm', 'stellar'] : ['stellar'];
+
+        set({
+          isAuthenticated: true,
+          isAuthenticating: false,
+          authError: null,
+          authenticatedChain: 'stellar',
+          linkedChains: linked,
+        });
+      } catch (error: any) {
+        set(state => ({
+          isAuthenticating: false,
+          isAuthenticated: state.isAuthenticated,
+          authError:
+            error?.message === 'USER_REJECTED' ? 'Signature rejected' : extractErrorMessage(error),
         }));
       }
     },
@@ -430,7 +503,12 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     },
 
     disconnect: async type => {
-      await walletService.disconnect(type);
+      set({ isDisconnecting: true, isAuthenticating: false, authError: null });
+      try {
+        await walletService.disconnect(type);
+      } finally {
+        set({ isDisconnecting: false });
+      }
 
       set(state => {
         const remainingWallets = { ...state.connectedWallets };
@@ -481,8 +559,13 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     },
 
     disconnectAll: async () => {
-      await walletService.disconnectAll();
-      await get().logoutAuth();
+      set({ isDisconnecting: true, isAuthenticating: false, authError: null });
+      try {
+        await walletService.disconnectAll();
+        await get().logoutAuth();
+      } finally {
+        set({ isDisconnecting: false });
+      }
 
       set({
         connectedWallets: {},
@@ -581,7 +664,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     },
 
     openModal: () => {
-      prewarmFingerprint();
       set({ isModalOpen: true });
     },
     closeModal: () => set({ isModalOpen: false, isAuthenticating: false }),
@@ -678,6 +760,11 @@ export const initWalletListener = async () => {
               connectionStatus: remainingStatus,
               sessionLastPingAt: remainingPings,
               session: nextRawSession,
+              // Reset auth state so the next reconnect can trigger authentication cleanly.
+              // Without this, if a sign request was in-flight when the session dropped,
+              // isAuthenticating stays true and the next connect silently skips auth.
+              isAuthenticating: false,
+              authError: null,
             };
           });
 

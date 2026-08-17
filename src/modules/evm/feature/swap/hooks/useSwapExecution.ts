@@ -9,9 +9,10 @@ import { useTransactionModalStore } from '../../../../../store/transactionModalS
 import { sendEVMTransaction } from '../../../../../utils/walletConnectUtils';
 import { StellarSequenceTracker } from '../../../../stellar/utils/StellarSequenceTracker';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
+import { usePortfolioStore } from '../../../../walletconnect/store/portfolioStore';
 import { storeSwapOrder } from '../../../service/evmTransactionStatusService';
-import { addNearIntentTransaction } from '../../../service/nearIntentTransactionService';
 import { getChainById } from '../../../utils/Chainregistry';
+import { getEVMNetworkConfig, simulateEVMTransaction } from '../../../utils/evmUtils';
 import {
   STELLAR_NETWORK_PASSPHRASE,
   prepareStellarToEvmRawTransaction,
@@ -221,14 +222,12 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           title: 'Swap Transaction Sent',
           message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
         });
-        if (hash) {
-          openModal({
-            status: 'success',
-            type: 'Swap',
-            hash,
-            isStellar: true,
-          });
-        }
+        openModal({
+          status: 'success',
+          type: 'Swap',
+          hash,
+          isStellar: true,
+        });
         if (wasTracked) {
           navigate(`/transactions?tab=recent&hash=${hash}`);
         }
@@ -298,18 +297,17 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         title: 'Swap Transaction Sent',
         message: `Swapping ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol}`,
       });
-      if (hash) {
-        openModal({
-          status: 'success',
-          type: 'Swap',
-          hash,
-          explorerUrl: fromChainConfig?.blockExplorerUrl
+      openModal({
+        status: 'success',
+        type: 'Swap',
+        hash,
+        explorerUrl:
+          fromChainConfig?.blockExplorerUrl && hash
             ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}`
             : undefined,
-          networkName: fromChainConfig?.name,
-          isStellar: false,
-        });
-      }
+        networkName: fromChainConfig?.name,
+        isStellar: false,
+      });
       if (wasTracked) {
         navigate(`/transactions?tab=recent&hash=${hash}`);
       }
@@ -321,7 +319,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       console.error('Swap execution failed:', err);
       const errMsg = parseWalletError(err);
       setBridgeErrorMsg(errMsg);
-      resetLoadingState();
       setBridgeTxStatus('error');
       openModal({
         status: 'error',
@@ -364,11 +361,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     setIsWaitingForWallet(true);
     let result;
     try {
-      // The Allbridge SDK builds the XDR using its own fresh Horizon sequence fetch,
-      // completely bypassing the StellarSequenceTracker. If the tracker has a stale
-      // or ahead value from a prior operation, signAndSubmitTransaction's correction
-      // logic would overwrite the valid Allbridge sequence with a wrong one (tx_bad_seq).
-      // Resetting the tracker here forces it to re-sync from the live Horizon state.
       if (stellarAddress) {
         StellarSequenceTracker.reset(stellarAddress);
       }
@@ -420,14 +412,12 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         title: 'Bridge Initiated',
         message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`,
       });
-      if (txHash) {
-        openModal({
-          status: 'success',
-          type: 'Bridge',
-          hash: txHash,
-          isStellar: true,
-        });
-      }
+      openModal({
+        status: 'success',
+        type: 'Bridge',
+        hash: txHash,
+        isStellar: true,
+      });
       if (wasTracked && txHash) {
         navigate(`/transactions?tab=recent&hash=${txHash}`);
       }
@@ -477,18 +467,17 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         title: 'Bridge Order Submitted',
         message: `Cross-chain swap for ${sellAmount} ${sellAssetSymbol} \u2192 ${buyAssetSymbol} submitted successfully.`,
       });
-      if (hash) {
-        openModal({
-          status: 'success',
-          type: 'Bridge',
-          hash,
-          explorerUrl: fromChainConfig?.blockExplorerUrl
+      openModal({
+        status: 'success',
+        type: 'Bridge',
+        hash,
+        explorerUrl:
+          fromChainConfig?.blockExplorerUrl && hash
             ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}`
             : undefined,
-          networkName: fromChainConfig?.name,
-          isStellar: false,
-        });
-      }
+        networkName: fromChainConfig?.name,
+        isStellar: false,
+      });
       if (wasTracked) {
         navigate(`/transactions?tab=recent&hash=${hash}`);
       }
@@ -500,7 +489,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       console.error('Fusion Plus cross-chain swap failed:', err);
       const errMsg = parseWalletError(err);
       setBridgeErrorMsg(errMsg);
-      resetLoadingState();
       setBridgeTxStatus('error');
       openModal({
         status: 'error',
@@ -619,18 +607,17 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       title: 'Bridge Initiated',
       message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol}`,
     });
-    if (transferHash) {
-      openModal({
-        status: 'success',
-        type: 'Bridge',
-        hash: transferHash,
-        explorerUrl: fromChainConfig?.blockExplorerUrl
+    openModal({
+      status: 'success',
+      type: 'Bridge',
+      hash: transferHash,
+      explorerUrl:
+        fromChainConfig?.blockExplorerUrl && transferHash
           ? `${fromChainConfig.blockExplorerUrl}/tx/${transferHash}`
           : undefined,
-        networkName: fromChainConfig?.name,
-        isStellar: false,
-      });
-    }
+      networkName: fromChainConfig?.name,
+      isStellar: false,
+    });
     if (wasTracked && transferHash) {
       navigate(`/transactions?tab=recent&hash=${transferHash}`);
     }
@@ -723,22 +710,21 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       const wasTracked = hash ? trackDydxIntent(hash, computedOutAmount) : false;
 
       if (hash) {
-        const walletAddr = isStellar(fromChainId) ? stellarAddress : evmAddress;
-        addNearIntentTransaction({
-          txHash: hash,
-          depositAddress: liveQuote.depositAddress || '',
-          depositMemo: liveQuote.depositMemo,
+        storeSwapOrder({
+          txHash: liveQuote.depositAddress,
+          walletAddress: evmAddress || stellarAddress,
+          provider: 'NEARINTENT',
+          memo: isStellarOrigin ? liveQuote.depositMemo : undefined,
+          fromChain: getChainById(fromChainId)?.symbol || String(fromChainId),
+          fromAddress: isStellarOrigin ? stellarAddress : evmAddress,
+          fromToken: sellAssetSymbol,
+          toChain: getChainById(toChainId)?.symbol || String(toChainId),
+          toAddress: isStellarDest ? stellarAddress : evmAddress,
+          toToken: buyAssetSymbol,
           amountIn: sellAmount,
-          sellSymbol: sellAssetSymbol,
-          buySymbol: buyAssetSymbol,
-          fromChainId,
-          toChainId,
-          walletAddress: walletAddr || '',
-          status: 'pending',
-          quoteHash: (liveQuote as any).quoteHash || liveQuote.depositAddress,
-          timestamp: Date.now(),
-          network: currentNetwork,
-        });
+          amountOut: computedOutAmount,
+          txType: 'Bridge',
+        }).catch(() => {});
       }
 
       handleReset();
@@ -747,18 +733,17 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         title: 'Bridge Initiated',
         message: `Transferring ${sellAmount} ${sellAssetSymbol} to ${buyAssetSymbol} via NEAR Intents`,
       });
-      if (hash) {
-        openModal({
-          status: 'success',
-          type: 'Bridge',
-          hash,
-          explorerUrl: fromChainConfig?.blockExplorerUrl
+      openModal({
+        status: 'success',
+        type: 'Bridge',
+        hash,
+        explorerUrl:
+          fromChainConfig?.blockExplorerUrl && hash
             ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}`
             : undefined,
-          networkName: fromChainConfig?.name,
-          isStellar: isStellar(fromChainId),
-        });
-      }
+        networkName: fromChainConfig?.name,
+        isStellar: isStellar(fromChainId),
+      });
       if (wasTracked && hash) {
         navigate(`/transactions?tab=recent&hash=${hash}`);
       }
@@ -770,7 +755,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       console.error('NEAR Intents swap failed:', err);
       const errMsg = parseWalletError(err);
       setBridgeErrorMsg(errMsg);
-      resetLoadingState();
       setBridgeTxStatus('error');
       openModal({
         status: 'error',
@@ -808,13 +792,57 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           setShowFusionScreen(true);
           setBridgeTxStatus('idle');
         } catch (err) {
-          console.error('Failed to fetch Fusion quote:', err);
           setBridgeErrorMsg(parseWalletError(err));
           resetLoadingState();
         } finally {
           setIsFusionLoading(false);
         }
         return;
+      }
+
+      if (!isGasless && !isStellar(fromChainId) && evmAddress) {
+        try {
+          const chainConfig = getEVMNetworkConfig(fromChainId);
+          const nativeSymbol = chainConfig.nativeCurrency.symbol;
+          const storeAssets = usePortfolioStore.getState().assets;
+          const nativeAsset = storeAssets.find(
+            a => String(a.chainId) === String(fromChainId) && a.isNative
+          );
+          const nativeBalance = parseFloat(nativeAsset?.balance?.toString() || '0');
+
+          if (nativeBalance <= 0) {
+            const errMsg = `Insufficient ${nativeSymbol} to pay gas. Please top up and try again.`;
+            setBridgeErrorMsg(errMsg);
+            setBridgeTxStatus('error');
+            showToast({
+              type: 'EVM_SWAP',
+              title: 'Insufficient Gas',
+              message: errMsg,
+              dontSave: true,
+            });
+            resetLoadingState();
+            return;
+          }
+
+          await simulateEVMTransaction(fromChainId, evmAddress, evmAddress, '0', '0x');
+        } catch (gasErr: any) {
+          const msg = gasErr?.message || '';
+          if (
+            msg.toLowerCase().includes('insufficient funds') ||
+            msg.toLowerCase().includes('insufficient')
+          ) {
+            setBridgeErrorMsg(msg);
+            setBridgeTxStatus('error');
+            showToast({
+              type: 'EVM_SWAP',
+              title: 'Insufficient Gas',
+              message: msg,
+              dontSave: true,
+            });
+            resetLoadingState();
+            return;
+          }
+        }
       }
 
       if (actionType === 'SWAP') {
@@ -859,7 +887,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           console.error('Bridge failed:', err);
           const errMsg = parseWalletError(err);
           setBridgeErrorMsg(errMsg);
-          resetLoadingState();
           setBridgeTxStatus('error');
           openModal({
             status: 'error',

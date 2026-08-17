@@ -22,6 +22,9 @@ const CryptoMarket = lazy(() => import('../modules/market/CryptoMarket'));
 const StellarTradescreen = lazy(
   () => import('../modules/stellar/components/tradescreen/StellarTradescreen')
 );
+const StellarPortfolioUI = lazy(
+  () => import('../modules/stellar/components/stellarassets/StellarPortfolioUI')
+);
 const Dashboard = lazy(() => import('../pages/Dashboard'));
 const Profile = lazy(() => import('../pages/Profile'));
 
@@ -57,8 +60,12 @@ const router = createBrowserRouter([
         ),
       },
       {
-        path: '/trading/stellar/portfolio',
-        element: <Navigate to={`${ROUTES.TRADING_STELLAR}?tab=portfolio`} replace />,
+        path: ROUTES.PORTFOLIO,
+        element: (
+          <Layout>
+            <StellarPortfolioUI />
+          </Layout>
+        ),
       },
       {
         element: <ProtectedRoute />,
@@ -119,14 +126,7 @@ const router = createBrowserRouter([
               </Layout>
             ),
           },
-          {
-            path: ROUTES.PORTFOLIO,
-            element: (
-              <Layout>
-                <Profile />
-              </Layout>
-            ),
-          },
+
           {
             path: ROUTES.MY_ASSETS,
             element: (

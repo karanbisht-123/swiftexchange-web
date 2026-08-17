@@ -26,6 +26,7 @@ export const useWalletConnect = () => {
   const tradingAuthEnabled = useWalletStore(state => state.tradingAuthEnabled);
   const setTradingAuthEnabled = useWalletStore(state => state.setTradingAuthEnabled);
   const authenticateEvm = useWalletStore(state => state.authenticateEvm);
+  const authenticateStellar = useWalletStore(state => state.authenticateStellar);
   const logoutAuth = useWalletStore(state => state.logoutAuth);
 
   const connectWallet = useWalletStore(state => state.connectWallet);
@@ -93,6 +94,7 @@ export const useWalletConnect = () => {
     tradingAuthEnabled,
     setTradingAuthEnabled,
     authenticateEvm,
+    authenticateStellar,
     logoutAuth,
 
     isAnyWalletConnected,

@@ -4,9 +4,10 @@ import { AreaSeries, ColorType, type ISeriesApi, type Time, createChart } from '
 
 interface StellarPnlChartProps {
   disposals: any[];
+  totalUnrealized?: number;
 }
 
-const StellarPnlChart: React.FC<StellarPnlChartProps> = ({ disposals }) => {
+const StellarPnlChart: React.FC<StellarPnlChartProps> = ({ disposals, totalUnrealized = 0 }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null);
@@ -15,15 +16,15 @@ const StellarPnlChart: React.FC<StellarPnlChartProps> = ({ disposals }) => {
   const [totalCumulativePnl, setTotalCumulativePnl] = useState(0);
 
   useEffect(() => {
-    if (!disposals || disposals.length === 0) {
+    if ((!disposals || disposals.length === 0) && totalUnrealized === 0) {
       setHasData(false);
       return;
     }
     setHasData(true);
 
-    // 1. Aggregate PnL by date
+    // 1. Aggregate Realized PnL by date
     const dailyPnl: Record<string, number> = {};
-    disposals.forEach(d => {
+    disposals?.forEach(d => {
       if (d.date && typeof d.pnl === 'number') {
         if (!dailyPnl[d.date]) dailyPnl[d.date] = 0;
         dailyPnl[d.date] += d.pnl;
@@ -38,7 +39,18 @@ const StellarPnlChart: React.FC<StellarPnlChartProps> = ({ disposals }) => {
       return { time: date as Time, value: cumulative };
     });
 
-    setTotalCumulativePnl(cumulative);
+    // 3. Append Current Total PnL (Realized + Unrealized)
+    const today = new Date().toISOString().split('T')[0];
+    const finalValue = cumulative + totalUnrealized;
+
+    // Only append if it's a new day or if we have no chart data yet
+    if (chartData.length === 0 || chartData[chartData.length - 1].time !== today) {
+      chartData.push({ time: today as Time, value: finalValue });
+    } else {
+      chartData[chartData.length - 1].value = finalValue;
+    }
+
+    setTotalCumulativePnl(finalValue);
 
     // Ensure we have at least one data point
     if (chartData.length === 0) {
@@ -117,7 +129,7 @@ const StellarPnlChart: React.FC<StellarPnlChartProps> = ({ disposals }) => {
             Cumulative Realized PnL
           </h3>
           <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5 font-medium">
-            Historical performance over time
+            performance over time
           </p>
         </div>
         {hasData && (

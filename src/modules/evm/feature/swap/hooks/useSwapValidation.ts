@@ -275,7 +275,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
   ]);
 
   const isLoadingExecution = useMemo(() => {
-    return ['preparing', 'signing'].includes(bridgeTxStatus);
+    return ['preparing', 'signing', 'error'].includes(bridgeTxStatus);
   }, [bridgeTxStatus]);
 
   const calculatedBuyAmount = useMemo(() => {

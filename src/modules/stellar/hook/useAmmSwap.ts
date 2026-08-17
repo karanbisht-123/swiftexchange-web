@@ -23,6 +23,7 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
   const [toAmount, setToAmount] = useState('');
   const [quote, setQuote] = useState<SwapQuote | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshingTokens, setIsRefreshingTokens] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [slippageTolerance, setSlippageTolerance] = useState(1);
   const [availableTokens, setAvailableTokens] = useState<TokenInfo[]>([]);
@@ -47,11 +48,13 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
       setError('Failed to connect to Stellar network');
     }
   }, [currentStellarConfig]);
-  useEffect(() => {
-    if (!service) return;
+  const fetchTokens = useCallback(
+    async (isRefresh = false) => {
+      if (!service) return;
 
-    const loadTokens = async () => {
-      setIsLoading(true);
+      if (isRefresh) setIsRefreshingTokens(true);
+      else if (!hasSetDefaultPairRef.current) setIsLoading(true);
+
       try {
         const { tokens: userTokens, subentryCount: count } = await service.getAssetsWithBalances(
           userAddress || ''
@@ -89,33 +92,45 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
           setToToken(targetTo);
           hasSetDefaultPairRef.current = true;
         } else {
-          if (!fromToken && userTokens.length > 0) {
-            setFromToken(targetFrom || userTokens.find(t => t.code === 'XLM') || userTokens[0]);
-          }
-
-          if (!toToken && userTokens.length > 1) {
-            if (targetTo) {
-              setToToken(targetTo);
-            } else {
-              const nonSelectedToken = userTokens.find(
-                t => t.code !== (fromToken?.code || currentPair.base || userTokens[0].code)
-              );
-              setToToken(nonSelectedToken || userTokens[1]);
+          setFromToken(prev => {
+            if (!prev) {
+              if (!fromToken && userTokens.length > 0)
+                return targetFrom || userTokens.find(t => t.code === 'XLM') || userTokens[0];
+              return prev;
             }
-          }
+            return userTokens.find(t => t.code === prev.code && t.issuer === prev.issuer) || prev;
+          });
+
+          setToToken(prev => {
+            if (!prev) {
+              if (!toToken && userTokens.length > 1) {
+                if (targetTo) return targetTo;
+                const nonSelectedToken = userTokens.find(
+                  t => t.code !== (fromToken?.code || currentPair.base || userTokens[0].code)
+                );
+                return nonSelectedToken || userTokens[1];
+              }
+              return prev;
+            }
+            return userTokens.find(t => t.code === prev.code && t.issuer === prev.issuer) || prev;
+          });
         }
 
         setError(null);
       } catch (err) {
         console.error('Failed to load tokens:', err);
-        setError('Failed to load your token balances');
+        if (isRefresh) setError('Failed to load your token balances');
       } finally {
-        setIsLoading(false);
+        if (isRefresh) setIsRefreshingTokens(false);
+        else setIsLoading(false);
       }
-    };
+    },
+    [service, userAddress]
+  );
 
-    loadTokens();
-  }, [service, userAddress]);
+  useEffect(() => {
+    fetchTokens();
+  }, [fetchTokens]);
 
   // Dynamically load home domains for selected tokens
   useEffect(() => {
@@ -214,7 +229,7 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
 
     // Instead of hardcoding 2 XLM, we use the actual calculated reserve.
     // The native balance from Stellar SDK is total balance. Spendable = total - reserve.
-    const reserve = fromToken.code === 'XLM' ? 1 + subentryCount * 0.5 : 0;
+    const reserve = fromToken.code === 'XLM' ? 1 + subentryCount * 0.5 + 0.05 : 0;
 
     if (requestedAmount > availableBalance - reserve) {
       setError(
@@ -339,6 +354,21 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
 
       try {
         const txHash = await service.executeSwapWithWalletConnect(transaction, walletProvider);
+
+        setFromToken(prev => {
+          if (!prev) return prev;
+          const newBalance = Math.max(0, parseFloat(prev.balance || '0') - parseFloat(fromAmount));
+          return { ...prev, balance: newBalance.toFixed(7) };
+        });
+
+        setToToken(prev => {
+          if (!prev) return prev;
+          const newBalance = parseFloat(prev.balance || '0') + parseFloat(toAmount);
+          return { ...prev, balance: newBalance.toFixed(7) };
+        });
+
+        setTimeout(() => fetchTokens(true), 8000);
+
         return txHash;
       } catch (err) {
         console.error('Failed to execute swap:', err);
@@ -376,5 +406,7 @@ export const useAmmSwap = ({ userAddress }: UseAmmSwapProps) => {
     executeSwapWithWalletConnect,
     reset,
     timeLeft,
+    fetchTokens,
+    isRefreshingTokens,
   };
 };

@@ -59,6 +59,8 @@ const AmmSwapUI = () => {
     reset,
     subentryCount,
     timeLeft,
+    fetchTokens,
+    isRefreshingTokens,
   } = useAmmSwap({
     userAddress: stellarAddress,
   });
@@ -224,7 +226,7 @@ const AmmSwapUI = () => {
           <button
             onClick={() => {
               const balance = parseFloat(fromToken?.balance || '0');
-              const reserve = fromToken?.code === 'XLM' ? 1 + subentryCount * 0.5 : 0;
+              const reserve = fromToken?.code === 'XLM' ? 1 + subentryCount * 0.5 + 0.05 : 0;
               const maxAmount = Math.max(0, balance - reserve);
               setFromAmount(maxAmount.toFixed(7));
             }}
@@ -315,13 +317,19 @@ const AmmSwapUI = () => {
                     fromToken.code === 'XLM'
                       ? Math.max(
                           0,
-                          parseFloat(fromToken.balance) - (1 + subentryCount * 0.5)
+                          parseFloat(fromToken.balance) - (1 + subentryCount * 0.5 + 0.05)
                         ).toString()
                       : fromToken.balance
                   )
                 : '0.0000'}{' '}
               {fromToken?.code}
             </span>
+            <button
+              onClick={() => fetchTokens(true)}
+              className="p-1 hover:bg-white/5 rounded transition-colors ml-1 text-muted hover:text-primary"
+            >
+              <RefreshCw size={10} className={isRefreshingTokens ? 'animate-spin' : ''} />
+            </button>
           </div>
         </div>
       </div>
@@ -417,13 +425,19 @@ const AmmSwapUI = () => {
                     toToken.code === 'XLM'
                       ? Math.max(
                           0,
-                          parseFloat(toToken.balance) - (1 + subentryCount * 0.5)
+                          parseFloat(toToken.balance) - (1 + subentryCount * 0.5 + 0.05)
                         ).toString()
                       : toToken.balance
                   )
                 : '0.0000'}{' '}
               {toToken?.code}
             </span>
+            <button
+              onClick={() => fetchTokens(true)}
+              className="p-1 hover:bg-white/5 rounded transition-colors ml-1 text-muted hover:text-primary"
+            >
+              <RefreshCw size={10} className={isRefreshingTokens ? 'animate-spin' : ''} />
+            </button>
           </div>
         </div>
       </div>

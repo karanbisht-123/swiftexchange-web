@@ -114,7 +114,12 @@ export const ExchangeTopBar: React.FC = () => {
             onClick={() => setIsModalOpen(true)}
             className="flex items-center gap-3 hover:bg-hover px-2 py-1.5 rounded-lg transition-colors -ml-2"
           >
-            <CoinIcon symbol={symbol} size={32} />
+            <div className="relative shrink-0 flex flex-col items-center">
+              <CoinIcon symbol={symbol} size={32} />
+              <span className="absolute -bottom-2.5 text-yellow-950 bg-gradient-to-r from-yellow-400 to-amber-500 text-[9px] leading-tight px-1 py-[1px] rounded-[3px] font-bold uppercase tracking-widest shadow-sm z-10 pointer-events-none border border-yellow-200/50">
+                BETA
+              </span>
+            </div>
 
             <div className="flex flex-col items-start gap-1.5">
               <div className="flex items-center gap-1.5 leading-none">

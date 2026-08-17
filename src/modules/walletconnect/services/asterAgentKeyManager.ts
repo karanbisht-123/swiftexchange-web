@@ -211,45 +211,32 @@ async function signTypedData(
     // ignore
   }
 
-  const signPromise = (async () => {
-    try {
-      return await provider.request({
-        method: 'eth_signTypedData_v4',
-        params: [evmAddress, payload],
-      });
-    } catch (err: any) {
-      const isUnknownMethod =
-        err?.code === 4200 ||
-        err?.code === -32601 ||
-        /unknown method|not supported/i.test(err?.message ?? '');
-      if (!isUnknownMethod) throw err;
+  try {
+    return await provider.request({
+      method: 'eth_signTypedData_v4',
+      params: [evmAddress, payload],
+    });
+  } catch (err: any) {
+    if (err?.message === 'USER_REJECTED') {
+      throw new Error('Signature rejected by user');
+    }
+    const isUnknownMethod =
+      err?.code === 4200 ||
+      err?.code === -32601 ||
+      /unknown method|not supported/i.test(err?.message ?? '');
+    if (!isUnknownMethod) throw err;
 
+    try {
       return await provider.request({
         method: 'eth_signTypedData',
         params: [evmAddress, payload],
       });
+    } catch (fallbackErr: any) {
+      if (fallbackErr?.message === 'USER_REJECTED') {
+        throw new Error('Signature rejected by user');
+      }
+      throw fallbackErr;
     }
-  })();
-
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(
-      () => reject(new Error('Signature request timed out. Please check your wallet.')),
-      60000
-    )
-  );
-
-  try {
-    return (await Promise.race([signPromise, timeoutPromise])) as string;
-  } catch (error: any) {
-    if (
-      error?.code === 4001 ||
-      error?.code === 'ACTION_REJECTED' ||
-      error?.message?.includes('reject') ||
-      error?.message?.includes('denied')
-    ) {
-      throw new Error('Signature rejected by user');
-    }
-    throw error;
   }
 }
 

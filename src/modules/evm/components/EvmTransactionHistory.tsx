@@ -9,7 +9,6 @@ import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-import { pollNearIntentStatus } from '../feature/swap/services/oneClickApi';
 import { useEvmTransaction } from '../hook/useEvmTransaction';
 import {
   type LocalTransactionWithStatus,
@@ -17,11 +16,6 @@ import {
 } from '../hook/useLocalTransactions';
 import { type TransactionItem, getEvmTransactionHistory } from '../service/EvmTransactionService';
 import { type SwapOrder, updateSwapOrderStatus } from '../service/evmTransactionStatusService';
-import {
-  type NearIntentTransaction,
-  getNearIntentTransactions,
-  updateNearIntentTxStatus,
-} from '../service/nearIntentTransactionService';
 import {
   findChain,
   getAssetByAddress,
@@ -197,9 +191,6 @@ const EvmTransactionHistory: React.FC = () => {
   const [depositModalOpen, setDepositModalOpen] = useState(false);
   const [depositModalAsset, setDepositModalAsset] = useState<any>(null);
   const [depositModalAmount, setDepositModalAmount] = useState<string>('');
-
-  // NEAR Intents transactions stored locally (not tracked by backend)
-  const [nearIntentTxs, setNearIntentTxs] = useState<NearIntentTransaction[]>([]);
 
   const handleOpenDepositModal = (tx: any, chainId: string | number, amount: string) => {
     let destChainId = chainId;
@@ -466,64 +457,6 @@ const EvmTransactionHistory: React.FC = () => {
   const activeAddresses = useMemo(() => {
     return [evmWallet?.address, stellarWallet?.address].filter(Boolean) as string[];
   }, [evmWallet?.address, stellarWallet?.address]);
-
-  // Load NEAR Intent transactions from localStorage and poll status every 6 seconds
-  useEffect(() => {
-    const load = () => {
-      const txs = getNearIntentTransactions(activeAddresses, currentNetwork);
-      setNearIntentTxs(txs);
-    };
-    load();
-  }, [activeAddresses, currentNetwork]);
-
-  useEffect(() => {
-    const pollPending = async () => {
-      const pending = nearIntentTxs.filter(tx => tx.status === 'pending');
-      if (pending.length === 0) return;
-
-      for (const tx of pending) {
-        const quoteHash = tx.quoteHash || tx.depositAddress;
-        if (!quoteHash) continue;
-        try {
-          const statusData = await pollNearIntentStatus(
-            quoteHash,
-            tx.depositAddress,
-            tx.depositMemo
-          );
-          const state: string = (statusData?.status || statusData?.state || '').toLowerCase();
-
-          let newStatus: NearIntentTransaction['status'] | null = null;
-          if (state === 'completed' || state === 'success' || state === 'filled') {
-            newStatus = 'completed';
-          } else if (state === 'failed' || state === 'cancelled' || state === 'expired') {
-            newStatus = 'failed';
-          } else if (state === 'refunded') {
-            newStatus = 'refunded';
-          }
-
-          if (newStatus) {
-            const amountOut = statusData?.amountOut || statusData?.amount_out;
-            updateNearIntentTxStatus(tx.txHash, newStatus, amountOut);
-            setNearIntentTxs(prev =>
-              prev.map(t =>
-                t.txHash.toLowerCase() === tx.txHash.toLowerCase()
-                  ? { ...t, status: newStatus!, ...(amountOut ? { amountOut } : {}) }
-                  : t
-              )
-            );
-          }
-        } catch {
-          // Polling errors are non-fatal — silently ignore and retry next cycle
-        }
-      }
-    };
-
-    if (nearIntentTxs.some(tx => tx.status === 'pending')) {
-      pollPending();
-      const interval = setInterval(pollPending, 6000);
-      return () => clearInterval(interval);
-    }
-  }, [nearIntentTxs]);
 
   useEffect(() => {
     if (activeAddresses.length > 0) {
@@ -962,46 +895,6 @@ const EvmTransactionHistory: React.FC = () => {
         mergedMap.set(order.txHash.toLowerCase(), normalized);
       });
 
-      nearIntentTxs.forEach(niTx => {
-        if (mergedMap.has(niTx.txHash.toLowerCase())) return;
-
-        const resolvedStatus: 'pending' | 'success' | 'failed' =
-          niTx.status === 'completed'
-            ? 'success'
-            : niTx.status === 'failed' || niTx.status === 'refunded'
-              ? 'failed'
-              : 'pending';
-
-        const normalized: LocalTransactionWithStatus & {
-          provider?: string;
-          isBackendOrder?: boolean;
-          fromChainSymbol?: string;
-          toChainSymbol?: string;
-          amountIn?: string;
-          amountOut?: string;
-          fromToken?: string;
-          toToken?: string;
-        } = {
-          hash: niTx.txHash,
-          chainId: niTx.fromChainId,
-          type: 'bridge',
-          timestamp: niTx.timestamp,
-          description: `Bridge ${niTx.amountIn} ${niTx.sellSymbol} → ${niTx.buySymbol}`,
-          status: resolvedStatus,
-          from: niTx.walletAddress,
-          network: currentNetwork,
-          provider: 'NEAR_INTENTS',
-          isBackendOrder: false,
-          fromChainSymbol: String(niTx.fromChainId),
-          toChainSymbol: String(niTx.toChainId),
-          amountIn: niTx.amountIn,
-          amountOut: niTx.amountOut,
-          fromToken: niTx.sellSymbol,
-          toToken: niTx.buySymbol,
-        };
-        mergedMap.set(niTx.txHash.toLowerCase(), normalized);
-      });
-
       return Array.from(mergedMap.values()).sort((a, b) => {
         // Pending transactions always on top
         const aPending = a.status === 'pending' ? 1 : 0;
@@ -1085,6 +978,7 @@ const EvmTransactionHistory: React.FC = () => {
       const txProvider = ((tx as any).provider || '').toUpperCase();
       const isFusion = txProvider === 'ONEINCH_FUSION' || txProvider === 'ONEINCH_FUSION_PLUS';
       const isAllbridge = txProvider === 'ALLBRIDGE' || txProvider === 'SRBTODYDX';
+      const isNearIntent = txProvider === 'NEARINTENT';
 
       const rawLabel =
         tx.description || `${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)} Transaction`;
@@ -1359,18 +1253,50 @@ const EvmTransactionHistory: React.FC = () => {
                   <span className="text-sm text-muted font-mono opacity-70">
                     {formatRecentTime(tx.timestamp)}
                   </span>
+                  {tx.status === 'pending' && (
+                    <button
+                      onClick={async e => {
+                        e.stopPropagation();
+                        if ((tx as any).isBackendOrder) {
+                          try {
+                            await getTransactionStatus({
+                              walletType: (tx as any).fromChainSymbol || 'ETH',
+                              txHash: tx.hash,
+                              provider:
+                                txProvider === 'SRBTODYDX' ? 'ALLBRIDGE' : txProvider || 'UNKNOWN',
+                            });
+                          } catch (err) {
+                            console.error('Failed to manually refresh backend status:', err);
+                          }
+                        }
+                        refreshOrders(activeAddresses, 1, 10, false);
+                      }}
+                      className="p-0.5 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center"
+                      title="Refresh Status"
+                    >
+                      <RefreshCw size={12} className={ordersLoading ? 'animate-spin' : ''} />
+                    </button>
+                  )}
                   {!isFusion && (
                     <a
                       href={
-                        isAllbridge
-                          ? `https://core.allbridge.io/explorer?search=${tx.hash}`
-                          : getExplorerUrl(tx.chainId, 'tx', tx.hash)
+                        isNearIntent
+                          ? `https://explorer.near-intents.org/transactions/${tx.hash}`
+                          : isAllbridge
+                            ? `https://core.allbridge.io/explorer?search=${tx.hash}`
+                            : getExplorerUrl(tx.chainId, 'tx', tx.hash)
                       }
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={e => e.stopPropagation()}
                       className="p-0.5 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center"
-                      title={isAllbridge ? 'View on Allbridge Explorer' : 'View on Explorer'}
+                      title={
+                        isNearIntent
+                          ? 'View on NEAR Intents Explorer'
+                          : isAllbridge
+                            ? 'View on Allbridge Explorer'
+                            : 'View on Explorer'
+                      }
                     >
                       <ExternalLink size={12} />
                     </a>

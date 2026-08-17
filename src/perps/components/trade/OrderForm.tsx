@@ -1,6 +1,7 @@
 import { ChevronDown, Plus } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 
+import InfoBanner from '../../../components/common/InfoBanner';
 import { useAccountStore } from '../../core/stores/accountStore';
 import { useMarketStore } from '../../core/stores/marketStore';
 import {
@@ -183,7 +184,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   );
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-3 py-0 space-y-2.5 scrollbar-thin">
+    <div className="flex-1 min-h-0 overflow-y-auto p-3 py-0 space-y-2.5 scrollbar-thin ">
       <OrderTypeSelector activeType={store.orderType} onChange={store.setOrderType} />
 
       <div className="flex justify-between items-center text-[12px] text-secondary pt-0.5">
@@ -618,7 +619,12 @@ export const OrderForm: React.FC<OrderFormProps> = ({
           </div>
         )}
       </div>
-
+      <InfoBanner
+        variant="warning"
+        label="Beta:"
+        message={"This feature is currently in Beta. We're actively testing and improving it."}
+        margin="mx-0 mt-0 mb-2"
+      />
       <AssetModeModal
         isOpen={isAssetModeModalOpen}
         onClose={() => setIsAssetModeModalOpen(false)}

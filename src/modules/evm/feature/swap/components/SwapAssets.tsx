@@ -1,5 +1,6 @@
-import { ArrowUpDown, ChevronDown, RefreshCw, Zap } from 'lucide-react';
+import { ArrowRight, ArrowUpDown, ChevronDown, RefreshCw, Zap } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { ethers } from 'ethers';
 
@@ -54,6 +55,7 @@ interface SwapAssetsProps {
 }
 
 const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
+  const navigate = useNavigate();
   const { connectedWallets, getProvider } = useWalletConnect();
   const { showToast } = useNotificationStore();
 
@@ -554,7 +556,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           const { tokens: balances, subentryCount } = await ammService.getAssetsWithBalances(
             stellarAddress || ''
           );
-          const reserve = 1 + subentryCount * 0.5;
+          const reserve = 1 + subentryCount * 0.5 + 0.05;
           const mapped = balances.map((b: any) => {
             let balanceToUse = b.balance;
             if (b.code === 'XLM') {
@@ -895,7 +897,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         if (stellarAddress && ammService) {
           const { tokens: balances, subentryCount } =
             await ammService.getAccountData(stellarAddress);
-          const reserve = 1 + subentryCount * 0.5;
+          const reserve = 1 + subentryCount * 0.5 + 0.05;
           const mapped = balances.map((b: any) => {
             const metadata = getGlobalAssetMetadata(b.code);
             let balanceToUse = b.balance;
@@ -1029,24 +1031,58 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           }}
           isApprovalRequired={executionApprovalRequired}
           currentStep={executionCurrentStep}
+          status={bridgeTxStatus === 'error' ? 'error' : 'pending'}
+          errorMsg={bridgeErrorMsg}
         />
       ) : (
         <div className="mx-auto lg:px-2 sm:px-0 w-full max-w-full overflow-hidden space-y-4">
           {isStellar(fromChainId) && (
-            <StellarActivationBanner
-              onSwitchToEVM={
-                isConnected
-                  ? () => {
-                      setFromChainId(137);
-                      setToChainId(137);
-                      setSellAssetSymbol('USDT');
-                      setBuyAssetSymbol('USDC');
-                      setSellAssetAddress('');
-                      setBuyAssetAddress('');
-                    }
-                  : undefined
-              }
-            />
+            <div className="flex flex-col gap-4">
+              <StellarActivationBanner
+                onSwitchToEVM={
+                  isConnected
+                    ? () => {
+                        setFromChainId(137);
+                        setToChainId(137);
+                        setSellAssetSymbol('USDT');
+                        setBuyAssetSymbol('USDC');
+                        setSellAssetAddress('');
+                        setBuyAssetAddress('');
+                      }
+                    : undefined
+                }
+              />
+              <div className="relative overflow-hidden rounded-[16px] border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-sm flex flex-col justify-center p-4 sm:px-5 sm:py-4 w-full min-h-[110px] group">
+                <div className="absolute inset-0 z-0 pointer-events-none">
+                  <img
+                    src="/38823-560x240.jpg"
+                    alt="Stellar Portfolio Background"
+                    className="absolute right-0 top-0 bottom-0 h-full w-[150%] sm:w-[90%] object-cover object-right sm:object-right opacity-90 transition-transform duration-1000 group-hover:scale-105"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-r from-[var(--color-bg-secondary)] via-[var(--color-bg-secondary)]/90 to-transparent" />
+                </div>
+
+                <div className="relative z-10 flex flex-col max-w-[240px] sm:max-w-[320px]">
+                  <h3 className="text-base sm:text-base font-black text-[var(--color-text-primary)] tracking-tight leading-tight">
+                    Track Your{' '}
+                    <span className="text-[var(--color-brand-accent)]">Stellar Portfolio</span>
+                  </h3>
+                  <p className="text-[10px] sm:text-[11px] text-[var(--color-text-secondary)] mt-1 leading-snug font-medium">
+                    Real-time PnL, performance insights, and net worth across all your wallets.
+                  </p>
+                  <button
+                    onClick={() => navigate('/stellar/portfolio')}
+                    className="mt-3 w-fit flex items-center gap-1.5 px-4 py-1.5 sm:py-2 bg-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary-hover)] text-[var(--color-text-inverse)] font-bold text-[11px] sm:text-xs rounded-full transition-all active:scale-95 shadow-sm"
+                  >
+                    Explore PnL{' '}
+                    <ArrowRight
+                      size={13}
+                      className="group-hover:translate-x-1 transition-transform"
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
           {/* Pay Card */}
           <div className="bg-tertiary rounded-2xl p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50 w-full max-w-full">
@@ -1464,9 +1500,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                           Network Fee
                         </span>
                         {isGasless && showFusionScreen ? (
-                          <span className="text-[11px] font-black text-green-500 line-through opacity-60">
-                            ~0.0021 {fromChainConfig?.nativeCurrency.symbol}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            {swapQuote?.networkFee && swapQuote.networkFee > 0 && (
+                              <span className="text-[11px] font-black text-muted line-through opacity-60">
+                                ~{swapQuote.networkFee.toFixed(6)}{' '}
+                                {fromChainConfig?.nativeCurrency.symbol}
+                              </span>
+                            )}
+                            <span className="text-[11px] font-black text-green-500">Free</span>
+                          </div>
                         ) : isStellar(fromChainId) ? (
                           <span className="text-[11px] font-black text-primary">~0.00001 XLM</span>
                         ) : (

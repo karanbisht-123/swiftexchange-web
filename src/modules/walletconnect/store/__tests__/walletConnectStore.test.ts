@@ -4,11 +4,6 @@ import { useWalletStore } from '../walletConnectStore';
 
 // Removed deviceId mock
 
-vi.mock('../../../../utils/fingerprint', () => ({
-  prewarmFingerprint: vi.fn(),
-  getFingerprint: vi.fn().mockResolvedValue('mocked-fingerprint'),
-}));
-
 vi.mock('../../services/walletService', () => ({
   walletService: {
     connectChainWallet: vi.fn().mockResolvedValue({
@@ -17,6 +12,7 @@ vi.mock('../../services/walletService', () => ({
     }),
     getProvider: vi.fn().mockReturnValue({ session: {} }),
     signSiweMessage: vi.fn().mockResolvedValue('mock-signature'),
+    signStellarChallenge: vi.fn().mockResolvedValue('mock-stellar-signature'),
   },
 }));
 
@@ -29,6 +25,15 @@ vi.mock('../../services/Siweauthservice', () => ({
   }),
   restoreAuthSession: vi.fn().mockResolvedValue(null),
   setAccessToken: vi.fn(),
+  buildStellarChallenge: vi
+    .fn()
+    .mockResolvedValue({ xdr: 'mock-xdr', networkPassphrase: 'mock-passphrase' }),
+  verifyStellarChallenge: vi.fn().mockResolvedValue({
+    accessToken: 'mock-stellar-access',
+    expiresIn: 3600,
+    refreshToken: 'mock-stellar-refresh',
+  }),
+  getCurrentTokenInfo: vi.fn().mockReturnValue(null),
 }));
 
 describe('walletConnectStore', () => {
@@ -43,6 +48,9 @@ describe('walletConnectStore', () => {
         },
       },
       isModalOpen: false,
+      isAuthenticated: false,
+      authenticatedChain: null,
+      linkedChains: [],
     });
     vi.clearAllMocks();
   });
@@ -58,16 +66,52 @@ describe('walletConnectStore', () => {
       expect.objectContaining({
         address: '0x123',
         chainId: 1,
-        asLink: false,
-        fingerprint: 'mocked-fingerprint',
       })
     );
   });
 
-  it('calls prewarmFingerprint when openModal is called', async () => {
-    const { prewarmFingerprint } = await import('../../../../utils/fingerprint');
+  it('opens modal correctly', () => {
     useWalletStore.getState().openModal();
-    expect(prewarmFingerprint).toHaveBeenCalled();
     expect(useWalletStore.getState().isModalOpen).toBe(true);
+  });
+
+  it('authenticates Stellar and completes the verification flow', async () => {
+    const { verifyStellarChallenge, buildStellarChallenge } =
+      await import('../../services/Siweauthservice');
+    const { walletService } = await import('../../services/walletService');
+
+    // Add stellar wallet to state
+    useWalletStore.setState({
+      connectedWallets: {
+        stellar: {
+          type: 'stellar',
+          walletId: 'freighter',
+          address: 'GCMOCKADDRESS',
+          chainId: 'testnet',
+        },
+      },
+    });
+
+    await useWalletStore.getState().authenticateStellar();
+
+    expect(buildStellarChallenge).toHaveBeenCalledWith('GCMOCKADDRESS');
+    expect(walletService.signStellarChallenge).toHaveBeenCalledWith(
+      'mock-xdr',
+      'mock-passphrase',
+      expect.anything()
+    );
+    expect(verifyStellarChallenge).toHaveBeenCalledWith(
+      'mock-stellar-signature',
+      'mock-passphrase',
+      expect.objectContaining({
+        address: 'GCMOCKADDRESS',
+        chainId: NaN,
+      })
+    );
+
+    const state = useWalletStore.getState();
+    expect(state.isAuthenticated).toBe(true);
+    expect(state.authenticatedChain).toBe('stellar');
+    expect(state.linkedChains).toEqual(['stellar']);
   });
 });

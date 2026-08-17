@@ -22,6 +22,7 @@ import {
   getStellarConfig,
 } from '../config/chains';
 import { WALLET_METADATA_MAP } from '../constants/Wallet';
+import { extractErrorMessage, isUserRejection } from '../utils/walletErrorHandler';
 import {
   type ApiTradingKey,
   generateApiTradingKey as _generateApiTradingKey,
@@ -109,39 +110,56 @@ async function signDydxMessage(evmAddress: string, provider: unknown): Promise<s
     message: { action: 'dYdX Chain Onboarding' },
   };
 
-  const isWalletConnect = !!(provider as any)?.session;
-  const dataToSign = isWalletConnect ? typedData : JSON.stringify(typedData);
+  const lowerAddr = evmAddress.toLowerCase();
+  const checksumAddr = getAddress(evmAddress);
+  const dataToSignStr = JSON.stringify(typedData);
 
-  console.log(dataToSign, '-----', evmAddress, '----address');
-  try {
-    const token = localStorage.getItem('device_token');
-    if (token) {
-      sendCustomNotification(token, {
-        title: 'Signature Request',
-        body: 'Please open your wallet to sign the dYdX onboarding message.',
-      }).catch(err => {
-        console.error(err);
-      });
-    }
-    const signaturePromise = (provider as any).request({
-      method: 'eth_signTypedData_v4',
-      params: [evmAddress, dataToSign],
+  const token = localStorage.getItem('device_token');
+  if (token) {
+    sendCustomNotification(token, {
+      title: 'Signature Request',
+      body: 'Please open your wallet to sign the dYdX onboarding message.',
+    }).catch(err => {
+      console.error(err);
     });
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), CONNECTION_TIMEOUT_MS)
-    );
-
-    return (await Promise.race([signaturePromise, timeoutPromise])) as string;
-  } catch (error: any) {
-    if (
-      error.code === 4001 ||
-      error.code === 'ACTION_REJECTED' ||
-      error.message === 'SIGNATURE_TIMEOUT'
-    ) {
-      throw new Error('USER_REJECTED');
-    }
-    throw new Error('Wallet does not support eth_signTypedData_v4');
   }
+
+  if (provider && typeof (provider as any).request === 'function') {
+    const trySign = async (addr: string, data: any) => {
+      console.log(`[signDydxMessage] Trying eth_signTypedData_v4 with address ${addr}`);
+      return await (provider as any).request({
+        method: 'eth_signTypedData_v4',
+        params: [addr, data],
+      });
+    };
+
+    try {
+      // First try: stringified JSON with lowercase address (WalletConnect standard)
+      return (await trySign(lowerAddr, dataToSignStr)) as string;
+    } catch (e1: any) {
+      if (e1?.message === 'USER_REJECTED') throw e1;
+      try {
+        // Second try: stringified JSON with checksum address
+        return (await trySign(checksumAddr, dataToSignStr)) as string;
+      } catch (e2: any) {
+        if (e2?.message === 'USER_REJECTED') throw e2;
+        try {
+          // Third try: raw object with lowercase address
+          return (await trySign(lowerAddr, typedData)) as string;
+        } catch (e3: any) {
+          if (e3?.message === 'USER_REJECTED') throw e3;
+          try {
+            // Fourth try: raw object with checksum address
+            return (await trySign(checksumAddr, typedData)) as string;
+          } catch (e4: any) {
+            throw new Error(e4?.message || 'Wallet does not support eth_signTypedData_v4');
+          }
+        }
+      }
+    }
+  }
+
+  throw new Error('Wallet provider is missing or invalid.');
 }
 
 async function deriveDydxAddress(evmAddress: string, provider: unknown): Promise<DydxDerivation> {
@@ -166,13 +184,40 @@ class WalletService {
   private registeredProviders = new Set<any>();
   private lastPingAt = new Map<WalletType, number>();
   private disconnecting = new Set<WalletType>();
+  private isSignRequestInFlight = new Map<WalletType, boolean>();
 
-  // Cached CompositeClient — one per network, invalidated on network switch
   private _compositeClient: CompositeClient | null = null;
   private _compositeClientNetwork: NetworkType | null = null;
 
   constructor() {
     this.loadNetwork();
+    this.setupVisibilityHandler();
+  }
+
+  private setupVisibilityHandler(): void {
+    if (typeof document === 'undefined') return;
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      const seen = new Set<any>();
+      for (const provider of this.providers.values()) {
+        if (!provider || seen.has(provider)) continue;
+        seen.add(provider);
+        if (!provider.session) continue;
+
+        try {
+          const relayer = provider.client?.core?.relayer;
+          if (relayer && typeof relayer.transportOpen === 'function') {
+            console.debug('[WalletService] Tab visible — reopening WC relay transport');
+            relayer.transportOpen().catch((err: any) => {
+              console.warn('[WalletService] Relay transportOpen error:', err);
+            });
+          }
+        } catch (err) {
+          console.warn('[WalletService] visibilitychange relay reopen error:', err);
+        }
+      }
+    });
   }
 
   private loadNetwork(): void {
@@ -219,20 +264,33 @@ class WalletService {
   }
 
   private async getOrCreateProvider(key: string): Promise<any> {
-    const existing = this.providers.get(key);
-    if (existing?.session) {
-      const expiry = existing.session?.expiry ?? 0;
+    const debugProviderId = crypto.randomUUID();
+    console.log('[WC] PROVIDER INIT', { key, providerInstanceId: debugProviderId });
 
-      console.log(expiry, '----------- session expriy hapen ');
-      const isExpired = Date.now() / 1000 > expiry;
-      if (!isExpired) return existing;
-      console.warn(`[WalletService] Provider '${key}' has expired session, recreating`);
-      try {
-        await existing.disconnect();
-      } catch (err) {
-        console.error('Disconnect error:', err);
+    const existing = this.providers.get(key);
+    if (existing && (existing as any).__providerKey === key) {
+      if (existing.session) {
+        const expiry = existing.session?.expiry ?? 0;
+        const isExpired = Date.now() / 1000 > expiry;
+        if (isExpired) {
+          console.warn(
+            `[WalletService] Provider '${key}' session is expired — evicting stale provider from cache`
+          );
+          try {
+            existing.removeAllListeners?.();
+            await existing.disconnect();
+          } catch (err) {
+            console.error('[WalletService] Error disconnecting expired provider:', err);
+          }
+          for (const [k, p] of this.providers.entries()) {
+            if (p === existing) this.providers.delete(k);
+          }
+        } else {
+          return existing;
+        }
+      } else {
+        return existing;
       }
-      this.providers.delete(key);
     }
 
     const ProviderClass = await loadUniversalProvider();
@@ -260,6 +318,11 @@ class WalletService {
 
     this.wrapProviderRequests(provider);
 
+    console.log('[WC] provider created', debugProviderId);
+    // Attach debug id and original key for later checks
+    (provider as any).__debugProviderId = debugProviderId;
+    (provider as any).__providerKey = key;
+
     this.providers.set(key, provider);
     return provider;
   }
@@ -273,53 +336,82 @@ class WalletService {
       if (!target || typeof target.request !== 'function' || target.request.__isWrapped) return;
       const originalRequest = target.request;
 
-      target.request = function (this: any, ...args: any[]) {
+      target.request = async function (this: any, ...args: any[]) {
         const method = args[0]?.method;
         const SIGNING_METHODS = [
           'eth_sendTransaction',
           'eth_signTypedData_v4',
+          'eth_signTypedData',
           'personal_sign',
           'cosmos_signDirect',
           'cosmos_signAmino',
-          'stellar_signTransaction',
+          'stellar_signXDR',
           'stellar_signAndSubmitXDR',
         ];
 
         if (SIGNING_METHODS.includes(method)) {
+          let signingType: WalletType = 'evm';
+          if (method.startsWith('cosmos_')) signingType = 'cosmos';
+          else if (method.startsWith('stellar_')) signingType = 'stellar';
+
+          if (serviceInstance.isSignRequestInFlight.get(signingType)) {
+            const error = new Error(
+              'A signing request is already in progress. Please wait or check your wallet.'
+            ) as any;
+            error.code = -32002;
+            throw error;
+          }
+          serviceInstance.isSignRequestInFlight.set(signingType, true);
+
           try {
-            const session = provider.session;
-            const storedSession = Array.from(serviceInstance.sessions.values()).find(
-              s => s.peerRedirect
-            );
-            const redirect = session?.peer?.metadata?.redirect || storedSession?.peerRedirect;
-            const isAndroid = /Android/i.test(navigator.userAgent);
-            const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-            const isInAppBrowser =
-              (typeof window !== 'undefined' && !!(window as any).ethereum) ||
-              /Trust|MetaMask|Keplr|Freighter|LOBSTR/i.test(navigator.userAgent);
+            try {
+              const session = provider.session;
+              const storedSession = Array.from(serviceInstance.sessions.values()).find(
+                s => s.peerRedirect
+              );
+              const redirect = session?.peer?.metadata?.redirect || storedSession?.peerRedirect;
+              const isAndroid = /Android/i.test(navigator.userAgent);
+              const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+              const isInAppBrowser =
+                (typeof window !== 'undefined' && !!(window as any).ethereum) ||
+                /Trust|MetaMask|Keplr|Freighter|LOBSTR/i.test(navigator.userAgent);
 
-            if (redirect && !isInAppBrowser && (isAndroid || isIOS)) {
-              const href = isAndroid
-                ? redirect.native || redirect.universal
-                : redirect.universal || redirect.native;
+              if (redirect && !isInAppBrowser && (isAndroid || isIOS)) {
+                const href = isAndroid
+                  ? redirect.native || redirect.universal
+                  : redirect.universal || redirect.native;
 
-              if (href) {
-                console.log('[WalletService] Opening wallet for signing', method, '::', href);
-                // IMPORTANT: Use window.open (new tab) instead of window.location.href.
-                // Navigating the current page away kills the pending signature Promise
-                // and the response from the wallet relay can never be received.
-                // Opening a new tab/window keeps this page alive so the WalletConnect
-                // relay can deliver the signed response back.
-                try {
-                  window.open(href, '_blank', 'noopener');
-                } catch {
-                  // Fallback for environments that block window.open
-                  window.location.href = href;
+                if (href) {
+                  console.log('[WalletService] Opening wallet for signing', method, '::', href);
+                  try {
+                    window.open(href, '_blank', 'noopener');
+                  } catch {
+                    window.location.href = href;
+                  }
                 }
               }
+            } catch (e) {
+              console.error('[WalletService] Auto-redirect error:', e);
             }
-          } catch (e) {
-            console.error('[WalletService] Auto-redirect error:', e);
+
+            const timeoutPromise = new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), 120_000)
+            );
+
+            const result = await Promise.race([originalRequest.apply(this, args), timeoutPromise]);
+            return result;
+          } catch (error: any) {
+            if (isUserRejection(error)) {
+              const rejectError = new Error('USER_REJECTED') as any;
+              rejectError.code = 4001;
+              throw rejectError;
+            }
+            const cleanMsg = extractErrorMessage(error);
+            const newErr = new Error(cleanMsg) as any;
+            newErr.code = error?.code || -32603;
+            throw newErr;
+          } finally {
+            serviceInstance.isSignRequestInFlight.set(signingType, false);
           }
         }
 
@@ -337,6 +429,10 @@ class WalletService {
   // ---------------------------------------------------------------------------
   // Unified (multichain) connect
   // ---------------------------------------------------------------------------
+
+  clearSignRequests(): void {
+    this.isSignRequestInFlight.clear();
+  }
 
   async connectUnified(walletId: string): Promise<UnifiedConnectionResult> {
     this.emitState('evm', 'connecting');
@@ -365,11 +461,29 @@ class WalletService {
       });
       this.modals.set('unified', modal);
 
+      console.log('[WC] CONNECT START', {
+        providerInstanceId: (provider as any).__debugProviderId,
+      });
+
       const session = await new Promise<any>((resolve, reject) => {
         const timeout = setTimeout(() => {
           modal!.closeModal();
           reject(new Error('Connection timeout'));
         }, CONNECTION_TIMEOUT_MS);
+
+        let modalOpened = false;
+        const unsubscribe = modal!.subscribeModal(state => {
+          if (state.open) {
+            modalOpened = true;
+          } else if (modalOpened && !state.open) {
+            clearTimeout(timeout);
+            unsubscribe();
+
+            // Abort the internal provider connection attempt
+            provider.abortPairing?.();
+            reject(new Error('User closed the modal'));
+          }
+        });
 
         provider.on('display_uri', (uri: string) => {
           this.openMobileDeepLink(walletId, uri);
@@ -389,14 +503,22 @@ class WalletService {
           .connect({ ...namespaces })
           .then((s: any) => {
             clearTimeout(timeout);
+            unsubscribe();
             modal!.closeModal();
             resolve(s);
           })
           .catch((err: any) => {
             clearTimeout(timeout);
+            unsubscribe();
             modal!.closeModal();
             reject(err);
           });
+      });
+
+      console.log('[WC] CONNECT SUCCESS', {
+        providerInstanceId: (provider as any).__debugProviderId,
+        topic: session?.topic,
+        namespaces: session?.namespaces,
       });
 
       const result: UnifiedConnectionResult = {};
@@ -615,113 +737,103 @@ class WalletService {
       console.debug('[WalletService] Auth notification skipped:', e);
     }
 
-    try {
-      const hexMsg = message.startsWith('0x') ? message : hexlify(toUtf8Bytes(message));
-      const lowerAddr = evmAddress.toLowerCase();
-      const checksumAddr = getAddress(evmAddress);
+    const hexMsg = message.startsWith('0x') ? message : hexlify(toUtf8Bytes(message));
+    const lowerAddr = evmAddress.toLowerCase();
+    const checksumAddr = getAddress(evmAddress);
 
-      const signPromise = (async () => {
-        if (provider && typeof (provider as any).request === 'function') {
+    console.log('[SIWE] SIGN START', {
+      providerInstanceId: (provider as any)?.__debugProviderId,
+      topic: (provider as any)?.session?.topic,
+      address: evmAddress,
+      message,
+      client: (provider as any)?.client,
+    });
+
+    if (provider && typeof (provider as any).request === 'function') {
+      try {
+        const signature = await (provider as any).request({
+          method: 'personal_sign',
+          params: [hexMsg, lowerAddr],
+        });
+        console.log('[SIWE] SIGN SUCCESS', {
+          providerInstanceId: (provider as any)?.__debugProviderId,
+          topic: (provider as any)?.session?.topic,
+          signature,
+        });
+        return signature;
+      } catch (err1: any) {
+        if (err1?.message === 'USER_REJECTED') {
+          console.error('[SIWE] SIGN ERROR (USER_REJECTED)', err1);
+          throw err1;
+        }
+        try {
+          const signature = await (provider as any).request({
+            method: 'personal_sign',
+            params: [hexMsg, checksumAddr],
+          });
+          console.log('[SIWE] SIGN SUCCESS', {
+            providerInstanceId: (provider as any)?.__debugProviderId,
+            topic: (provider as any)?.session?.topic,
+            signature,
+          });
+          return signature;
+        } catch (err2: any) {
+          if (err2?.message === 'USER_REJECTED') {
+            console.error('[SIWE] SIGN ERROR (USER_REJECTED)', err2);
+            throw err2;
+          }
           try {
-            return await (provider as any).request({
+            const signature = await (provider as any).request({
               method: 'personal_sign',
-              params: [hexMsg, lowerAddr],
+              params: [lowerAddr, hexMsg],
             });
-          } catch (err1: any) {
-            if (
-              err1?.code === 4001 ||
-              err1?.code === 'ACTION_REJECTED' ||
-              err1?.message?.includes('rejected') ||
-              err1?.message?.includes('denied')
-            ) {
-              throw err1;
-            }
-            try {
-              return await (provider as any).request({
-                method: 'personal_sign',
-                params: [hexMsg, checksumAddr],
-              });
-            } catch (err2: any) {
-              if (
-                err2?.code === 4001 ||
-                err2?.code === 'ACTION_REJECTED' ||
-                err2?.message?.includes('rejected') ||
-                err2?.message?.includes('denied')
-              ) {
-                throw err2;
-              }
-              try {
-                return await (provider as any).request({
-                  method: 'personal_sign',
-                  params: [lowerAddr, hexMsg],
-                });
-              } catch (err3: any) {
-                if (
-                  err3?.code === 4001 ||
-                  err3?.code === 'ACTION_REJECTED' ||
-                  err3?.message?.includes('rejected') ||
-                  err3?.message?.includes('denied')
-                ) {
-                  throw err3;
-                }
-              }
-            }
+            console.log('[SIWE] SIGN SUCCESS', {
+              providerInstanceId: (provider as any)?.__debugProviderId,
+              topic: (provider as any)?.session?.topic,
+              signature,
+            });
+            return signature;
+          } catch (err3: any) {
+            console.error('[SIWE] SIGN ERROR', err3);
+            if (err3?.message === 'USER_REJECTED') throw err3;
           }
         }
-
-        const browserProvider = new BrowserProvider(provider as any);
-        const signer = await browserProvider.getSigner(evmAddress);
-        return await signer.signMessage(message);
-      })();
-
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), CONNECTION_TIMEOUT_MS)
-      );
-
-      const signature = (await Promise.race([signPromise, timeoutPromise])) as string;
-      return signature;
-    } catch (error: any) {
-      if (
-        error.code === 4001 ||
-        error.code === 'ACTION_REJECTED' ||
-        error.message === 'SIGNATURE_TIMEOUT' ||
-        error?.message?.includes('rejected') ||
-        error?.message?.includes('denied')
-      ) {
-        throw new Error('USER_REJECTED');
       }
+    }
+
+    try {
+      const browserProvider = new BrowserProvider(provider as any);
+      const signer = await browserProvider.getSigner(evmAddress);
+      const signature = await signer.signMessage(message);
+      console.log('[SIWE] SIGN SUCCESS (BrowserProvider)', { signature });
+      return signature;
+    } catch (error) {
+      console.error('[SIWE] SIGN ERROR (BrowserProvider)', error);
       throw error;
     }
   }
 
-  async signStellarChallenge(xdr: string, provider: unknown): Promise<string> {
+  async signStellarChallenge(
+    xdr: string,
+    networkPassphrase: string,
+    provider: unknown
+  ): Promise<string> {
     const isFreighter =
       typeof (provider as any)?.signTransaction === 'function' && !(provider as any)?.session;
 
-    try {
-      if (isFreighter) {
-        const config = getStellarConfig(this.currentNetwork);
-        const result = await (provider as any).signTransaction(xdr, {
-          networkPassphrase: config.networkPassphrase,
-        });
-        return typeof result === 'string' ? result : result.signedTxXdr;
-      }
-
-      const signaturePromise = (provider as any).request({
-        method: 'stellar_signTransaction',
-        params: { xdr },
+    if (isFreighter) {
+      const result = await (provider as any).signTransaction(xdr, {
+        networkPassphrase: networkPassphrase,
       });
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('SIGNATURE_TIMEOUT')), CONNECTION_TIMEOUT_MS)
-      );
-      const result = await Promise.race([signaturePromise, timeoutPromise]);
-      return (result as any)?.signedXDR ?? (result as any);
-    } catch (error: any) {
-      if (error?.message === 'SIGNATURE_TIMEOUT' || error?.code === 4001) {
-        throw new Error('USER_REJECTED');
-      }
-      throw error;
+      return typeof result === 'string' ? result : result.signedTxXdr;
     }
+
+    const result = await (provider as any).request({
+      method: 'stellar_signXDR',
+      params: { xdr, networkPassphrase },
+    });
+    console.log('[walletService] Stellar signature response from wallet:', result);
+    return (result as any)?.signedXDR ?? (result as any);
   }
 
   // ---------------------------------------------------------------------------
@@ -765,6 +877,8 @@ class WalletService {
     if (!evmProvider && !cosmosProvider) throw new Error('Wallet extension not found');
 
     const provider = evmProvider ?? cosmosProvider;
+    this.wrapProviderRequests(provider);
+
     let evmAddress: string | undefined;
     let evmChainId: number | undefined;
     let cosmosAddress: string | undefined;
@@ -862,7 +976,12 @@ class WalletService {
       preferredType === 'evm'
         ? {
             eip155: {
-              methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
+              methods: [
+                'eth_sendTransaction',
+                'eth_signTypedData_v4',
+                'eth_signTypedData',
+                'personal_sign',
+              ],
               chains: evmChains,
               events: ['chainChanged', 'accountsChanged'],
             },
@@ -880,6 +999,19 @@ class WalletService {
         modal.closeModal();
         reject(new Error('Connection timeout'));
       }, CONNECTION_TIMEOUT_MS);
+
+      let modalOpened = false;
+      const unsubscribe = modal.subscribeModal(state => {
+        if (state.open) {
+          modalOpened = true;
+        } else if (modalOpened && !state.open) {
+          clearTimeout(timeout);
+          unsubscribe();
+
+          provider.abortPairing?.();
+          reject(new Error('User closed the modal'));
+        }
+      });
 
       provider.on('display_uri', (uri: string) => {
         this.openMobileDeepLink(walletId, uri);
@@ -899,6 +1031,7 @@ class WalletService {
         .connect({ namespaces: namespaces as any })
         .then((session: any) => {
           clearTimeout(timeout);
+          unsubscribe();
           modal.closeModal();
 
           const evmAccount: string | undefined = session.namespaces?.eip155?.accounts?.[0];
@@ -945,6 +1078,7 @@ class WalletService {
         })
         .catch((error: any) => {
           clearTimeout(timeout);
+          unsubscribe();
           modal.closeModal();
           reject(error);
         });
@@ -958,7 +1092,7 @@ class WalletService {
 
     const namespaces = {
       stellar: {
-        methods: ['stellar_signTransaction', 'stellar_signAndSubmitXDR'],
+        methods: ['stellar_signXDR', 'stellar_signAndSubmitXDR'],
         chains: [stellarChain],
         events: ['accountsChanged'],
       },
@@ -980,6 +1114,19 @@ class WalletService {
         reject(new Error('Connection timeout'));
       }, CONNECTION_TIMEOUT_MS);
 
+      let modalOpened = false;
+      const unsubscribe = modal.subscribeModal(state => {
+        if (state.open) {
+          modalOpened = true;
+        } else if (modalOpened && !state.open) {
+          clearTimeout(timeout);
+          unsubscribe();
+
+          provider.abortPairing?.();
+          reject(new Error('User closed the modal'));
+        }
+      });
+
       provider.on('display_uri', (uri: string) => {
         modal.openModal({ uri });
         const token = localStorage.getItem('device_token');
@@ -997,6 +1144,7 @@ class WalletService {
         .connect({ namespaces })
         .then((session: any) => {
           clearTimeout(timeout);
+          unsubscribe();
           modal.closeModal();
 
           const account: string | undefined = session.namespaces?.stellar?.accounts?.[0];
@@ -1009,7 +1157,7 @@ class WalletService {
           const peerMetadata = session.peer?.metadata;
           const meta = getSessionMetadata(walletId, peerMetadata);
 
-          const walletSession: WalletSession = {
+          const stellarSession: WalletSession = {
             type: 'stellar',
             walletId,
             stellarAddress: address,
@@ -1020,15 +1168,17 @@ class WalletService {
             peerRedirect: meta.peerRedirect,
           };
 
-          this.sessions.set('stellar', walletSession);
+          this.sessions.set('stellar', stellarSession);
           this.providers.set('stellar', provider);
-          this.setupWalletConnectListeners(provider, 'stellar');
           this.emitState('stellar', 'connected');
           this.saveSession();
-          resolve(walletSession);
+
+          this.setupWalletConnectListeners(provider, 'stellar');
+          resolve(stellarSession);
         })
         .catch((error: any) => {
           clearTimeout(timeout);
+          unsubscribe();
           modal.closeModal();
           reject(error);
         });
@@ -1044,7 +1194,6 @@ class WalletService {
     this.disconnecting.add(type);
 
     const provider = this.providers.get(type);
-
     const sharedTypes: WalletType[] = [type];
     if (provider) {
       for (const [key, p] of this.providers.entries()) {
@@ -1057,19 +1206,32 @@ class WalletService {
         }
       }
     }
+
+    console.log('[WC] DISCONNECT START', {
+      providerInstanceId: (provider as any)?.__debugProviderId,
+      topic: provider?.session?.topic,
+    });
+
     if (provider) {
       this.registeredProviders.delete(provider);
 
       if (provider.session) {
-        if (typeof provider.removeAllListeners === 'function') {
-          provider.removeAllListeners();
-        }
         try {
           await provider.disconnect();
         } catch (err: any) {
-          console.log(err);
+          console.warn('[WalletService] Error during provider disconnect:', err);
         }
       }
+
+      console.log('[WC] DISCONNECT COMPLETE', {
+        providerInstanceId: (provider as any).__debugProviderId,
+        topic: provider.session?.topic,
+      });
+    }
+
+    // FIX #3: Clear per-type in-flight signing flags for all affected types.
+    for (const t of sharedTypes) {
+      this.isSignRequestInFlight.set(t, false);
     }
 
     for (const t of sharedTypes) {
@@ -1080,23 +1242,17 @@ class WalletService {
 
       this.sessions.delete(t);
       this.lastPingAt.delete(t);
-      this.providers.delete(t);
       this.modals.get(t)?.closeModal();
       this.modals.delete(t);
       this.disconnecting.delete(t);
     }
 
-    if (provider && this.providers.get('unified') === provider) {
-      this.providers.delete('unified');
-    }
     this.saveSession();
+
     if (this.sessions.size === 0) {
       await this.clearAppData();
-    } else {
-      this.clearWCStorageForKey(
-        sharedTypes.includes('evm') && sharedTypes.includes('stellar') ? 'unified' : type
-      );
     }
+
     for (const t of sharedTypes) {
       this.emitState(t, 'disconnected');
     }
@@ -1112,7 +1268,14 @@ class WalletService {
     ];
 
     Object.keys(localStorage).forEach(key => {
-      if (!PRESERVE_KEYS.includes(key)) {
+      if (
+        !PRESERVE_KEYS.includes(key) &&
+        !key.startsWith('swiftex_unified') &&
+        !key.startsWith('swiftex_evm') &&
+        !key.startsWith('swiftex_cosmos') &&
+        !key.startsWith('swiftex_stellar') &&
+        !key.startsWith('wc@2')
+      ) {
         localStorage.removeItem(key);
       }
     });
@@ -1145,9 +1308,6 @@ class WalletService {
     for (const provider of providers) {
       if (provider?.session) {
         try {
-          if (typeof provider.removeAllListeners === 'function') {
-            provider.removeAllListeners();
-          }
           await provider.disconnect();
         } catch (err) {
           console.warn('[WalletService] Error disconnecting provider:', err);
@@ -1155,8 +1315,8 @@ class WalletService {
       }
     }
 
+    this.isSignRequestInFlight.clear();
     this.sessions.clear();
-    this.providers.clear();
     this.modals.clear();
     this.lastPingAt.clear();
     this.disconnecting.clear();
@@ -1166,18 +1326,6 @@ class WalletService {
     this.saveSession();
   }
 
-  private clearWCStorageForKey(providerKey: string): void {
-    const prefix = `swiftex_${providerKey}`;
-
-    const keysToRemove = Object.keys(localStorage).filter(k => k.startsWith(prefix));
-
-    if (keysToRemove.length > 0) {
-      console.debug(
-        `[WalletService] Clearing ${keysToRemove.length} WC storage keys for provider '${providerKey}'`
-      );
-      keysToRemove.forEach(k => localStorage.removeItem(k));
-    }
-  }
   private handleDisconnect(type: WalletType): void {
     if (this.disconnecting.has(type)) return;
     void this.disconnect(type);
@@ -1592,7 +1740,10 @@ class WalletService {
       }
     });
 
-    provider.on('session_delete', () => getBoundTypes().forEach(t => this.handleDisconnect(t)));
+    provider.on('session_delete', (event: any) => {
+      console.log('[WC] SESSION DELETE', event);
+      getBoundTypes().forEach(t => this.handleDisconnect(t));
+    });
     provider.on('session_expire', () => getBoundTypes().forEach(t => this.handleDisconnect(t)));
     provider.on('session_ping', () =>
       getBoundTypes().forEach(t => this.lastPingAt.set(t, Date.now()))

@@ -13,7 +13,6 @@ import { StellarTickerBar } from './StellarTickerBar';
 const AmmSwapUI = lazy(() => import('../amm/AmmSwapUI'));
 const OrderBookSwapUI = lazy(() => import('../orderbook/OrderBookSwapUI'));
 const AssetManager = lazy(() => import('../stellarassets/AssetManager'));
-const StellarPortfolioUI = lazy(() => import('../stellarassets/StellarPortfolioUI'));
 const TradeTransactionUI = lazy(() => import('../TradeTransactionUI'));
 
 const StellarTradeScreen = () => {
@@ -21,11 +20,11 @@ const StellarTradeScreen = () => {
   const location = useLocation();
   const { connectedWallets } = useWalletConnect();
   const stellarWallet = connectedWallets[WalletType.STELLAR];
-  const [activeTab, setActiveTab] = useState<'amm' | 'orderbook' | 'assets' | 'portfolio'>(() => {
+  const [activeTab, setActiveTab] = useState<'amm' | 'orderbook' | 'assets'>(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
-    if (tab === 'amm' || tab === 'orderbook' || tab === 'assets' || tab === 'portfolio') {
-      return tab as 'amm' | 'orderbook' | 'assets' | 'portfolio';
+    if (tab === 'amm' || tab === 'orderbook' || tab === 'assets') {
+      return tab as 'amm' | 'orderbook' | 'assets';
     }
     return 'amm';
   });
@@ -47,15 +46,15 @@ const StellarTradeScreen = () => {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const tab = params.get('tab');
-    if (tab === 'amm' || tab === 'orderbook' || tab === 'assets' || tab === 'portfolio') {
-      setActiveTab(tab as 'amm' | 'orderbook' | 'assets' | 'portfolio');
+    if (tab === 'amm' || tab === 'orderbook' || tab === 'assets') {
+      setActiveTab(tab as 'amm' | 'orderbook' | 'assets');
     }
   }, [location]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get('tab') !== activeTab) {
-      if (activeTab === 'portfolio' || activeTab === 'assets') {
+      if (activeTab === 'assets') {
         // Strip out unnecessary trading params (like sellAsset, buyAsset) for clean URLs
         navigate({ search: `?tab=${activeTab}` }, { replace: true });
       } else {
@@ -113,10 +112,9 @@ const StellarTradeScreen = () => {
           <div className="mb-1 lg:mb-4">
             {activeTab === 'amm' && <AmmSwapUI />}
             {activeTab === 'orderbook' && <OrderBookSwapUI />}
-            {activeTab === 'portfolio' && <StellarPortfolioUI />}
             {activeTab === 'assets' && <AssetManager />}
           </div>
-          {activeTab !== 'assets' && activeTab !== 'portfolio' && <TradeTransactionUI />}
+          {activeTab !== 'assets' && <TradeTransactionUI />}
         </Suspense>
       </div>
 
@@ -142,16 +140,7 @@ const StellarTradeScreen = () => {
         >
           Order Book
         </button>
-        <button
-          onClick={() => setActiveTab('portfolio')}
-          className={`px-6 py-2.5 rounded-full text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
-            activeTab === 'portfolio'
-              ? 'bg-brand text-white shadow-sm'
-              : 'text-muted hover:text-primary hover:bg-white/5'
-          }`}
-        >
-          Portfolio
-        </button>
+
         <button
           onClick={() => setActiveTab('assets')}
           className={`px-6 py-2.5 rounded-full text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
@@ -206,21 +195,7 @@ const StellarTradeScreen = () => {
               Trade
             </span>
           </button>
-          <button
-            onClick={() => setActiveTab('portfolio')}
-            className="flex-1 flex flex-col items-center justify-center gap-1.5 py-2 rounded-xl transition-all"
-          >
-            <span
-              className={`flex items-center justify-center w-9 h-7 rounded-md transition-colors ${activeTab === 'portfolio' ? 'bg-brand text-white' : 'text-muted'}`}
-            >
-              <Wallet className="w-5 h-5" />
-            </span>
-            <span
-              className={`text-[10px] font-medium leading-none transition-colors ${activeTab === 'portfolio' ? 'text-brand' : 'text-muted'}`}
-            >
-              Portfolio
-            </span>
-          </button>
+
           <button
             onClick={() => setActiveTab('assets')}
             className="flex-1 flex flex-col items-center justify-center gap-1.5 py-2 rounded-xl transition-all"

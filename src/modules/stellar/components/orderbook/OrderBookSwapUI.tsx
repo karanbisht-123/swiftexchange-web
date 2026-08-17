@@ -68,6 +68,8 @@ const OrderBookSwapUI = () => {
     refreshOrderBook,
     reset,
     subentryCount,
+    fetchBalances,
+    isRefreshingBalances,
   } = useLargeOrder({ userAddress: stellarAddress });
 
   const [marketStats, setMarketStats] = useState<{
@@ -441,7 +443,7 @@ const OrderBookSwapUI = () => {
   const spendableAmount = fromToken?.balance
     ? portfolioUtils.formatBalance(
         fromToken.code === 'XLM'
-          ? Math.max(0, parseFloat(fromToken.balance) - (1 + subentryCount * 0.5)).toString()
+          ? Math.max(0, parseFloat(fromToken.balance) - (1 + subentryCount * 0.5 + 0.05)).toString()
           : fromToken.balance
       )
     : '0.00';
@@ -755,9 +757,17 @@ const OrderBookSwapUI = () => {
                 <span className="text-[9px] lg:text-[10px] text-muted uppercase font-bold tracking-wider">
                   Spendable
                 </span>
-                <span className="text-[10px] lg:text-[11px] text-brand font-bold tabular-nums">
-                  {spendableAmount}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] lg:text-[11px] text-brand font-bold tabular-nums">
+                    {spendableAmount}
+                  </span>
+                  <button
+                    onClick={() => fetchBalances(true)}
+                    className="p-1 hover:bg-white/5 rounded transition-colors text-muted hover:text-primary"
+                  >
+                    <RefreshCw size={10} className={isRefreshingBalances ? 'animate-spin' : ''} />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -845,12 +855,30 @@ const OrderBookSwapUI = () => {
                 </div>
               </div>
 
-              {/* Spacer row to match "Spendable" — keeps cards symmetric */}
-              <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between opacity-0 select-none">
-                <span className="text-[9px] lg:text-[10px] uppercase font-bold tracking-wider">
-                  —
+              <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
+                <span className="text-[9px] lg:text-[10px] text-muted uppercase font-bold tracking-wider">
+                  Spendable
                 </span>
-                <span className="text-[10px] lg:text-[11px] tabular-nums">—</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] lg:text-[11px] text-brand font-bold tabular-nums">
+                    {toToken?.balance
+                      ? portfolioUtils.formatBalance(
+                          toToken.code === 'XLM'
+                            ? Math.max(
+                                0,
+                                parseFloat(toToken.balance) - (1 + subentryCount * 0.5 + 0.05)
+                              ).toString()
+                            : toToken.balance
+                        )
+                      : '0.00'}
+                  </span>
+                  <button
+                    onClick={() => fetchBalances(true)}
+                    className="p-1 hover:bg-white/5 rounded transition-colors text-muted hover:text-primary"
+                  >
+                    <RefreshCw size={10} className={isRefreshingBalances ? 'animate-spin' : ''} />
+                  </button>
+                </div>
               </div>
             </div>
           </div>

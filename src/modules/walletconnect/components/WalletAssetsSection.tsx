@@ -651,7 +651,7 @@ const WalletAssetsSection = () => {
           </div>
 
           {/* Right Side: Refresh & Navigation Link */}
-          <div className="flex flex-col items-end justify-between shrink-0 pl-2 min-h-[58px]">
+          <div className="flex flex-col items-end justify-center shrink-0 pl-2 min-h-[58px]">
             <button
               onClick={refetch}
               disabled={loading || isRefreshing}
@@ -660,17 +660,6 @@ const WalletAssetsSection = () => {
             >
               <RefreshCw size={15} className={isRefreshing ? 'animate-spin' : ''} />
             </button>
-            <div
-              onClick={() => navigate(ROUTES.MY_ASSETS)}
-              className="group flex items-center gap-0.5 text-[10px] sm:text-xs font-bold uppercase tracking-wider text-brand hover:text-brand-hover cursor-pointer transition-colors duration-200"
-              title="View full portfolio analytics and trading history"
-            >
-              <span>Detailed Portfolio</span>
-              <ArrowUpRight
-                size={12}
-                className="shrink-0 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 text-brand"
-              />
-            </div>
           </div>
         </div>
         {/* ── Body ── */}
