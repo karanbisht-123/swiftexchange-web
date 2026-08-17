@@ -17,7 +17,7 @@ export const EVM_WALLETS: WalletConfig[] = [
   {
     id: 'swiftex',
     name: 'SwiftEx Wallet',
-    icon: 'https://explorer-api.walletconnect.com/v3/logo/sm/54c06c6a-333d-49d6-f2fd-7e89d2068500?projectId=fdde0f7f2696cc4d849103c23792d693',
+    icon: '/logo.avif',
     type: WalletType.EVM,
   },
   {
@@ -72,7 +72,7 @@ export const STELLAR_WALLETS: WalletConfig[] = [
   {
     id: 'swiftex',
     name: 'SwiftEx Wallet',
-    icon: 'https://explorer-api.walletconnect.com/v3/logo/sm/54c06c6a-333d-49d6-f2fd-7e89d2068500?projectId=fdde0f7f2696cc4d849103c23792d693',
+    icon: '/logo.avif',
     type: WalletType.STELLAR,
   },
   {

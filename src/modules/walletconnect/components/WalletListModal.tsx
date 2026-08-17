@@ -1,10 +1,12 @@
-import { X } from 'lucide-react';
+import { ArrowLeft, Check, ShieldCheck, Sparkles, Wallet, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { ROUTES } from '../../../constants/routes';
+import { useAsterAgent } from '../../../perps/adapters/aster/hooks/useAsterAgent';
+import router from '../../../routes';
 import { EVM_WALLETS, STELLAR_WALLETS, type WalletConfig } from '../constants/Wallet';
-import { useWalletStore } from '../store/walletConnectStore';
-
-type WalletType = 'evm' | 'stellar';
+import { hasStoredAgentKey } from '../services/asterAgentKeyManager';
+import { type WalletType, useWalletStore } from '../store/walletConnectStore';
 
 const WALLETCONNECT_ICON =
   'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRWu9CeO85RIMN2ixs9U_6YhnatWBxtCzn6L_e7QRO_CiEV1SB0LGbSXJijfHYt0N46slY&usqp=CAU';
@@ -17,17 +19,35 @@ export const WalletListModal: React.FC = () => {
     connectWallet,
     connectUnified,
     disconnect,
-    deriveDydx,
     connectionStatus,
+    isAuthenticated,
+    isAuthenticating,
+    authError,
+    authenticateEvm,
   } = useWalletStore();
+
+  const asterAgent = useAsterAgent();
 
   const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
   const [disconnectingType, setDisconnectingType] = useState<WalletType | null>(null);
+  const [viewMode, setViewMode] = useState<'onboarding' | 'wallets'>('wallets');
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
   );
   const [error, setError] = useState<string | null>(null);
   const connectTimeoutRef = useRef<number | null>(null);
+
+  const evmConnected = !!connectedWallets.evm;
+  const stellarConnected = !!connectedWallets.stellar;
+  const anyConnected = evmConnected || stellarConnected;
+  const isSetupDone = evmConnected ? isAuthenticated : stellarConnected;
+
+  const handleComplete = useCallback(() => {
+    closeModal();
+    if (window.location.pathname !== ROUTES.DASHBOARD) {
+      router.navigate(ROUTES.DASHBOARD);
+    }
+  }, [closeModal]);
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -39,6 +59,7 @@ export const WalletListModal: React.FC = () => {
     if (isModalOpen) {
       document.body.style.overflow = 'hidden';
       setError(null);
+      setViewMode('wallets');
     } else {
       document.body.style.overflow = 'unset';
       setConnectingWallet(null);
@@ -48,6 +69,14 @@ export const WalletListModal: React.FC = () => {
       document.body.style.overflow = 'unset';
     };
   }, [isModalOpen]);
+
+  useEffect(() => {
+    if (!isModalOpen || viewMode !== 'onboarding' || !isSetupDone) return;
+    const timer = window.setTimeout(() => {
+      handleComplete();
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [isModalOpen, viewMode, isSetupDone, handleComplete]);
 
   useEffect(() => {
     return () => {
@@ -83,6 +112,24 @@ export const WalletListModal: React.FC = () => {
       await connectUnified('walletconnect');
       clearConnectTimeout();
       setConnectingWallet(null);
+      setViewMode('onboarding');
+    } catch (err: any) {
+      clearConnectTimeout();
+      setConnectingWallet(null);
+      showError(err?.message || 'Connection failed. Please try again.');
+    }
+  }, [connectUnified, connectingWallet, disconnectingType]);
+
+  const handleSwiftExUnifiedConnect = useCallback(async () => {
+    if (connectingWallet || disconnectingType) return;
+    setConnectingWallet('unified-swiftex');
+    setError(null);
+    startConnectTimeout();
+    try {
+      await connectUnified('swiftex');
+      clearConnectTimeout();
+      setConnectingWallet(null);
+      setViewMode('onboarding');
     } catch (err: any) {
       clearConnectTimeout();
       setConnectingWallet(null);
@@ -101,6 +148,11 @@ export const WalletListModal: React.FC = () => {
         await connectWallet(wallet.type as WalletType, wallet.id);
         clearConnectTimeout();
         setConnectingWallet(null);
+        if (wallet.type === 'evm') {
+          setViewMode('onboarding');
+        } else if (wallet.type === 'stellar') {
+          handleComplete();
+        }
       } catch (err: any) {
         clearConnectTimeout();
         setConnectingWallet(null);
@@ -126,29 +178,32 @@ export const WalletListModal: React.FC = () => {
     [disconnect, disconnectingType, connectingWallet]
   );
 
-  const handleDeriveDydx = useCallback(async () => {
-    if (connectingWallet || disconnectingType) return;
-    setError(null);
-    try {
-      await deriveDydx();
-    } catch (err: any) {
-      showError(
-        err.message === 'Signature rejected by user'
-          ? 'Signature rejected. You can try again anytime.'
-          : err?.message || 'Failed to derive wallet. Please try again.'
-      );
-    }
-  }, [deriveDydx, connectingWallet, disconnectingType]);
-
   const handleModalClose = useCallback(() => {
-    if (disconnectingType || connectionStatus.evm?.state === 'signing') return;
+    if (
+      disconnectingType ||
+      connectionStatus.evm?.state === 'signing' ||
+      asterAgent.deriveState === 'signing'
+    )
+      return;
     if (connectingWallet) {
       clearConnectTimeout();
       setConnectingWallet(null);
       setError(null);
     }
     closeModal();
-  }, [closeModal, connectingWallet, disconnectingType, connectionStatus]);
+    if (hasStoredAgentKey() || asterAgent.isReady) {
+      if (window.location.pathname !== ROUTES.TRADING_PERPS) {
+        router.navigate(ROUTES.TRADING_PERPS);
+      }
+    }
+  }, [
+    closeModal,
+    connectingWallet,
+    disconnectingType,
+    connectionStatus,
+    asterAgent.deriveState,
+    asterAgent.isReady,
+  ]);
 
   const formatAddress = useCallback(
     (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`,
@@ -162,10 +217,8 @@ export const WalletListModal: React.FC = () => {
   );
 
   const isAnyActionInProgress = connectingWallet !== null || disconnectingType !== null;
-  const isSigning = connectionStatus.evm?.state === 'signing';
-  const evmConnected = !!connectedWallets.evm;
-  const stellarConnected = !!connectedWallets.stellar;
-  const bothConnected = evmConnected && stellarConnected;
+  const isSigning =
+    connectionStatus.evm?.state === 'signing' || asterAgent.deriveState === 'signing';
 
   const renderConnectedCard = useCallback(
     (type: WalletType) => {
@@ -174,247 +227,327 @@ export const WalletListModal: React.FC = () => {
 
       const config = getWalletConfig(type, connected.walletId);
       const isDisconnecting = disconnectingType === type;
-      const hasDydx = type === 'evm' && connected.dydxAddress;
-      const isSigningNow = type === 'evm' && isSigning;
 
       return (
-        <div className="space-y-2">
-          <div
-            style={{
-              borderColor: 'color-mix(in srgb, var(--color-success) 35%, var(--color-border))',
-              background: 'var(--color-bg-tertiary)',
-            }}
-            className="flex items-center justify-between gap-3 p-3 md:p-4 rounded-xl border"
-          >
-            <div className="flex items-center gap-3 min-w-0 flex-1">
-              <div
-                style={{ background: 'var(--color-bg-tertiary)' }}
-                className="w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center flex-shrink-0"
-              >
-                {config ? (
-                  <img
-                    src={config.icon}
-                    alt={config.name}
-                    className="w-7 h-7 md:w-8 md:h-8 rounded-full object-contain"
-                    onError={e => {
-                      e.currentTarget.style.display = 'none';
-                      const p = e.currentTarget.parentElement;
-                      if (p) {
-                        p.textContent = (config?.name?.[0] ?? type[0]).toUpperCase();
-                        p.style.color = 'var(--color-text-muted)';
-                        p.style.fontWeight = '600';
-                        p.style.fontSize = '0.875rem';
-                      }
-                    }}
-                  />
-                ) : (
-                  <span
-                    style={{ color: 'var(--color-text-muted)' }}
-                    className="font-semibold text-sm"
-                  >
-                    {type[0].toUpperCase()}
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-col min-w-0">
+        <div
+          style={{
+            borderColor: 'var(--color-border)',
+            background: 'var(--color-bg-tertiary)',
+          }}
+          className="flex items-center justify-between gap-3 p-3 rounded-2xl border transition-all hover:border-[var(--color-brand-primary)]/40"
+        >
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div
+              style={{ background: 'var(--color-bg-secondary)' }}
+              className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 border border-[var(--color-border)] shadow-sm"
+            >
+              {config ? (
+                <img
+                  src={config.icon}
+                  alt={config.name}
+                  className="w-7 h-7 rounded-full object-contain"
+                  onError={e => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              ) : (
+                <Wallet className="w-5 h-5 text-[var(--color-brand-primary)]" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
                 <span
                   style={{ color: 'var(--color-text-primary)' }}
-                  className="text-sm font-semibold truncate"
+                  className="text-xs font-semibold truncate"
                 >
-                  {config?.name ?? connected.walletId}
+                  {config?.name ?? (type === 'evm' ? 'EVM Wallet' : 'Stellar Wallet')}
                 </span>
-                <span
-                  style={{ color: 'var(--color-text-secondary)' }}
-                  className="text-xs font-mono truncate"
-                >
-                  {formatAddress(connected.address)}
-                </span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
               </div>
+              <p
+                style={{ color: 'var(--color-text-muted)' }}
+                className="text-[11px] font-mono truncate mt-0.5"
+              >
+                {formatAddress(connected.address)}
+              </p>
             </div>
-
-            <button
-              onClick={() => handleDisconnect(type)}
-              disabled={isDisconnecting || isAnyActionInProgress || isSigningNow}
-              style={{ background: 'var(--color-danger)', color: '#fff' }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-            >
-              {isDisconnecting ? (
-                <>
-                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span className="hidden sm:inline">Disconnecting</span>
-                </>
-              ) : (
-                'Disconnect'
-              )}
-            </button>
           </div>
 
-          {type === 'evm' && (
-            <div
-              style={{
-                borderColor: 'var(--color-brand-primary)',
-                background: 'color-mix(in srgb, var(--color-brand-primary) 8%, transparent)',
-              }}
-              className="p-3 md:p-4 rounded-xl border"
-            >
-              {hasDydx ? (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <div
-                      style={{ background: 'var(--color-brand-primary)' }}
-                      className="w-5 h-5 rounded-full flex items-center justify-center"
-                    >
-                      <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                        <path
-                          fillRule="evenodd"
-                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                    </div>
-                    <span
-                      style={{ color: 'var(--color-brand-primary)' }}
-                      className="text-sm font-semibold"
-                    >
-                      dYdX Wallet Derived
-                    </span>
-                  </div>
-                  <span
-                    style={{ color: 'var(--color-text-secondary)' }}
-                    className="text-xs block mb-1"
-                  >
-                    dYdX Address
-                  </span>
-                  <span
-                    style={{ color: 'var(--color-brand-primary)' }}
-                    className="text-xs font-mono break-all"
-                  >
-                    {connected.dydxAddress}
-                  </span>
-                </div>
-              ) : isSigningNow ? (
-                <div className="flex items-center gap-3">
-                  <div
-                    style={{ background: 'var(--color-brand-primary)' }}
-                    className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
-                  >
-                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  </div>
-                  <div>
-                    <p
-                      style={{ color: 'var(--color-brand-primary)' }}
-                      className="text-sm font-semibold"
-                    >
-                      Sign in Wallet
-                    </p>
-                    <p style={{ color: 'var(--color-text-muted)' }} className="text-xs">
-                      Approve the signature to generate your dYdX address
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p
-                      style={{ color: 'var(--color-brand-primary)' }}
-                      className="text-sm font-semibold"
-                    >
-                      Derive dYdX Wallet
-                    </p>
-                    <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
-                      One-time signature to enable trading
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleDeriveDydx}
-                    disabled={isAnyActionInProgress}
-                    style={{ background: 'var(--color-brand-primary)', color: '#fff' }}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                  >
-                    Derive
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+          <button
+            onClick={() => handleDisconnect(type)}
+            disabled={isDisconnecting || isAnyActionInProgress}
+            style={{
+              background: 'color-mix(in srgb, var(--color-danger) 12%, transparent)',
+              color: 'var(--color-danger)',
+              borderColor: 'color-mix(in srgb, var(--color-danger) 25%, transparent)',
+            }}
+            className="px-3 py-1.5 rounded-xl border text-xs font-medium hover:opacity-80 transition-all disabled:opacity-50"
+          >
+            {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+          </button>
         </div>
       );
     },
     [
       connectedWallets,
-      getWalletConfig,
-      formatAddress,
-      handleDisconnect,
-      handleDeriveDydx,
       disconnectingType,
       isAnyActionInProgress,
-      isSigning,
+      formatAddress,
+      getWalletConfig,
+      handleDisconnect,
     ]
+  );
+
+  const renderWalletCard = useCallback(
+    ({
+      id,
+      name,
+      icon,
+      badge,
+      isConnecting,
+      onClick,
+      disabled,
+    }: {
+      id: string;
+      name: string;
+      icon: string;
+      badge?: string;
+      isConnecting: boolean;
+      onClick: () => void;
+      disabled: boolean;
+    }) => (
+      <button
+        key={id}
+        onClick={onClick}
+        disabled={disabled}
+        style={{
+          borderColor: 'var(--color-border)',
+          background: 'var(--color-bg-tertiary)',
+        }}
+        className="flex flex-col items-center justify-center gap-2 p-2.5 rounded-2xl border hover:border-[var(--color-brand-primary)] hover:bg-[color-mix(in_srgb,var(--color-brand-primary)_8%,transparent)] hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative aspect-square"
+      >
+        {badge && (
+          <span className="absolute top-1.5 right-1.5 text-[7px] px-1 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 font-bold border border-emerald-500/25 uppercase tracking-wider leading-none">
+            {badge}
+          </span>
+        )}
+
+        {isConnecting && (
+          <div
+            style={{
+              background: 'color-mix(in srgb, var(--color-bg-secondary) 85%, transparent)',
+            }}
+            className="absolute inset-0 flex items-center justify-center rounded-2xl backdrop-blur-sm z-10"
+          >
+            <div
+              style={{
+                borderColor: 'var(--color-brand-primary)',
+                borderTopColor: 'transparent',
+              }}
+              className="w-5 h-5 border-2 rounded-full animate-spin"
+            />
+          </div>
+        )}
+
+        <div
+          style={{ background: 'var(--color-bg-secondary)' }}
+          className="w-10 h-10 rounded-2xl flex items-center justify-center p-1.5 border border-[var(--color-border)] shadow-sm group-hover:scale-105 transition-transform flex-shrink-0"
+        >
+          <img
+            src={icon}
+            alt={name}
+            className="w-full h-full object-contain rounded-xl"
+            onError={e => {
+              e.currentTarget.style.display = 'none';
+              const p = e.currentTarget.parentElement;
+              if (p) {
+                p.textContent = name[0];
+                p.style.color = 'var(--color-text-muted)';
+                p.style.fontWeight = '700';
+                p.style.fontSize = '1rem';
+              }
+            }}
+          />
+        </div>
+
+        <span
+          style={{ color: 'var(--color-text-primary)' }}
+          className="text-[11px] font-medium text-center leading-tight line-clamp-1 group-hover:text-[var(--color-brand-primary)] transition-colors px-1 w-full"
+        >
+          {name}
+        </span>
+      </button>
+    ),
+    []
   );
 
   const renderWalletGrid = useCallback(
     (wallets: WalletConfig[], disabled: boolean) => (
-      <div className="grid grid-cols-3 md:grid-cols-4 gap-2 md:gap-3">
+      <div className="grid grid-cols-4 gap-2.5">
         {wallets.map(wallet => {
           const key = `${wallet.type}-${wallet.id}`;
-          const isThisConnecting = connectingWallet === key;
-          return (
-            <button
-              key={key}
-              onClick={() => handleWalletClick(wallet)}
-              disabled={disabled}
-              style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg-tertiary)' }}
-              className="flex flex-col items-center gap-2 p-3 rounded-xl border hover:border-[var(--color-brand-primary)] hover:bg-[color-mix(in_srgb,var(--color-brand-primary)_8%,transparent)] transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative"
-            >
-              {isThisConnecting && (
-                <div
-                  style={{
-                    background: 'color-mix(in srgb, var(--color-bg-secondary) 85%, transparent)',
-                  }}
-                  className="absolute inset-0 flex items-center justify-center rounded-xl backdrop-blur-sm z-10"
-                >
-                  <div
-                    style={{
-                      borderColor: 'var(--color-brand-primary)',
-                      borderTopColor: 'transparent',
-                    }}
-                    className="w-5 h-5 border-2 rounded-full animate-spin"
-                  />
-                </div>
-              )}
-              <div
-                style={{ background: 'var(--color-bg-secondary)' }}
-                className="w-10 h-10 rounded-full flex items-center justify-center"
-              >
-                <img
-                  src={wallet.icon}
-                  alt={wallet.name}
-                  className="w-8 h-8 rounded-full object-contain"
-                  onError={e => {
-                    e.currentTarget.style.display = 'none';
-                    const p = e.currentTarget.parentElement;
-                    if (p) {
-                      p.textContent = wallet.name[0];
-                      p.style.color = 'var(--color-text-muted)';
-                      p.style.fontWeight = '700';
-                      p.style.fontSize = '1.125rem';
-                    }
-                  }}
-                />
-              </div>
-              <span
-                style={{ color: 'var(--color-text-primary)' }}
-                className="text-xs font-medium text-center leading-tight line-clamp-2"
-              >
-                {wallet.name}
-              </span>
-            </button>
-          );
+          return renderWalletCard({
+            id: key,
+            name: wallet.name,
+            icon: wallet.icon,
+            isConnecting: connectingWallet === key,
+            onClick: () => handleWalletClick(wallet),
+            disabled,
+          });
         })}
       </div>
     ),
-    [connectingWallet, handleWalletClick]
+    [connectingWallet, handleWalletClick, renderWalletCard]
   );
+
+  const renderOnboardingView = () => {
+    const activeWallet = connectedWallets.evm || connectedWallets.stellar;
+    const config = activeWallet
+      ? getWalletConfig(activeWallet.type, activeWallet.walletId)
+      : undefined;
+
+    return (
+      <div className="space-y-5 pt-1 animate-fade-in">
+        <div className="text-center pb-1">
+          <h3 style={{ color: 'var(--color-text-primary)' }} className="text-base font-semibold">
+            {isSetupDone ? 'Account Ready' : 'Setting Up Your Trading Account'}
+          </h3>
+          <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-1">
+            {isSetupDone
+              ? 'Your wallet is securely connected.'
+              : 'Complete the steps below to authenticate.'}
+          </p>
+        </div>
+
+        <div
+          style={{
+            background: 'var(--color-bg-tertiary)',
+            borderColor: 'var(--color-border)',
+          }}
+          className="p-4 rounded-2xl border space-y-4 shadow-sm"
+        >
+          <div className="flex items-start gap-3.5">
+            <div className="flex flex-col items-center">
+              <div className="w-6 h-6 rounded-full bg-emerald-500 text-black flex items-center justify-center flex-shrink-0 shadow-sm shadow-emerald-500/20">
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
+              </div>
+              {activeWallet?.type !== 'stellar' && (
+                <div className="w-0.5 h-8 my-1 bg-emerald-500/40" />
+              )}
+            </div>
+
+            <div className="flex-1 pb-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span style={{ color: '#10b981' }} className="text-xs font-semibold">
+                  1. Wallet Connected
+                </span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  Connected
+                </span>
+              </div>
+              <p
+                style={{ color: 'var(--color-text-muted)' }}
+                className="text-xs font-mono mt-0.5 truncate"
+              >
+                {config?.name ?? 'Wallet'} •{' '}
+                {activeWallet ? formatAddress(activeWallet.address) : ''}
+              </p>
+            </div>
+          </div>
+
+          {activeWallet?.type !== 'stellar' && (
+            <div className="flex items-start gap-3.5">
+              <div className="flex flex-col items-center">
+                <div
+                  style={{
+                    borderColor: isAuthenticated
+                      ? '#10b981'
+                      : isAuthenticating
+                        ? 'var(--color-brand-primary)'
+                        : 'var(--color-border)',
+                    background: isAuthenticated
+                      ? '#10b981'
+                      : isAuthenticating
+                        ? 'color-mix(in srgb, var(--color-brand-primary) 15%, transparent)'
+                        : 'transparent',
+                  }}
+                  className="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors"
+                >
+                  {isAuthenticated ? (
+                    <Check className="w-3.5 h-3.5 text-black stroke-[3]" />
+                  ) : isAuthenticating ? (
+                    <div className="w-3 h-3 border-2 border-[var(--color-brand-primary)] border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <ShieldCheck className="w-3 h-3 text-[var(--color-text-muted)]" />
+                  )}
+                </div>
+              </div>
+
+              <div className="flex-1 pb-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    style={{
+                      color: isAuthenticated ? '#10b981' : 'var(--color-text-primary)',
+                    }}
+                    className="text-xs font-semibold"
+                  >
+                    2. Sign In to SwiftEx
+                  </span>
+                  {!isAuthenticated && (
+                    <div>
+                      {isAuthenticating ? (
+                        <span className="text-[11px] font-medium text-[var(--color-brand-primary)] animate-pulse flex items-center gap-1">
+                          Signing in wallet...
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => authenticateEvm()}
+                          disabled={isAnyActionInProgress}
+                          style={{ color: 'var(--color-brand-primary)' }}
+                          className="text-xs font-semibold hover:underline"
+                        >
+                          {authError ? 'Retry Sign' : 'Sign In'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
+                  {isAuthenticated
+                    ? 'Wallet ownership verified.'
+                    : 'Confirm the signature request in your wallet to verify ownership.'}
+                </p>
+                {authError && !isAuthenticated && (
+                  <div className="mt-1.5 p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[11px]">
+                    {authError}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {isSetupDone ? (
+          <div className="pt-2 text-center animate-fade-in">
+            <p className="text-xs text-emerald-400 font-medium flex items-center justify-center gap-1.5 animate-pulse">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Setup complete • Redirecting to dashboard...</span>
+            </p>
+          </div>
+        ) : (
+          <div className="pt-2 text-center">
+            <button
+              onClick={handleModalClose}
+              style={{ color: 'var(--color-text-muted)' }}
+              className="text-xs hover:opacity-80 transition-opacity"
+            >
+              Cancel and finish later
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   if (!isModalOpen) return null;
 
@@ -423,12 +556,17 @@ export const WalletListModal: React.FC = () => {
   return (
     <div
       className="fixed inset-0 z-[60] flex items-end md:items-center justify-center animate-fade-in"
-      style={{ background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)' }}
+      style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)' }}
       onClick={handleModalClose}
     >
       <div
-        style={{ background: 'var(--color-bg-secondary)' }}
-        className={`w-full md:w-[560px] rounded-t-3xl md:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col ${isMobile ? 'animate-slide-up' : 'animate-fade-in'}`}
+        style={{
+          background: 'var(--color-bg-secondary)',
+          borderColor: 'var(--color-border)',
+        }}
+        className={`w-full md:w-[440px] rounded-t-3xl md:rounded-3xl shadow-2xl max-h-[92vh] flex flex-col border ${
+          isMobile ? 'animate-slide-up' : 'animate-fade-in'
+        }`}
         onClick={e => e.stopPropagation()}
       >
         {isMobile && (
@@ -440,25 +578,47 @@ export const WalletListModal: React.FC = () => {
           </div>
         )}
 
+        {/* Modal Header */}
         <div
           style={{ borderColor: 'var(--color-border)' }}
-          className="flex items-center justify-between px-4 md:px-6 py-4 border-b flex-shrink-0"
+          className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0"
         >
-          <h2
-            style={{ color: 'var(--color-text-primary)' }}
-            className="text-lg md:text-xl font-bold"
-          >
-            {bothConnected ? 'Connected Wallets' : 'Connect Wallet'}
-          </h2>
-          <button
-            onClick={handleModalClose}
-            disabled={isAnyActionInProgress || isSigning}
-            style={{ color: 'var(--color-text-muted)' }}
-            className="p-1.5 rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-label="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2.5">
+            {viewMode === 'onboarding' && (
+              <button
+                onClick={() => setViewMode('wallets')}
+                style={{ color: 'var(--color-text-muted)' }}
+                className="p-1 -ml-1 rounded-lg hover:bg-[var(--color-bg-hover)] transition-colors"
+                title="Wallet List"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+            )}
+            <div>
+              <h2
+                style={{ color: 'var(--color-text-primary)' }}
+                className="text-base font-bold tracking-tight"
+              >
+                {viewMode === 'onboarding'
+                  ? 'Account Setup'
+                  : anyConnected
+                    ? 'Connected Wallets'
+                    : 'Connect Wallet'}
+              </h2>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleModalClose}
+              disabled={isAnyActionInProgress || isSigning}
+              style={{ color: 'var(--color-text-muted)' }}
+              className="p-1.5 rounded-xl hover:bg-[var(--color-bg-hover)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -468,227 +628,169 @@ export const WalletListModal: React.FC = () => {
               borderColor: 'var(--color-danger)',
               color: 'var(--color-danger)',
             }}
-            className="mx-4 mt-3 p-3 rounded-lg border text-sm text-center animate-fade-in"
+            className="mx-6 mt-3 p-3 rounded-xl border text-xs text-center animate-fade-in font-medium"
           >
             {error}
           </div>
         )}
 
-        <div className="p-4 md:p-6 overflow-y-auto scrollbar-thin space-y-5 flex-1">
-          {evmConnected && (
-            <div className="space-y-2">
-              <h3
-                style={{ color: 'var(--color-text-primary)' }}
-                className="text-sm font-semibold uppercase tracking-wide opacity-60"
-              >
-                EVM Wallet
-              </h3>
-              {renderConnectedCard('evm')}
-            </div>
-          )}
+        <div className="p-6 overflow-y-auto scrollbar-thin space-y-5 flex-1">
+          {viewMode === 'onboarding' ? (
+            renderOnboardingView()
+          ) : (
+            <>
+              {anyConnected && (
+                <div className="space-y-3">
+                  {evmConnected && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
+                          EVM Wallet
+                        </span>
+                        {!isSetupDone && (
+                          <button
+                            onClick={() => setViewMode('onboarding')}
+                            className="text-[11px] font-semibold text-amber-400 hover:underline"
+                          >
+                            Complete Setup →
+                          </button>
+                        )}
+                      </div>
+                      {renderConnectedCard('evm')}
+                    </div>
+                  )}
 
-          {stellarConnected && (
-            <div className="space-y-2">
-              <h3
-                style={{ color: 'var(--color-text-primary)' }}
-                className="text-sm font-semibold uppercase tracking-wide opacity-60"
-              >
-                Stellar Wallet
-              </h3>
-              {renderConnectedCard('stellar')}
-            </div>
-          )}
-
-          {evmConnected && !stellarConnected && (
-            <div
-              style={{
-                borderColor: 'color-mix(in srgb, var(--color-brand-primary) 30%, transparent)',
-                background: 'color-mix(in srgb, var(--color-brand-primary) 6%, transparent)',
-              }}
-              className="p-3 rounded-lg border"
-            >
-              <p style={{ color: 'var(--color-text-secondary)' }} className="text-xs">
-                Your wallet did not provide a Stellar account. Connect a Stellar wallet below.
-              </p>
-            </div>
-          )}
-
-          {!bothConnected && (
-            <div className="space-y-5">
-              {!evmConnected && !stellarConnected && (
-                <div className="space-y-2">
-                  <div>
-                    <h3 className="text-sm font-semibold uppercase tracking-wider ">
-                      Unified Connection
-                    </h3>
-                    <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
-                      Connect both EVM & Stellar in a single step
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-3 md:grid-cols-4 gap-2 md:gap-3">
-                    <button
-                      onClick={handleUnifiedConnect}
-                      disabled={isAnyActionInProgress}
-                      style={{
-                        borderColor: 'var(--color-brand-primary)',
-                        background:
-                          'color-mix(in srgb, var(--color-brand-primary) 6%, var(--color-bg-tertiary))',
-                      }}
-                      className="flex flex-col items-center gap-2 p-3 rounded-xl border hover:border-[var(--color-brand-primary)] hover:bg-[color-mix(in_srgb,var(--color-brand-primary)_12%,var(--color-bg-tertiary))] transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative w-full"
-                    >
-                      {isUnifiedConnecting && (
-                        <div
-                          style={{
-                            background:
-                              'color-mix(in srgb, var(--color-bg-secondary) 85%, transparent)',
-                          }}
-                          className="absolute inset-0 flex items-center justify-center rounded-xl backdrop-blur-sm z-10"
-                        >
-                          <div
-                            style={{
-                              borderColor: 'var(--color-brand-primary)',
-                              borderTopColor: 'transparent',
-                            }}
-                            className="w-5 h-5 border-2 rounded-full animate-spin"
-                          />
-                        </div>
-                      )}
-
-                      <span className="absolute top-1 right-1.5 text-[6.5px] px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20 whitespace-nowrap uppercase tracking-wider scale-95">
-                        REC
+                  {stellarConnected && (
+                    <div className="space-y-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">
+                        Stellar Wallet
                       </span>
+                      {renderConnectedCard('stellar')}
+                    </div>
+                  )}
+                </div>
+              )}
 
-                      <div
-                        style={{ background: 'var(--color-bg-secondary)' }}
-                        className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 mt-1"
-                      >
-                        <img
-                          src="/logo.avif"
-                          alt="SwiftEx"
-                          className="w-12 h-12 rounded-full object-contain"
-                        />
+              {(!evmConnected || !stellarConnected) && (
+                <div className="space-y-5">
+                  {!evmConnected && !stellarConnected && (
+                    <div className="space-y-2.5">
+                      <div>
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--color-text-primary)]">
+                          Unified Multi-Chain
+                        </h3>
+                        <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
+                          Connect EVM & Stellar simultaneously in a single session
+                        </p>
                       </div>
 
-                      <span
-                        style={{ color: 'var(--color-text-primary)' }}
-                        className="text-xs font-semibold text-center leading-tight line-clamp-2 mt-0.5"
-                      >
-                        SwiftEx Wallet
-                      </span>
-                    </button>
+                      <div className="grid grid-cols-4 gap-2.5">
+                        {renderWalletCard({
+                          id: 'unified-swiftex',
+                          name: 'SwiftEx Wallet',
+                          icon: '/logo.avif',
+                          badge: 'REC',
+                          isConnecting: connectingWallet === 'unified-swiftex',
+                          onClick: handleSwiftExUnifiedConnect,
+                          disabled: isAnyActionInProgress,
+                        })}
 
-                    <button
-                      onClick={handleUnifiedConnect}
-                      disabled={isAnyActionInProgress}
-                      style={{
-                        borderColor: 'var(--color-border)',
-                        background: 'var(--color-bg-tertiary)',
-                      }}
-                      className="flex flex-col items-center gap-2 p-3  rounded-xl border hover:border-[var(--color-brand-primary)] hover:bg-[color-mix(in_srgb,var(--color-brand-primary)_8%,transparent)] transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative w-full"
-                    >
-                      {isUnifiedConnecting && (
-                        <div
-                          style={{
-                            background:
-                              'color-mix(in srgb, var(--color-bg-secondary) 85%, transparent)',
-                          }}
-                          className="absolute inset-0 flex items-center justify-center rounded-xl backdrop-blur-sm z-10"
-                        >
-                          <div
-                            style={{
-                              borderColor: 'var(--color-brand-primary)',
-                              borderTopColor: 'transparent',
-                            }}
-                            className="w-5 h-5 border-2 rounded-full animate-spin"
-                          />
-                        </div>
-                      )}
-
-                      {/* Circular wallet icon wrapper like we give for other */}
-                      <div
-                        style={{ background: 'var(--color-bg-secondary)' }}
-                        className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 mt-1"
-                      >
-                        <img
-                          src={WALLETCONNECT_ICON}
-                          alt="WalletConnect"
-                          className="w-8 h-8 rounded-full object-contain"
-                        />
+                        {renderWalletCard({
+                          id: 'unified-wc',
+                          name: 'WalletConnect',
+                          icon: WALLETCONNECT_ICON,
+                          isConnecting: isUnifiedConnecting,
+                          onClick: handleUnifiedConnect,
+                          disabled: isAnyActionInProgress,
+                        })}
                       </div>
+                    </div>
+                  )}
 
-                      <span
-                        style={{ color: 'var(--color-text-primary)' }}
-                        className="text-xs font-semibold text-center leading-tight line-clamp-2 mt-0.5"
-                      >
-                        WalletConnect
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              )}
-              {!evmConnected && (
-                <div className="space-y-3">
-                  <div>
-                    <h3
-                      style={{ color: 'var(--color-text-primary)' }}
-                      className="text-sm font-semibold"
-                    >
-                      EVM Wallets
-                    </h3>
-                    <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
-                      Browser extension or EVM-only WalletConnect
-                    </p>
-                  </div>
-                  {renderWalletGrid(EVM_WALLETS, isAnyActionInProgress)}
+                  {!evmConnected && (
+                    <div className="space-y-2.5">
+                      <div>
+                        <h3
+                          style={{ color: 'var(--color-text-primary)' }}
+                          className="text-xs font-bold uppercase tracking-wider"
+                        >
+                          EVM Wallets
+                        </h3>
+                        <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
+                          MetaMask, Trust, Rainbow, or browser extension
+                        </p>
+                      </div>
+                      {renderWalletGrid(EVM_WALLETS, isAnyActionInProgress)}
+                    </div>
+                  )}
+
+                  {!stellarConnected && (
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3
+                            style={{ color: 'var(--color-text-primary)' }}
+                            className="text-xs font-bold uppercase tracking-wider"
+                          >
+                            {evmConnected ? 'Add Stellar Wallet' : 'Stellar Wallets'}
+                          </h3>
+                          <p
+                            style={{ color: 'var(--color-text-muted)' }}
+                            className="text-xs mt-0.5"
+                          >
+                            Freighter, LOBSTR, SwiftEx for Stellar network
+                          </p>
+                        </div>
+                        {evmConnected && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                            Multi-Chain
+                          </span>
+                        )}
+                      </div>
+                      {renderWalletGrid(STELLAR_WALLETS, isAnyActionInProgress)}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {!stellarConnected && (
-                <div className="space-y-3">
-                  <div>
-                    <h3
-                      style={{ color: 'var(--color-text-primary)' }}
-                      className="text-sm font-semibold"
-                    >
-                      Stellar Wallets
-                    </h3>
-                    <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
-                      Browser extension or Stellar-only WalletConnect
-                    </p>
-                  </div>
-                  {renderWalletGrid(STELLAR_WALLETS, isAnyActionInProgress)}
+              {anyConnected && isSetupDone && (
+                <div className="pt-2">
+                  <button
+                    onClick={handleComplete}
+                    style={{ background: 'var(--color-brand-primary)', color: '#fff' }}
+                    className="w-full py-3 px-4 rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-md"
+                  >
+                    Start Trading
+                  </button>
                 </div>
               )}
-            </div>
+            </>
           )}
         </div>
 
         {connectingWallet && !isSigning && (
           <div
             style={{ background: 'color-mix(in srgb, var(--color-bg-secondary) 96%, transparent)' }}
-            className="absolute inset-0 flex items-center justify-center rounded-t-3xl md:rounded-2xl backdrop-blur-sm z-20"
+            className="absolute inset-0 flex items-center justify-center rounded-t-3xl md:rounded-3xl backdrop-blur-sm z-20"
           >
             <div className="text-center px-6">
               <div
                 style={{ borderColor: 'var(--color-brand-primary)', borderTopColor: 'transparent' }}
-                className="inline-block w-10 h-10 border-4 rounded-full animate-spin mb-4"
+                className="inline-block w-8 h-8 border-3 rounded-full animate-spin mb-3"
               />
               <p
                 style={{ color: 'var(--color-text-primary)' }}
-                className="font-semibold text-base mb-1"
+                className="font-semibold text-sm mb-1"
               >
                 Connecting...
               </p>
-              <p style={{ color: 'var(--color-text-muted)' }} className="text-sm mb-4">
-                {isMobile
-                  ? 'Approve in your wallet app'
-                  : 'Scan the QR code or approve in your wallet'}
+              <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mb-4">
+                {isMobile ? 'Approve in your wallet app' : 'Scan QR code or approve in wallet'}
               </p>
               <button
                 onClick={handleModalClose}
                 style={{ color: 'var(--color-text-muted)', background: 'var(--color-bg-tertiary)' }}
-                className="px-4 py-2 rounded-lg text-sm hover:opacity-80 transition-opacity"
+                className="px-3.5 py-1.5 rounded-xl text-xs hover:opacity-80 transition-opacity"
               >
                 Cancel
               </button>

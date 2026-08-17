@@ -54,7 +54,18 @@ export function getCalculatedBuyAmount(params: BuyAmountParams): string {
     }
   }
   if (activeQuoteSource === 'near_intent' && activeQuoteData) {
-    return activeQuoteData.amountOutFormatted || activeQuoteData.amountOut || '0.00';
+    if (activeQuoteData.amountOutFormatted) {
+      return activeQuoteData.amountOutFormatted;
+    }
+    if (activeQuoteData.amountOut) {
+      const decimals = selectedBuyAsset?.decimals || 6;
+      try {
+        return ethers.formatUnits(activeQuoteData.amountOut, decimals);
+      } catch {
+        return activeQuoteData.amountOut;
+      }
+    }
+    return '0.00';
   }
   if (swapQuote) return swapQuote.outputAmount || '0.00';
 
@@ -147,12 +158,25 @@ export function getButtonLabel(params: ButtonLabelParams): string {
     toChainId,
     selectedBuyAsset,
     nativeSymbol,
+    missingWallets,
   } = params;
+
+  if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
+
+  if (missingWallets && missingWallets.length > 0) {
+    if (missingWallets.length === 1) {
+      const missing = String(missingWallets[0]).toLowerCase();
+      if (missing === 'stellar') return 'CONNECT STELLAR WALLET';
+      if (missing === 'evm') return 'CONNECT EVM WALLET';
+      if (missing === 'cosmos') return 'CONNECT COSMOS WALLET';
+      return `CONNECT ${String(missingWallets[0]).toUpperCase()} WALLET`;
+    }
+    return 'CONNECT WALLETS';
+  }
 
   if (isFetchingSwapAssets || isQuoteLoading || isFetchingStellarAssets)
     return 'FETCHING QUOTES...';
   if (!sellAmount || parseFloat(sellAmount) <= 0) return 'ENTER AMOUNT';
-  if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
 
   if (isInsufficientBalance) return 'INSUFFICIENT BALANCE';
   if (isAmountLessThanFee) return 'AMOUNT LESS THAN FEE';
@@ -205,11 +229,11 @@ export function getErrorMessage(params: ErrorParams): string | null {
     return `Amount must be greater than the bridge fee of ${feeAmount.toFixed(4)} USDC`;
   }
   if (hasInsufficientStellarGas) {
-    let reqFee = 0.01;
+    let reqFee = 0.00001; // Stellar base tx fee = 100 stroops
     if (actionType === 'BRIDGE' && feePayType === 'native' && activeQuoteData?.fee?.native) {
       reqFee += parseFloat(activeQuoteData.fee.native.amount);
     }
-    return `Insufficient XLM balance. You need at least ${reqFee.toFixed(3)} XLM (beyond reserve) for gas fees.`;
+    return `Insufficient XLM balance. You need at least ${reqFee.toFixed(5)} XLM (beyond reserve) for network fees.`;
   }
   if (hasInsufficientEvmGas) {
     return `Insufficient ${nativeSymbol} balance for gas fees.`;

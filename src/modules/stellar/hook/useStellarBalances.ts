@@ -38,9 +38,14 @@ export const useStellarBalances = (publicKey?: string): UseStellarBalancesReturn
       const account = await server.loadAccount(publicKey);
       setBalances(account.balances);
       setError(null);
-    } catch (err) {
-      setError(err as Error);
-      setBalances([]);
+    } catch (err: any) {
+      if (err?.response?.status === 404 || err?.status === 404) {
+        setBalances([]);
+        setError(null);
+      } else {
+        setError(err as Error);
+        setBalances([]);
+      }
     } finally {
       setLoading(false);
     }

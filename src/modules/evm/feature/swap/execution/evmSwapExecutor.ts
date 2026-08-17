@@ -1,51 +1,19 @@
 import { ethers } from 'ethers';
+
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
-import type { SwapQuote } from '../types/swap.types';
 import { getEVMNetworkConfig } from '../../../utils/evmUtils';
 import { rpcManager } from '../../../utils/rpcProvider';
-
-function safeValue(raw: string | undefined | null): bigint {
-  if (!raw) return 0n;
-  try {
-    return BigInt(raw);
-  } catch {
-    return 0n;
-  }
-}
-
-function safeGasLimit(tx: { gasLimit?: string; gas?: string }): bigint | undefined {
-  const raw = tx.gasLimit ?? tx.gas;
-  if (!raw) return undefined;
-  try {
-    const n = BigInt(raw);
-    return n > 0n ? n : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function estimateGasWithBuffer(
-  provider: ethers.BrowserProvider,
-  txParams: ethers.TransactionRequest
-): Promise<bigint | undefined> {
-  try {
-    const estimated = await provider.estimateGas(txParams);
-    return (estimated * 120n) / 100n;
-  } catch (err: any) {
-    if (
-      err.message?.includes('execution reverted') ||
-      err.info?.error?.message?.includes('execution reverted')
-    ) {
-      throw new Error(`Transaction will fail: ${err.info?.error?.message || err.message}`);
-    }
-    console.warn('[estimateGasWithBuffer] Failed, letting wallet decide:', err);
-    return undefined;
-  }
-}
+import type { SwapQuote } from '../types/swap.types';
 
 export interface ExecuteSwapDependencies {
   prepareSwapTransaction: (params: any) => Promise<any[]>;
-  simulateEVMTransaction: (chainId: any, from: string, to: string, value: string, data: string) => Promise<{ gasLimit: bigint }>;
+  simulateEVMTransaction: (
+    chainId: any,
+    from: string,
+    to: string,
+    value: string,
+    data: string
+  ) => Promise<{ gasLimit: bigint }>;
   getProvider: (type: WalletType) => any;
 }
 
@@ -63,18 +31,30 @@ export async function executeSwap(
   onBeforeWalletSign?: () => void,
   onProgress?: (step: 'approving' | 'signing') => void
 ): Promise<string> {
-  const provider = deps.getProvider(WalletType.EVM);
-  if (!provider) throw new Error('EVM wallet not connected');
+  const rawProvider = deps.getProvider(WalletType.EVM);
+  if (!rawProvider) throw new Error('EVM wallet not connected');
 
   try {
     const config = getEVMNetworkConfig(chainId);
-    if (config?.rpcUrls) {
-      rpcManager.resetChain(chainId, config.rpcUrls);
-    }
+    if (config?.rpcUrls) rpcManager.resetChain(chainId, config.rpcUrls);
   } catch (err) {
-    console.warn('[executeSwap] Failed to reset chain status:', err);
+    console.warn('[executeSwap] Failed to reset RPC cache, continuing with existing config:', err);
   }
 
+  try {
+    const currentChainHex = await rawProvider.request({ method: 'eth_chainId' });
+    const currentChainId = parseInt(currentChainHex, 16);
+    if (currentChainId !== Number(chainId)) {
+      await rawProvider.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: `0x${Number(chainId).toString(16)}` }],
+      });
+    }
+  } catch (switchErr: any) {
+    console.warn('[executeSwap] Chain switch failed, proceeding anyway:', switchErr?.message);
+  }
+
+  // 1. Get transaction payloads from API
   const transactions = await deps.prepareSwapTransaction({
     chainId,
     quote,
@@ -85,84 +65,77 @@ export async function executeSwap(
     slippageTolerance,
   });
 
-  if (!transactions?.length) throw new Error('No transactions received from API');
+  if (!transactions?.length) throw new Error('No transactions returned by swap quoter API');
 
-  if (onProgress) {
-    onProgress(transactions.length > 1 ? 'approving' : 'signing');
-  }
-
-  const ethersProvider = new ethers.BrowserProvider(provider);
-  const signer = await ethersProvider.getSigner();
-
-  const txParamsList = await Promise.all(
-    transactions.map(async tx => {
-      const txParams: ethers.TransactionRequest = {
-        from: tx.from || senderAddress,
-        to: tx.to,
-        data: tx.data,
-        value: safeValue(tx.value),
-      };
-
-      const rawGasPrice = tx.gasPrice ?? tx.maxFeePerGas;
-      if (rawGasPrice) {
-        try {
-          txParams.gasPrice = BigInt(rawGasPrice as any);
-        } catch {
-          // ignore invalid gasPrice from API
-        }
-      }
-
-      if (tx.nonce != null) txParams.nonce = Number(tx.nonce);
-
-      try {
-        const sim = await deps.simulateEVMTransaction(
-          chainId,
-          txParams.from as string,
-          txParams.to as string,
-          txParams.value?.toString() || '0',
-          txParams.data?.toString() || '0x'
-        );
-        txParams.gasLimit = sim.gasLimit;
-      } catch (simError: any) {
-        if (
-          simError.message?.includes('Insufficient funds') ||
-          simError.message?.includes('insufficient funds')
-        ) {
-          throw new Error('Insufficient native token balance to cover gas fees.');
-        }
-        console.warn('[executeSwap] Gas simulation failed, trying fallback:', simError.message);
-        const apiLimit = safeGasLimit(tx);
-        txParams.gasLimit = apiLimit ?? (await estimateGasWithBuffer(ethersProvider, txParams));
-      }
-
-      return txParams;
-    })
-  );
+  const provider = new ethers.BrowserProvider(rawProvider);
+  const signer = await provider.getSigner();
 
   let lastTxHash = '';
-  let signFired = false;
-  const fireSign = () => {
-    if (!signFired) {
-      signFired = true;
-      onBeforeWalletSign?.();
-    }
-  };
+  let didNotifyWalletSign = false;
 
-  for (let i = 0; i < txParamsList.length; i++) {
-    const tx = txParamsList[i];
-    const isLast = i === txParamsList.length - 1;
+  // 2. Execute each transaction in sequence (e.g. 1st: ERC20 approve, 2nd: DEX swap)
+  for (let i = 0; i < transactions.length; i++) {
+    const tx = transactions[i];
+    const isLast = i === transactions.length - 1;
+
     if (onProgress) {
       onProgress(isLast ? 'signing' : 'approving');
     }
-    fireSign();
-    const txResponse = await signer.sendTransaction(tx);
-    lastTxHash = txResponse.hash;
-    console.log(`[executeSwap] tx ${i + 1}/${txParamsList.length} broadcast:`, lastTxHash);
+
+    if (!didNotifyWalletSign) {
+      didNotifyWalletSign = true;
+      onBeforeWalletSign?.();
+    }
+
+    // Build standard ethers TransactionRequest
+    const txParams: ethers.TransactionRequest = {
+      from: tx.from || senderAddress,
+      to: tx.to,
+      data: tx.data || '0x',
+      value: tx.value ? BigInt(tx.value) : 0n,
+    };
+
+    if (tx.gasPrice || tx.maxFeePerGas) {
+      try {
+        txParams.gasPrice = BigInt(tx.gasPrice || tx.maxFeePerGas);
+      } catch (err) {
+        console.warn('[executeSwap] Failed to parse gasPrice, letting wallet estimate it:', err);
+      }
+    }
+
+    if (tx.nonce != null) {
+      txParams.nonce = Number(tx.nonce);
+    }
+
+    // Determine gasLimit: from API payload or estimate with 20% margin
+    if (tx.gasLimit || tx.gas) {
+      try {
+        txParams.gasLimit = BigInt(tx.gasLimit || tx.gas);
+      } catch (err) {
+        console.warn(
+          '[executeSwap] Failed to parse gasLimit from API payload, will estimate instead:',
+          err
+        );
+      }
+    }
+    if (!txParams.gasLimit) {
+      try {
+        const estimatedGas = await provider.estimateGas(txParams);
+        txParams.gasLimit = (estimatedGas * 120n) / 100n;
+      } catch (err: any) {
+        console.warn('[executeSwap] Gas estimation failed, letting wallet handle:', err.message);
+      }
+    }
+
+    // 3. Send transaction to wallet
+    const response = await signer.sendTransaction(txParams);
+    lastTxHash = response.hash;
+    console.log(`[executeSwap] Step ${i + 1}/${transactions.length} broadcast: ${lastTxHash}`);
 
     if (isLast && onSwapTxHash) {
       onSwapTxHash(lastTxHash);
     } else if (!isLast && onApprovalTxHash) {
-      onApprovalTxHash(txResponse.hash);
+      onApprovalTxHash(lastTxHash);
     }
   }
 

@@ -6,12 +6,12 @@ export const ROUTES = {
   RECEIVE: '/receive',
   TRADING_STELLAR: '/trading/stellar',
   TRANSACTIONS: '/transactions',
-  TRADING_EVM_SWAP: '/trading/evm/swap',
-  TRADING_EVM_INTER_SWAP: '/trading/evm/inter-swap',
+  TRADING_EVM_SWAP: '/trading/swap',
   TRADING_EVM_FIAT: '/trading/evm/fiat',
-  TRADING_DYDX_FUTURES: '/trade/perpetuals',
+  // TRADING_DYDX_FUTURES: '/trade/perpetuals',
+  TRADING_PERPS: '/trade/perpetuals',
   MARKETS: '/markets',
-  PORTFOLIO: '/portfolio',
+  PORTFOLIO: '/stellar/portfolio',
   SETTINGS: '/settings',
 } as const;
 

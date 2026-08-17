@@ -1,8 +1,9 @@
 import * as StellarSdk from '@stellar/stellar-sdk';
+
+import { getAssetBySymbol, getGlobalAssetMetadata } from '../../../evm/utils/Chainregistry';
+import { getStellarConfig } from '../../config/chains';
 import { type Asset } from '../../store/portfolioStore';
 import { type IPortfolioProvider, type PortfolioFetchParams } from '../types';
-import { getStellarConfig } from '../../config/chains';
-import { getAssetBySymbol, getGlobalAssetMetadata } from '../../../evm/utils/Chainregistry';
 
 export class StellarPortfolioProvider implements IPortfolioProvider {
   public id = 'stellar';
@@ -30,7 +31,10 @@ export class StellarPortfolioProvider implements IPortfolioProvider {
         const globalMeta = !registryAsset ? getGlobalAssetMetadata(symbol) : undefined;
 
         const name = registryAsset?.name || symbol;
-        const image = registryAsset?.logoURI || globalMeta?.logoURI || `https://ui-avatars.com/api/?name=${symbol}&background=random`;
+        const image =
+          registryAsset?.logoURI ||
+          globalMeta?.logoURI ||
+          `https://ui-avatars.com/api/?name=${symbol}&background=random`;
 
         assets.push({
           id: isNative ? 'stellar-XLM' : `stellar-${symbol}-${issuer}`,
@@ -50,9 +54,12 @@ export class StellarPortfolioProvider implements IPortfolioProvider {
       }
 
       return assets;
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.response?.status === 404 || error?.status === 404) {
+        return [];
+      }
       console.error('[StellarPortfolioProvider] Failed to fetch Stellar portfolio:', error);
-      throw error;
+      return [];
     }
   }
 }

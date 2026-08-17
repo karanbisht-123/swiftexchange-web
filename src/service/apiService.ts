@@ -1,3 +1,4 @@
+import { useWalletStore } from '../modules/walletconnect/store/walletConnectStore';
 import type { ApiResponse } from '../types/evm/apiResponse.type';
 import {
   GAS_TTL,
@@ -12,8 +13,6 @@ import {
   writeLocalCache,
 } from './apiCache';
 import { API_CONFIG } from './apiConfig';
-
-
 
 async function fetchWithRetry(
   url: string,
@@ -50,9 +49,11 @@ async function parseError(res: Response): Promise<string> {
 }
 
 function makeHeaders(extra?: Record<string, string>): Record<string, string> {
+  const token = API_CONFIG.deviceAuth;
   return {
     'Content-Type': 'application/json',
-    'x-auth-device-token': API_CONFIG.deviceAuth,
+    'x-auth-device-token': token,
+    Authorization: token ? `Bearer ${token}` : '',
     ...extra,
   };
 }
@@ -62,7 +63,7 @@ async function parseBody<T>(res: Response): Promise<T> {
   if (!text) return {} as T;
   try {
     return JSON.parse(text) as T;
-  } catch (err) {
+  } catch {
     throw new Error(text);
   }
 }
@@ -151,7 +152,6 @@ export async function fetchStellarPnl(
   includeExcel: boolean = false
 ): Promise<unknown> {
   const token = API_CONFIG.deviceJwt;
-  if (!token) return null;
 
   const key = `${address}_${from}_${to}_${includeExcel}`;
 
@@ -162,17 +162,46 @@ export async function fetchStellarPnl(
 
   const promise = (async () => {
     const summary = !includeExcel;
-    const url = `/pnl?address=${address}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&nocache=true&summary=${summary}&excel=${includeExcel}`;
+    const connectedWallets = useWalletStore.getState().connectedWallets;
+    const stellarWallet = connectedWallets.stellar;
+    const evmWallet = connectedWallets.evm;
+    const isOwnAddress =
+      stellarWallet?.address && stellarWallet.address.toLowerCase() === address.toLowerCase();
+
+    // Only use the authenticated route if both EVM and Stellar are connected,
+    // we have a token, AND the address belongs to the connected Stellar wallet.
+    const useAuthRoute = Boolean(token && isOwnAddress && evmWallet?.address);
+
+    const basePath = useAuthRoute ? '/pnl' : '/pnl-public';
+    const url = `${basePath}?address=${address}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&nocache=true&summary=${summary}&excel=${includeExcel}`;
+
+    const headers: Record<string, string> = {};
+    if (useAuthRoute) {
+      headers['x-auth-device-token'] = token;
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
     const res = await fetchWithRetry(url, {
       method: 'GET',
-      headers: {
-        'x-auth-device-token': token,
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
     });
 
-    if (!res.ok) throw new Error(`Stellar PNL error: ${res.statusText}`);
+    if (!res.ok) {
+      let errorMsg = `Stellar PNL error: ${res.statusText}`;
+      try {
+        const errorData = await parseBody<any>(res);
+        if (errorData && typeof errorData === 'object' && errorData.error) {
+          errorMsg = errorData.error;
+        } else if (typeof errorData === 'string') {
+          errorMsg = errorData;
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message) {
+          errorMsg = e.message;
+        }
+      }
+      throw new Error(errorMsg);
+    }
     const data = await parseBody<unknown>(res);
     setPnlCache(key, data);
     return data;

@@ -15,50 +15,14 @@ import {
   type NearIntentQuoteRequest,
   type NearIntentToken,
   fetchNearIntentTokens,
+  getEvmChainId,
   getNearIntentQuote,
   isStellarBlockchain,
+  safeParseUnits,
   submitNearIntentDeposit,
 } from '../services/oneClickApi';
 
-const BLOCKCHAIN_TO_CHAIN_ID: Record<string, number> = {
-  ethereum: 1,
-  eth: 1,
-  arbitrum: 42161,
-  arb: 42161,
-  polygon: 137,
-  pol: 137,
-  matic: 137,
-  bsc: 56,
-  'binance-smart-chain': 56,
-  bnb: 56,
-  base: 8453,
-  optimism: 10,
-  op: 10,
-  avalanche: 43114,
-  avax: 43114,
-  fantom: 250,
-  ftm: 250,
-  gnosis: 100,
-  xdai: 100,
-  celo: 42220,
-  zksync: 324,
-  'zksync-era': 324,
-  linea: 59144,
-  scroll: 534352,
-  mantle: 5000,
-};
-
-export function getEvmChainId(token: NearIntentToken): number | null {
-  const fromField = BLOCKCHAIN_TO_CHAIN_ID[token.blockchain?.toLowerCase() ?? ''];
-  if (fromField) return fromField;
-
-  const match = token.assetId.match(/nep141:([a-z]+)-0x/);
-  if (match) {
-    const fromPrefix = BLOCKCHAIN_TO_CHAIN_ID[match[1]];
-    if (fromPrefix) return fromPrefix;
-  }
-  return (findChain(token.blockchain, 'mainnet')?.chainId as number) ?? null;
-}
+export { getEvmChainId };
 
 export interface UseNearIntentCrossChainProps {
   evmAddress: string;
@@ -277,42 +241,61 @@ export const useNearIntentCrossChain = ({
           const sellAddress = sellAsset.contractAddress || '';
           let txHashResultHex = '';
           const fromAddr = (await signer.getAddress()).toLowerCase();
-          const amountInWei = ethers.parseUnits(amount, sellAsset.decimals || 18);
+          const amountInWei = BigInt(safeParseUnits(amount, sellAsset.decimals || 18));
+
+          const txParams: any = {
+            from: fromAddr,
+          };
 
           if (
             !sellAddress ||
             sellAddress.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
           ) {
-            const txHex = await provider.request({
-              method: 'eth_sendTransaction',
-              params: [
-                {
-                  from: fromAddr,
-                  to: depositAddr,
-                  value: '0x' + amountInWei.toString(16),
-                },
-              ],
-            });
-            txHashResultHex = txHex;
+            txParams.to = depositAddr;
+            txParams.value = '0x' + amountInWei.toString(16);
           } else {
             const erc20Abi = [
               'function transfer(address to, uint256 amount) public returns (bool)',
             ];
             const iface = new ethers.Interface(erc20Abi);
             const data = iface.encodeFunctionData('transfer', [depositAddr, amountInWei]);
-
-            const txHex = await provider.request({
-              method: 'eth_sendTransaction',
-              params: [
-                {
-                  from: fromAddr,
-                  to: sellAddress,
-                  data,
-                },
-              ],
-            });
-            txHashResultHex = txHex;
+            txParams.to = sellAddress;
+            txParams.data = data;
           }
+
+          try {
+            const chainConfig = findChain(sellAsset.blockchain, 'mainnet');
+            const rpcUrl = chainConfig?.rpcUrls?.[0] || chainConfig?.rpcUrl;
+            if (rpcUrl) {
+              const publicProvider = new ethers.JsonRpcProvider(rpcUrl);
+              const feeData = await publicProvider.getFeeData();
+              if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
+                // EIP-1559 networks (Polygon, Ethereum, etc)
+                // Add a 10% buffer to maxFeePerGas to prevent "below minimum" spikes
+                const bufferedMaxFee = (feeData.maxFeePerGas * 110n) / 100n;
+                // Add a small buffer to priority fee as well, ensuring it meets network demands
+                const bufferedPriority = (feeData.maxPriorityFeePerGas * 110n) / 100n;
+
+                txParams.maxFeePerGas = '0x' + bufferedMaxFee.toString(16);
+                txParams.maxPriorityFeePerGas = '0x' + bufferedPriority.toString(16);
+              } else if (feeData.gasPrice) {
+                // Legacy networks
+                const bufferedGasPrice = (feeData.gasPrice * 110n) / 100n;
+                txParams.gasPrice = '0x' + bufferedGasPrice.toString(16);
+              }
+            }
+          } catch (feeErr) {
+            console.warn(
+              '[NEAR Intents] Failed to fetch live fee data, relying on wallet default:',
+              feeErr
+            );
+          }
+
+          const txHex = await provider.request({
+            method: 'eth_sendTransaction',
+            params: [txParams],
+          });
+          txHashResultHex = txHex;
           txHashResult = txHashResultHex;
         }
 
@@ -330,15 +313,19 @@ export const useNearIntentCrossChain = ({
         // Add console log to satisfy the user's request to see the error/rejection in the console
         console.log('[InterSwap] Transaction result/error:', err);
 
+        const hasNestedRpcError =
+          /processing response error|jsonrpc|error=|execution reverted|gas price/.test(msg);
+
         const rejected =
-          err?.code === 4001 ||
-          err?.code === 'ACTION_REJECTED' ||
-          msg.includes('user rejected') ||
-          msg.includes('user denied') ||
-          msg.includes('user cancelled') ||
-          msg.includes('rejected by user') ||
-          msg.includes('signing/submission failed or was cancelled') ||
-          msg.includes('cancelled');
+          !hasNestedRpcError &&
+          (err?.code === 4001 ||
+            err?.code === 'ACTION_REJECTED' ||
+            msg.includes('user rejected') ||
+            msg.includes('user denied') ||
+            msg.includes('user cancelled') ||
+            msg.includes('rejected by user') ||
+            msg.includes('signing/submission failed or was cancelled') ||
+            msg.includes('cancelled'));
 
         if (rejected) {
           setError(null);

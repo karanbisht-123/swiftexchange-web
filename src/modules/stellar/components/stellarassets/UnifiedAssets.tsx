@@ -3,6 +3,7 @@ import React, { useMemo, useState } from 'react';
 
 import { ConfirmationModal } from '../../../../components/common/ConfirmationModal';
 import { useTransactionModalStore } from '../../../../store/transactionModalStore';
+import { ActionGuard } from '../../../commonfeature/components/ActionGuard';
 import { addLocalTransaction } from '../../../evm/service/localTransactionService';
 import * as ChainUrlHelpers from '../../../evm/utils/ChainUrlHelpers';
 import { getAssetsForChain, getChainById } from '../../../evm/utils/Chainregistry';
@@ -23,6 +24,7 @@ import {
 interface UnifiedAssetsProps {
   userAddress?: string;
   onAssetClick: (asset: AssetClickPayload) => void;
+  onlyTrusted?: boolean;
 }
 
 interface DisplayAsset {
@@ -47,7 +49,11 @@ interface AssetClickPayload {
   name?: string;
 }
 
-const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick }) => {
+const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({
+  userAddress,
+  onAssetClick,
+  onlyTrusted,
+}) => {
   const { connectedWallets, getProvider } = useWalletConnect();
   const currentNetwork = useWalletStore(state => state.network);
   const stellarAddress = connectedWallets[WalletType.STELLAR]?.address || userAddress || '';
@@ -69,8 +75,8 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
     const stellarChain = getChainById('pubnet');
 
     balances.forEach((b: any) => {
-      const code = b.asset_type === 'native' ? 'XLM' : b.asset_code;
-      const issuer = b.asset_type === 'native' ? '' : b.asset_issuer;
+      const code = b.asset_type === 'native' ? 'XLM' : b.asset_code || 'Unknown';
+      const issuer = b.asset_type === 'native' ? '' : b.asset_issuer || '';
       const key = getAssetKey(code, issuer);
       const registryAsset = stellarChain?.assets.find(
         a => a.symbol === code && (a.address === issuer || issuer === '')
@@ -107,12 +113,16 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
       }
     });
 
-    return Array.from(assetsMap.values()).sort((a, b) => {
+    let list = Array.from(assetsMap.values());
+    if (onlyTrusted) {
+      list = list.filter(a => a.isTrusted);
+    }
+    return list.sort((a, b) => {
       if (a.isTrusted !== b.isTrusted) return a.isTrusted ? -1 : 1;
       if (a.code !== b.code) return a.code.localeCompare(b.code);
       return a.issuer.localeCompare(b.issuer);
     });
-  }, [balances]);
+  }, [balances, onlyTrusted]);
 
   const { displayedAssets, searchLoading } = useAssetSearch({
     allAssets,
@@ -260,12 +270,14 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
                           e.currentTarget.style.display = 'none';
                           const parent = e.currentTarget.parentElement;
                           if (parent) {
-                            parent.innerHTML = `<span class="font-bold text-xs text-primary">${asset.code[0]}</span>`;
+                            parent.innerHTML = `<span class="font-bold text-xs text-primary">${asset.code?.[0] || '?'}</span>`;
                           }
                         }}
                       />
                     ) : (
-                      <span className="font-bold text-xs text-primary">{asset.code[0]}</span>
+                      <span className="font-bold text-xs text-primary">
+                        {asset.code?.[0] || '?'}
+                      </span>
                     )}
                   </div>
 
@@ -305,20 +317,25 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({ userAddress, onAssetClick
                           </div>
                         </div>
                         {parseFloat(asset.balance) === 0 && asset.type !== 'native' ? (
-                          <button
-                            onClick={e => {
-                              e.stopPropagation();
-                              setConfirmModal({ isOpen: true, type: 'remove', asset });
-                            }}
-                            disabled={isProcessing}
-                            className="p-1.5 text-muted/50 hover:text-danger hover:bg-danger/10 rounded-md transition-colors active:scale-95"
+                          <ActionGuard
+                            requiredWallets={[WalletType.STELLAR]}
+                            title="Connect Wallet"
                           >
-                            {isProcessing ? (
-                              <Loader2 size={14} className="animate-spin text-primary" />
-                            ) : (
-                              <Trash2 size={14} />
-                            )}
-                          </button>
+                            <button
+                              onClick={e => {
+                                e.stopPropagation();
+                                setConfirmModal({ isOpen: true, type: 'remove', asset });
+                              }}
+                              disabled={isProcessing}
+                              className="p-1.5 text-muted/50 hover:text-danger hover:bg-danger/10 rounded-md transition-colors active:scale-95"
+                            >
+                              {isProcessing ? (
+                                <Loader2 size={14} className="animate-spin text-primary" />
+                              ) : (
+                                <Trash2 size={14} />
+                              )}
+                            </button>
+                          </ActionGuard>
                         ) : (
                           <ChevronRight size={14} className="text-muted/30" />
                         )}

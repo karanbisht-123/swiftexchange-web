@@ -288,7 +288,7 @@ export const STR = {
     {
       name: 'USD Coin',
       symbol: 'USDC',
-      address: 'USDC',
+      address: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       chainId: 'pubnet',
       decimals: 7,
       logoURI:
@@ -634,11 +634,11 @@ export const CHAINS: Record<string, IChain> = {
       logoURI: DYDX.imageUrl,
     },
     bridgeSupportTokens: DYDX.bridgeSupportTokens,
-    sendEnable: true,
-    receiveEnable: true,
+    sendEnable: false,
+    receiveEnable: false,
     bridgeEnable: false,
     swapEnable: false,
     importForSetupApp: false,
-    importForSetupedApp: true,
+    importForSetupedApp: false,
   },
 };

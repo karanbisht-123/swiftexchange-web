@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 
 import PageLayout from '../../../../components/layout/PageLayout';
+import StellarActiveGuard from '../../../walletconnect/components/StellarActiveGuard';
 import { WalletType } from '../../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import UnifiedAssets from './UnifiedAssets';
@@ -23,7 +24,9 @@ const AssetManager: React.FC = () => {
       isBeta
       betaMessage="This feature is currently in Beta. We're actively testing and improving it."
     >
-      <UnifiedAssets userAddress={stellarAddress} onAssetClick={handleAssetClick} />
+      <StellarActiveGuard requireConnected={false}>
+        <UnifiedAssets userAddress={stellarAddress} onAssetClick={handleAssetClick} />
+      </StellarActiveGuard>
     </PageLayout>
   );
 };

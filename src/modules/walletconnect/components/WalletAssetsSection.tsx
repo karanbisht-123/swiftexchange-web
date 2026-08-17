@@ -18,6 +18,7 @@ import { ROUTES } from '../../../constants/routes';
 import { DydxDepositModal } from '../../dydx/components/DydxDepositModal';
 import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
 import { useWalletAssets } from '../hooks/useWalletAssets';
+import { useWalletConnect } from '../hooks/useWalletConnect';
 import { type Asset } from '../store/portfolioStore';
 import type { ProviderStatus } from '../store/portfolioStore';
 import { useWalletStore } from '../store/walletConnectStore';
@@ -25,7 +26,6 @@ import { portfolioUtils } from '../utils/portfolioUtils';
 
 const ROW_HEIGHT = 76;
 
-/** Returns a compact human-readable "2m ago" / "1h ago" string for a Unix ms timestamp */
 const formatRelativeTime = (ms: number): string => {
   const diff = Math.max(0, Date.now() - ms);
   const secs = Math.floor(diff / 1000);
@@ -36,17 +36,13 @@ const formatRelativeTime = (ms: number): string => {
   return `${hrs}h ago`;
 };
 
-/** Maps provider id to a human-readable chain label */
+// Maps provider id to a human-readable chain label
 const PROVIDER_LABELS: Record<string, string> = {
   evm: 'EVM',
   stellar: 'Stellar',
   dydx: 'dYdX',
 };
 
-/**
- * Renders compact per-provider stale banners.
- * Only shown when a provider's last refresh failed but old cached data is still in the store.
- */
 const ProviderStaleBanners = ({
   providerStatus,
   onRetry,
@@ -535,6 +531,7 @@ const SkeletonRows = () => (
 const WalletAssetsSection = () => {
   const navigate = useNavigate();
   const { network } = useWalletStore();
+  const { connectedWallets, openModal } = useWalletConnect();
   const {
     assets,
     loading,
@@ -545,6 +542,11 @@ const WalletAssetsSection = () => {
     providerStatus,
     refetch,
   } = useWalletAssets(network);
+
+  const hasAnyConnectedWallet = useMemo(
+    () => Object.values(connectedWallets).some(w => !!w?.address),
+    [connectedWallets]
+  );
 
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
@@ -578,19 +580,20 @@ const WalletAssetsSection = () => {
   );
 
   const handlePerp = useCallback(
-    (asset: Asset) => {
-      if (asset.chainType === 'dydx') {
-        navigate(ROUTES.TRADING_DYDX_FUTURES);
+    (_asset: Asset) => {
+      // if (_asset.chainType === 'dydx') {
+      //   navigate(ROUTES.TRADING_DYDX_FUTURES);
+      //   return;
+      // }
+      if (_asset.chainType === 'stellar') {
+        navigate(`${ROUTES.TRADING_EVM_SWAP}?asset=${_asset.symbol}`);
         return;
       }
-      if (asset.chainType === 'stellar') {
-        navigate(`${ROUTES.TRADING_EVM_SWAP}?asset=${asset.symbol}`);
-        return;
-      }
-      setSelectedAsset(asset);
-      setIsDepositModalOpen(true);
+      // setSelectedAsset(_asset);
+      // setIsDepositModalOpen(true);
+      navigate(ROUTES.TRADING_PERPS);
     },
-    [navigate, ROUTES.TRADING_DYDX_FUTURES]
+    [navigate]
   );
 
   const handleCloseDepositModal = useCallback(() => {
@@ -648,7 +651,7 @@ const WalletAssetsSection = () => {
           </div>
 
           {/* Right Side: Refresh & Navigation Link */}
-          <div className="flex flex-col items-end justify-between shrink-0 pl-2 min-h-[58px]">
+          <div className="flex flex-col items-end justify-center shrink-0 pl-2 min-h-[58px]">
             <button
               onClick={refetch}
               disabled={loading || isRefreshing}
@@ -657,17 +660,6 @@ const WalletAssetsSection = () => {
             >
               <RefreshCw size={15} className={isRefreshing ? 'animate-spin' : ''} />
             </button>
-            <div
-              onClick={() => navigate(ROUTES.MY_ASSETS)}
-              className="group flex items-center gap-0.5 text-[10px] sm:text-xs font-bold uppercase tracking-wider text-brand hover:text-brand-hover cursor-pointer transition-colors duration-200"
-              title="View full portfolio analytics and trading history"
-            >
-              <span>Detailed Portfolio</span>
-              <ArrowUpRight
-                size={12}
-                className="shrink-0 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 text-brand"
-              />
-            </div>
           </div>
         </div>
         {/* ── Body ── */}
@@ -695,18 +687,34 @@ const WalletAssetsSection = () => {
               <div className="w-16 h-16 rounded-full bg-tertiary flex items-center justify-center mx-auto mb-4">
                 <Wallet size={28} className="text-muted opacity-40" />
               </div>
-              <p className="font-medium text-primary mb-1">No assets</p>
-              <p className="text-sm text-muted mb-4">Your wallet has no balances yet.</p>
-              <button
-                onClick={() => navigate(ROUTES.MY_ASSETS)}
-                className="group inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-primary font-bold text-xs uppercase tracking-wider bg-secondary border border-color hover:bg-hover active:scale-95 transition-all duration-200 cursor-pointer mx-auto shadow-sm"
-              >
-                <span>View Full Portfolio</span>
-                <ArrowUpRight
-                  size={14}
-                  className="text-muted group-hover:text-primary transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 shrink-0"
-                />
-              </button>
+              <p className="font-medium text-primary mb-1">
+                {hasAnyConnectedWallet ? 'No assets' : 'Connect Wallet to View Assets'}
+              </p>
+              <p className="text-sm text-muted mb-4 max-w-xs mx-auto">
+                {hasAnyConnectedWallet
+                  ? 'Your wallet has no balances yet.'
+                  : 'Connect your EVM or Stellar wallet to view balances, track your portfolio, and trade.'}
+              </p>
+              {hasAnyConnectedWallet ? (
+                <button
+                  onClick={() => navigate(ROUTES.MY_ASSETS)}
+                  className="group inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-primary font-bold text-xs uppercase tracking-wider bg-secondary border border-color hover:bg-hover active:scale-95 transition-all duration-200 cursor-pointer mx-auto shadow-sm"
+                >
+                  <span>View Full Portfolio</span>
+                  <ArrowUpRight
+                    size={14}
+                    className="text-muted group-hover:text-primary transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 shrink-0"
+                  />
+                </button>
+              ) : (
+                <button
+                  onClick={openModal}
+                  className="btn btn-primary px-6 py-2.5 rounded-xl font-bold text-sm inline-flex items-center gap-2"
+                >
+                  <Wallet size={16} />
+                  Connect Wallet
+                </button>
+              )}
             </div>
           ) : (
             <div className="w-full h-[71svh] lg:h-[65svh] pt-1">

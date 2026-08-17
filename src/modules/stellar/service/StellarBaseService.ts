@@ -112,26 +112,39 @@ export class StellarBaseService {
       console.warn(error, 'Could not load balances, using zero balances');
     }
 
-    const registryTokens: TokenInfo[] = chainConfig.assets.map(a => {
-      const asset =
-        a.type === 'NATIVE' ? StellarSDK.Asset.native() : new StellarSDK.Asset(a.symbol, a.address);
+    const registryTokens: TokenInfo[] = chainConfig.assets
+      .map(a => {
+        const isNative =
+          a.type === 'NATIVE' || a.symbol === 'XLM' || a.address === 'native' || !a.address;
 
-      const balRecord = balances.find(b => this.assetsEqual(b.asset, asset));
+        let asset: StellarSDK.Asset;
+        try {
+          asset = isNative ? StellarSDK.Asset.native() : new StellarSDK.Asset(a.symbol, a.address);
+        } catch {
+          try {
+            asset = StellarSDK.Asset.native();
+          } catch {
+            return null as any;
+          }
+        }
 
-      return {
-        asset,
-        code: a.symbol,
-        issuer: a.type === 'NATIVE' ? undefined : a.address,
-        balance: balRecord?.balance || '0',
-        name: a.name,
-        icon: a.logoURI,
-        decimals: a.decimals,
-        isPopular: true,
-        hasTrustline: a.type === 'NATIVE' || !!balRecord,
-        homeDomain: a.domain || (a.type === 'NATIVE' ? 'stellar.org' : undefined),
-        domain: a.domain || (a.type === 'NATIVE' ? 'stellar.org' : undefined),
-      };
-    });
+        const balRecord = balances.find(b => this.assetsEqual(b.asset, asset));
+
+        return {
+          asset,
+          code: a.symbol,
+          issuer: isNative ? undefined : a.address,
+          balance: balRecord?.balance || '0',
+          name: a.name,
+          icon: a.logoURI,
+          decimals: a.decimals,
+          isPopular: true,
+          hasTrustline: isNative || !!balRecord,
+          homeDomain: a.domain || (isNative ? 'stellar.org' : undefined),
+          domain: a.domain || (isNative ? 'stellar.org' : undefined),
+        };
+      })
+      .filter(Boolean);
 
     const otherTokens = balances.filter(
       b => !registryTokens.some(rt => this.assetsEqual(rt.asset, b.asset))

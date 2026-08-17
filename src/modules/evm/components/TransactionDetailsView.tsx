@@ -60,6 +60,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
   const txProvider = (transaction as any).provider;
   const isFusion = txProvider === 'ONEINCH_FUSION' || txProvider === 'ONEINCH_FUSION_PLUS';
   const isAllbridge = txProvider === 'ALLBRIDGE' || txProvider === 'SRBTODYDX';
+  const isNearIntent = txProvider === 'NEARINTENT';
 
   const isLocal = 'type' in transaction;
   const isBackendOrder = (transaction as any).isBackendOrder;
@@ -123,9 +124,11 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
     }
   }
 
-  const explorerLinkUrl = isAllbridge
-    ? `https://core.allbridge.io/explorer?search=${transaction.hash}`
-    : getExplorerUrl(chainId, 'tx', displayHash);
+  const explorerLinkUrl = isNearIntent
+    ? `https://explorer.near-intents.org/transactions/${transaction.hash}`
+    : isAllbridge
+      ? `https://core.allbridge.io/explorer?search=${transaction.hash}`
+      : getExplorerUrl(chainId, 'tx', displayHash);
   const timestamp = isLocal
     ? (transaction as LocalTransactionWithStatus).timestamp
     : (transaction as TransactionItem).metadata?.blockTimestamp

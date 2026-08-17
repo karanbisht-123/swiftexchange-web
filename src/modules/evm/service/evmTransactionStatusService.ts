@@ -1,5 +1,4 @@
 import { fetchApiResponseFromProxy } from '../../../service/apiService';
-
 import { parseSwapError } from '../utils/swapErrorHandler';
 
 export interface TransactionStatusRequest {
@@ -14,27 +13,30 @@ export interface StoreSwapOrderRequest {
   provider: string;
 
   fromChain: string;
+  fromAddress?: string;
   fromToken: string;
 
   toChain: string;
+  toAddress?: string;
   toToken: string;
 
   amountIn: string;
   amountOut: string;
 
-  /** Shared group key linking the bridge order and its deposit order. */
-  requestId?: string;
+  memo?: string;
+  usdValue?: number;
 
+  requestId?: string;
   quoteId?: string;
 
   txType?:
-  | 'Native Transfer'
-  | 'Token Transfer'
-  | 'Token Approval'
-  | 'Swap'
-  | 'Bridge'
-  | 'Contract Call'
-  | 'Unknown';
+    | 'Native Transfer'
+    | 'Token Transfer'
+    | 'Token Approval'
+    | 'Swap'
+    | 'Bridge'
+    | 'Contract Call'
+    | 'Unknown';
 }
 
 export interface StoreSwapOrderResponse {
@@ -119,49 +121,33 @@ export interface SwapOrdersResponse {
 }
 
 // Chain alias mapping
-const CHAIN_ALIAS_MAP: Record<
-  string,
-  string
-> = {
+const CHAIN_ALIAS_MAP: Record<string, string> = {
   BNB: 'BSC',
 };
 
 // Normalize chain name
-function normalizeChain(
-  chain: string
-): string {
-  return (
-    CHAIN_ALIAS_MAP[
-    chain.toUpperCase()
-    ] ?? chain
-  );
+function normalizeChain(chain: string): string {
+  return CHAIN_ALIAS_MAP[chain.toUpperCase()] ?? chain;
 }
 
 // Get transaction status
-export async function getTransactionStatus(
-  payload: TransactionStatusRequest
-): Promise<any> {
+export async function getTransactionStatus(payload: TransactionStatusRequest): Promise<any> {
   try {
-    const res =
-      await fetchApiResponseFromProxy<any>(
-        '/swapOrders/bridgeOrderStatus',
-        'POST',
-        payload
-      );
+    const res = await fetchApiResponseFromProxy<any>(
+      '/swapOrders/bridgeOrderStatus',
+      'POST',
+      payload
+    );
 
-    const data =
-      res.data?.data || res.data;
+    const data = res.data?.data || res.data;
 
     if (!data) {
-      throw new Error(
-        'Failed to fetch transaction status'
-      );
+      throw new Error('Failed to fetch transaction status');
     }
 
     return data;
   } catch (error: any) {
-    const message =
-      parseSwapError(error);
+    const message = parseSwapError(error);
 
     throw new Error(message);
   }
@@ -173,41 +159,31 @@ export async function storeSwapOrder(
 ): Promise<StoreSwapOrderResponse> {
   try {
     // Normalize chain names
-    const normalizedPayload: StoreSwapOrderRequest =
-    {
+    const normalizedPayload: StoreSwapOrderRequest = {
       ...payload,
 
-      fromChain: normalizeChain(
-        payload.fromChain
-      ),
+      fromChain: normalizeChain(payload.fromChain),
 
-      toChain: normalizeChain(
-        payload.toChain
-      ),
+      toChain: normalizeChain(payload.toChain),
     };
 
-    const res =
-      await fetchApiResponseFromProxy<any>(
-        '/swapOrders/store',
-        'POST',
-        normalizedPayload,
-        1, // retries
-        true // keepalive
-      );
+    const res = await fetchApiResponseFromProxy<any>(
+      '/swapOrders/store',
+      'POST',
+      normalizedPayload,
+      1, // retries
+      true // keepalive
+    );
 
-    const data =
-      res.data?.data || res.data;
+    const data = res.data?.data || res.data;
 
     if (!data) {
-      throw new Error(
-        'Failed to store swap order'
-      );
+      throw new Error('Failed to store swap order');
     }
 
     return data;
   } catch (error: any) {
-    const message =
-      parseSwapError(error);
+    const message = parseSwapError(error);
 
     throw new Error(message);
   }
@@ -220,25 +196,20 @@ export async function getSwapOrdersByWallet(
   limit: number = 10
 ): Promise<SwapOrdersResponse> {
   try {
-    const res =
-      await fetchApiResponseFromProxy<any>(
-        `/swapOrders/orderByWallet?address=${address}&limit=${limit}&page=${page}`,
-        'GET'
-      );
+    const res = await fetchApiResponseFromProxy<any>(
+      `/swapOrders/orderByWallet?address=${address}&limit=${limit}&page=${page}`,
+      'GET'
+    );
 
-    const data =
-      res.data?.data || res.data;
+    const data = res.data?.data || res.data;
 
     if (!data) {
-      throw new Error(
-        'Failed to fetch swap orders'
-      );
+      throw new Error('Failed to fetch swap orders');
     }
 
     return data;
   } catch (error: any) {
-    const message =
-      parseSwapError(error);
+    const message = parseSwapError(error);
 
     throw new Error(message);
   }
@@ -250,30 +221,19 @@ export interface UpdateSwapOrderStatusRequest {
 }
 
 // Update swap order status
-export async function updateSwapOrderStatus(
-  payload: UpdateSwapOrderStatusRequest
-): Promise<any> {
+export async function updateSwapOrderStatus(payload: UpdateSwapOrderStatusRequest): Promise<any> {
   try {
-    const res =
-      await fetchApiResponseFromProxy<any>(
-        '/swapOrders/updateStatus',
-        'PUT',
-        payload
-      );
+    const res = await fetchApiResponseFromProxy<any>('/swapOrders/updateStatus', 'PUT', payload);
 
-    const data =
-      res.data?.data || res.data;
+    const data = res.data?.data || res.data;
 
     if (!data) {
-      throw new Error(
-        'Failed to update swap order status'
-      );
+      throw new Error('Failed to update swap order status');
     }
 
     return data;
   } catch (error: any) {
-    const message =
-      parseSwapError(error);
+    const message = parseSwapError(error);
 
     throw new Error(message);
   }

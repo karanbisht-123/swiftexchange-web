@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 
+import { getCosmosChains, getEVMChains, getStellarConfig } from '../config/chains';
 import { WalletType } from '../constants/Wallet';
 import { walletService } from '../services/walletService';
 import {
@@ -8,7 +9,6 @@ import {
   selectIsAnyWalletConnected,
   useWalletStore,
 } from '../store/walletConnectStore';
-import { getEVMChains, getCosmosChains, getStellarConfig } from '../config/chains';
 
 export const useWalletConnect = () => {
   const connectedWallets = useWalletStore(state => state.connectedWallets);
@@ -17,6 +17,17 @@ export const useWalletConnect = () => {
   const network = useWalletStore(state => state.network);
   const isRestoringSession = useWalletStore(state => state.isRestoringSession);
   const session = useWalletStore(state => state.session);
+
+  const isAuthenticated = useWalletStore(state => state.isAuthenticated);
+  const isAuthenticating = useWalletStore(state => state.isAuthenticating);
+  const authError = useWalletStore(state => state.authError);
+  const authenticatedChain = useWalletStore(state => state.authenticatedChain);
+  const linkedChains = useWalletStore(state => state.linkedChains);
+  const tradingAuthEnabled = useWalletStore(state => state.tradingAuthEnabled);
+  const setTradingAuthEnabled = useWalletStore(state => state.setTradingAuthEnabled);
+  const authenticateEvm = useWalletStore(state => state.authenticateEvm);
+  const authenticateStellar = useWalletStore(state => state.authenticateStellar);
+  const logoutAuth = useWalletStore(state => state.logoutAuth);
 
   const connectWallet = useWalletStore(state => state.connectWallet);
   const connectUnified = useWalletStore(state => state.connectUnified);
@@ -75,6 +86,17 @@ export const useWalletConnect = () => {
     isRestoringSession,
     session,
 
+    isAuthenticated,
+    isAuthenticating,
+    authError,
+    authenticatedChain,
+    linkedChains,
+    tradingAuthEnabled,
+    setTradingAuthEnabled,
+    authenticateEvm,
+    authenticateStellar,
+    logoutAuth,
+
     isAnyWalletConnected,
     connectedCount,
     activeSessions,
@@ -118,31 +140,16 @@ export const useEVMWallet = () => {
 
   const connect = useCallback(
     async (walletId: string) => {
-      console.log(`[UI] User initiated EVM connection for ${walletId}`);
-      try {
-        await connectWallet('evm', walletId);
-        console.log(`[UI] EVM connection successful for ${walletId}`);
-      } catch (error: any) {
-        console.error(`[UI] EVM connection failed for ${walletId}:`, {
-          message: error.message,
-          stack: error.stack,
-        });
-        throw error;
-      }
+      await connectWallet('evm', walletId);
     },
     [connectWallet]
   );
 
   const disconnectWallet = useCallback(async () => {
-    console.log('[UI] User initiated EVM disconnect');
     try {
       await disconnect('evm');
-      console.log('[UI] EVM disconnected successfully');
     } catch (error: any) {
-      console.error('[UI] EVM disconnect failed:', {
-        message: error.message,
-        stack: error.stack,
-      });
+      console.error(error);
     }
   }, [disconnect]);
 
@@ -178,31 +185,16 @@ export const useCosmosWallet = () => {
 
   const connect = useCallback(
     async (walletId: string) => {
-      console.log(`[UI] User initiated Cosmos connection for ${walletId}`);
-      try {
-        await connectWallet('cosmos', walletId);
-        console.log(`[UI] Cosmos connection successful for ${walletId}`);
-      } catch (error: any) {
-        console.error(`[UI] Cosmos connection failed for ${walletId}:`, {
-          message: error.message,
-          stack: error.stack,
-        });
-        throw error;
-      }
+      await connectWallet('cosmos', walletId);
     },
     [connectWallet]
   );
 
   const disconnectWallet = useCallback(async () => {
-    console.log('[UI] User initiated Cosmos disconnect');
     try {
       await disconnect('cosmos');
-      console.log('[UI] Cosmos disconnected successfully');
     } catch (error: any) {
-      console.error('[UI] Cosmos disconnect failed:', {
-        message: error.message,
-        stack: error.stack,
-      });
+      console.error(error);
     }
   }, [disconnect]);
 
@@ -237,31 +229,16 @@ export const useStellarWallet = () => {
 
   const connect = useCallback(
     async (walletId: string) => {
-      console.log(`[UI] User initiated Stellar connection for ${walletId}`);
-      try {
-        await connectWallet('stellar', walletId);
-        console.log(`[UI] Stellar connection successful for ${walletId}`);
-      } catch (error: any) {
-        console.error(`[UI] Stellar connection failed for ${walletId}:`, {
-          message: error.message,
-          stack: error.stack,
-        });
-        throw error;
-      }
+      await connectWallet('stellar', walletId);
     },
     [connectWallet]
   );
 
   const disconnectWallet = useCallback(async () => {
-    console.log('[UI] User initiated Stellar disconnect');
     try {
       await disconnect('stellar');
-      console.log('[UI] Stellar disconnected successfully');
     } catch (error: any) {
-      console.error('[UI] Stellar disconnect failed:', {
-        message: error.message,
-        stack: error.stack,
-      });
+      console.error(error);
     }
   }, [disconnect]);
 
@@ -361,7 +338,7 @@ export const useApiTradingKeys = () => {
       try {
         await _generate(label);
       } catch (err) {
-        console.log(err, "[usewaelectconnect] => key genration error")
+        console.log(err, '[usewalletconnect] => key generation error');
       }
     },
     [_generate]
@@ -372,7 +349,7 @@ export const useApiTradingKeys = () => {
       try {
         await _revoke(id);
       } catch (err) {
-        console.log(err, "[usewaelectconnect] => revoker id error")
+        console.log(err, '[usewalletconnect] => revoke id error');
       }
     },
     [_revoke]

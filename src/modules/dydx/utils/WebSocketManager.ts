@@ -162,6 +162,11 @@ class WebSocketManager {
   };
 
   async connect(wsUrl: string): Promise<void> {
+    const ENABLED = false;
+    if (!ENABLED) {
+      return Promise.resolve();
+    }
+
     if (this.currentWsUrl === wsUrl && this.ws?.readyState === WebSocket.OPEN) {
       return Promise.resolve();
     }

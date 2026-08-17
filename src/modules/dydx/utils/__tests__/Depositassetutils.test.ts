@@ -81,7 +81,7 @@ describe('Depositassetutils', () => {
   describe('buildSwapUrl', () => {
     it('builds the swap URL with correct params', () => {
       const url = buildSwapUrl(evmTokenAsset);
-      expect(url).toContain('/trading/evm/swap?');
+      expect(url).toContain('/trading/swap?');
       expect(url).toContain('fromChainId=1');
       expect(url).toContain('toChainId=1');
       expect(url).toContain('sellAsset=UNI');
