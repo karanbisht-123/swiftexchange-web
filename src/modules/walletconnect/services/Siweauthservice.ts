@@ -181,7 +181,6 @@ export interface SiweVerifyOptions {
   address?: string;
   chainId?: number;
   asLink?: boolean;
-  fingerprint?: string;
 }
 
 export async function verifySiwe(
@@ -302,6 +301,7 @@ export async function verifySiwe(
   return { accessToken, expiresIn, refreshToken };
 }
 
+// NOT IN USE: Stellar wallets no longer require verification upon connection
 export async function buildStellarChallenge(
   publicKey: string
 ): Promise<{ xdr: string; networkPassphrase: string }> {
@@ -365,6 +365,7 @@ export async function buildStellarChallenge(
   }
 }
 
+// NOT IN USE: Stellar wallets no longer require verification upon connection
 export async function verifyStellarChallenge(
   signedXdr: string,
   networkPassphrase: string,

@@ -1,4 +1,4 @@
-import { ArrowLeft, Check, KeyRound, ShieldCheck, Sparkles, Wallet, X, Zap } from 'lucide-react';
+import { ArrowLeft, Check, ShieldCheck, Sparkles, Wallet, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ROUTES } from '../../../constants/routes';
@@ -24,9 +24,6 @@ export const WalletListModal: React.FC = () => {
     isAuthenticating,
     authError,
     authenticateEvm,
-    authenticateStellar,
-    tradingAuthEnabled,
-    setTradingAuthEnabled,
   } = useWalletStore();
 
   const asterAgent = useAsterAgent();
@@ -43,12 +40,12 @@ export const WalletListModal: React.FC = () => {
   const evmConnected = !!connectedWallets.evm;
   const stellarConnected = !!connectedWallets.stellar;
   const anyConnected = evmConnected || stellarConnected;
-  const isSetupDone = isAuthenticated && (!tradingAuthEnabled || asterAgent.isReady);
+  const isSetupDone = evmConnected ? isAuthenticated : stellarConnected;
 
   const handleComplete = useCallback(() => {
     closeModal();
-    if (window.location.pathname !== ROUTES.TRADING_PERPS) {
-      router.navigate(ROUTES.TRADING_PERPS);
+    if (window.location.pathname !== ROUTES.DASHBOARD) {
+      router.navigate(ROUTES.DASHBOARD);
     }
   }, [closeModal]);
 
@@ -62,8 +59,7 @@ export const WalletListModal: React.FC = () => {
     if (isModalOpen) {
       document.body.style.overflow = 'hidden';
       setError(null);
-      const needsOnboarding = evmConnected && !isSetupDone;
-      setViewMode(needsOnboarding ? 'onboarding' : 'wallets');
+      setViewMode('wallets');
     } else {
       document.body.style.overflow = 'unset';
       setConnectingWallet(null);
@@ -73,13 +69,6 @@ export const WalletListModal: React.FC = () => {
       document.body.style.overflow = 'unset';
     };
   }, [isModalOpen]);
-
-  useEffect(() => {
-    if (!isModalOpen) return;
-    if (evmConnected && !isSetupDone) {
-      setViewMode('onboarding');
-    }
-  }, [isModalOpen, evmConnected, isSetupDone]);
 
   useEffect(() => {
     if (!isModalOpen || viewMode !== 'onboarding' || !isSetupDone) return;
@@ -189,22 +178,6 @@ export const WalletListModal: React.FC = () => {
     [disconnect, disconnectingType, connectingWallet]
   );
 
-  const handleDeriveAster = useCallback(async () => {
-    if (connectingWallet || disconnectingType || asterAgent.deriveState === 'signing') return;
-    setError(null);
-    try {
-      await asterAgent.deriveAgentKey();
-    } catch (err: any) {
-      showError(
-        err?.message?.includes('reject') ||
-          err?.message?.includes('denied') ||
-          err?.message?.includes('rejected')
-          ? 'Trading signature rejected.'
-          : err?.message || 'Failed to derive trading key.'
-      );
-    }
-  }, [asterAgent, connectingWallet, disconnectingType]);
-
   const handleModalClose = useCallback(() => {
     if (
       disconnectingType ||
@@ -246,29 +219,6 @@ export const WalletListModal: React.FC = () => {
   const isAnyActionInProgress = connectingWallet !== null || disconnectingType !== null;
   const isSigning =
     connectionStatus.evm?.state === 'signing' || asterAgent.deriveState === 'signing';
-
-  useEffect(() => {
-    if (!isModalOpen || !evmConnected) return;
-
-    if (
-      isAuthenticated &&
-      tradingAuthEnabled &&
-      !asterAgent.isReady &&
-      asterAgent.deriveState === 'idle' &&
-      !isAuthenticating
-    ) {
-      handleDeriveAster();
-    }
-  }, [
-    isModalOpen,
-    evmConnected,
-    isAuthenticated,
-    tradingAuthEnabled,
-    asterAgent.isReady,
-    asterAgent.deriveState,
-    isAuthenticating,
-    handleDeriveAster,
-  ]);
 
   const renderConnectedCard = useCallback(
     (type: WalletType) => {
@@ -455,7 +405,6 @@ export const WalletListModal: React.FC = () => {
     const config = activeWallet
       ? getWalletConfig(activeWallet.type, activeWallet.walletId)
       : undefined;
-    const isDerivingAster = asterAgent.deriveState === 'signing';
 
     return (
       <div className="space-y-5 pt-1 animate-fade-in">
@@ -465,8 +414,8 @@ export const WalletListModal: React.FC = () => {
           </h3>
           <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-1">
             {isSetupDone
-              ? 'Your wallet is connected and authorized for gas-free trading.'
-              : 'Complete the steps below to authenticate and enable 1-Click trading.'}
+              ? 'Your wallet is securely connected.'
+              : 'Complete the steps below to authenticate.'}
           </p>
         </div>
 
@@ -482,7 +431,9 @@ export const WalletListModal: React.FC = () => {
               <div className="w-6 h-6 rounded-full bg-emerald-500 text-black flex items-center justify-center flex-shrink-0 shadow-sm shadow-emerald-500/20">
                 <Check className="w-3.5 h-3.5 stroke-[3]" />
               </div>
-              <div className="w-0.5 h-8 my-1 bg-emerald-500/40" />
+              {activeWallet?.type !== 'stellar' && (
+                <div className="w-0.5 h-8 my-1 bg-emerald-500/40" />
+              )}
             </div>
 
             <div className="flex-1 pb-1 min-w-0">
@@ -504,190 +455,83 @@ export const WalletListModal: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-start gap-3.5">
-            <div className="flex flex-col items-center">
-              <div
-                style={{
-                  borderColor: isAuthenticated
-                    ? '#10b981'
-                    : isAuthenticating
-                      ? 'var(--color-brand-primary)'
-                      : 'var(--color-border)',
-                  background: isAuthenticated
-                    ? '#10b981'
-                    : isAuthenticating
-                      ? 'color-mix(in srgb, var(--color-brand-primary) 15%, transparent)'
-                      : 'transparent',
-                }}
-                className="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors"
-              >
-                {isAuthenticated ? (
-                  <Check className="w-3.5 h-3.5 text-black stroke-[3]" />
-                ) : isAuthenticating ? (
-                  <div className="w-3 h-3 border-2 border-[var(--color-brand-primary)] border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <ShieldCheck className="w-3 h-3 text-[var(--color-text-muted)]" />
-                )}
-              </div>
-              <div
-                style={{
-                  background: isAuthenticated ? '#10b981' : 'var(--color-border)',
-                }}
-                className="w-0.5 h-8 my-1 transition-colors"
-              />
-            </div>
-
-            <div className="flex-1 pb-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <span
+          {activeWallet?.type !== 'stellar' && (
+            <div className="flex items-start gap-3.5">
+              <div className="flex flex-col items-center">
+                <div
                   style={{
-                    color: isAuthenticated ? '#10b981' : 'var(--color-text-primary)',
+                    borderColor: isAuthenticated
+                      ? '#10b981'
+                      : isAuthenticating
+                        ? 'var(--color-brand-primary)'
+                        : 'var(--color-border)',
+                    background: isAuthenticated
+                      ? '#10b981'
+                      : isAuthenticating
+                        ? 'color-mix(in srgb, var(--color-brand-primary) 15%, transparent)'
+                        : 'transparent',
                   }}
-                  className="text-xs font-semibold"
+                  className="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors"
                 >
-                  2. Sign In to SwiftEx
-                </span>
-                {!isAuthenticated && (
-                  <div>
-                    {isAuthenticating ? (
-                      <span className="text-[11px] font-medium text-[var(--color-brand-primary)] animate-pulse flex items-center gap-1">
-                        Signing in wallet...
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() =>
-                          activeWallet?.type === 'stellar'
-                            ? authenticateStellar()
-                            : authenticateEvm()
-                        }
-                        disabled={isAnyActionInProgress}
-                        style={{ color: 'var(--color-brand-primary)' }}
-                        className="text-xs font-semibold hover:underline"
-                      >
-                        {authError ? 'Retry Sign' : 'Sign In'}
-                      </button>
-                    )}
+                  {isAuthenticated ? (
+                    <Check className="w-3.5 h-3.5 text-black stroke-[3]" />
+                  ) : isAuthenticating ? (
+                    <div className="w-3 h-3 border-2 border-[var(--color-brand-primary)] border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <ShieldCheck className="w-3 h-3 text-[var(--color-text-muted)]" />
+                  )}
+                </div>
+              </div>
+
+              <div className="flex-1 pb-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    style={{
+                      color: isAuthenticated ? '#10b981' : 'var(--color-text-primary)',
+                    }}
+                    className="text-xs font-semibold"
+                  >
+                    2. Sign In to SwiftEx
+                  </span>
+                  {!isAuthenticated && (
+                    <div>
+                      {isAuthenticating ? (
+                        <span className="text-[11px] font-medium text-[var(--color-brand-primary)] animate-pulse flex items-center gap-1">
+                          Signing in wallet...
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => authenticateEvm()}
+                          disabled={isAnyActionInProgress}
+                          style={{ color: 'var(--color-brand-primary)' }}
+                          className="text-xs font-semibold hover:underline"
+                        >
+                          {authError ? 'Retry Sign' : 'Sign In'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
+                  {isAuthenticated
+                    ? 'Wallet ownership verified.'
+                    : 'Confirm the signature request in your wallet to verify ownership.'}
+                </p>
+                {authError && !isAuthenticated && (
+                  <div className="mt-1.5 p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[11px]">
+                    {authError}
                   </div>
                 )}
               </div>
-              <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
-                {isAuthenticated
-                  ? 'Wallet ownership verified.'
-                  : 'Confirm the signature request in your wallet to verify ownership.'}
-              </p>
-              {authError && !isAuthenticated && (
-                <div className="mt-1.5 p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[11px]">
-                  {authError}
-                </div>
-              )}
             </div>
-          </div>
-
-          <div className="flex items-start gap-3.5">
-            <div className="flex flex-col items-center">
-              <div
-                style={{
-                  borderColor: !tradingAuthEnabled
-                    ? 'var(--color-border)'
-                    : asterAgent.isReady
-                      ? '#10b981'
-                      : isDerivingAster
-                        ? 'var(--color-brand-primary)'
-                        : 'var(--color-border)',
-                  background:
-                    tradingAuthEnabled && asterAgent.isReady
-                      ? '#10b981'
-                      : isDerivingAster
-                        ? 'color-mix(in srgb, var(--color-brand-primary) 15%, transparent)'
-                        : 'transparent',
-                }}
-                className="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors"
-              >
-                {tradingAuthEnabled && asterAgent.isReady ? (
-                  <Check className="w-3.5 h-3.5 text-black stroke-[3]" />
-                ) : isDerivingAster ? (
-                  <div className="w-3 h-3 border-2 border-[var(--color-brand-primary)] border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <Zap className="w-3 h-3 text-[var(--color-text-muted)]" />
-                )}
-              </div>
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <span
-                  style={{
-                    color: !tradingAuthEnabled
-                      ? 'var(--color-text-muted)'
-                      : asterAgent.isReady
-                        ? '#10b981'
-                        : 'var(--color-text-primary)',
-                  }}
-                  className="text-xs font-semibold"
-                >
-                  3. 1-Click Trading Session
-                </span>
-
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={tradingAuthEnabled}
-                  onClick={() => setTradingAuthEnabled(!tradingAuthEnabled)}
-                  style={{
-                    background: tradingAuthEnabled
-                      ? 'var(--color-brand-primary)'
-                      : 'var(--color-bg-secondary)',
-                    borderColor: tradingAuthEnabled
-                      ? 'var(--color-brand-primary)'
-                      : 'var(--color-border)',
-                  }}
-                  className="relative inline-flex h-4 w-7 flex-shrink-0 cursor-pointer rounded-full border transition-colors duration-200 ease-in-out focus:outline-none"
-                  title="Toggle 1-Click Trading"
-                >
-                  <span
-                    style={{
-                      transform: tradingAuthEnabled ? 'translateX(12px)' : 'translateX(0px)',
-                      background: '#fff',
-                    }}
-                    className="pointer-events-none inline-block h-3 w-3 rounded-full shadow transform ring-0 transition duration-200 ease-in-out"
-                  />
-                </button>
-              </div>
-
-              <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
-                {tradingAuthEnabled && asterAgent.isReady
-                  ? 'Session key derived. Instant gas-free execution is active.'
-                  : 'Delegates session key for frictionless, gas-free perpetuals trading.'}
-              </p>
-
-              {tradingAuthEnabled && isAuthenticated && !asterAgent.isReady && (
-                <div className="mt-2">
-                  {isDerivingAster ? (
-                    <span className="text-[11px] font-medium text-[var(--color-brand-primary)] animate-pulse flex items-center gap-1.5">
-                      <KeyRound className="w-3.5 h-3.5" />
-                      Awaiting trading key signature in wallet...
-                    </span>
-                  ) : (
-                    <button
-                      onClick={handleDeriveAster}
-                      disabled={isAnyActionInProgress}
-                      style={{ color: 'var(--color-brand-primary)' }}
-                      className="text-xs font-semibold hover:underline"
-                    >
-                      Authorize Trading Key
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
+          )}
         </div>
 
         {isSetupDone ? (
           <div className="pt-2 text-center animate-fade-in">
             <p className="text-xs text-emerald-400 font-medium flex items-center justify-center gap-1.5 animate-pulse">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Setup complete • Redirecting to trading...</span>
+              <span>Setup complete • Redirecting to dashboard...</span>
             </p>
           </div>
         ) : (

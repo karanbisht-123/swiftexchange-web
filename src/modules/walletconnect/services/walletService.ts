@@ -110,32 +110,56 @@ async function signDydxMessage(evmAddress: string, provider: unknown): Promise<s
     message: { action: 'dYdX Chain Onboarding' },
   };
 
-  const isWalletConnect = !!(provider as any)?.session;
-  const dataToSign = isWalletConnect ? typedData : JSON.stringify(typedData);
+  const lowerAddr = evmAddress.toLowerCase();
+  const checksumAddr = getAddress(evmAddress);
+  const dataToSignStr = JSON.stringify(typedData);
 
-  console.log(dataToSign, '-----', evmAddress, '----address');
-  try {
-    const token = localStorage.getItem('device_token');
-    if (token) {
-      sendCustomNotification(token, {
-        title: 'Signature Request',
-        body: 'Please open your wallet to sign the dYdX onboarding message.',
-      }).catch(err => {
-        console.error(err);
-      });
-    }
-    const signature = await (provider as any).request({
-      method: 'eth_signTypedData_v4',
-      params: [evmAddress, dataToSign],
+  const token = localStorage.getItem('device_token');
+  if (token) {
+    sendCustomNotification(token, {
+      title: 'Signature Request',
+      body: 'Please open your wallet to sign the dYdX onboarding message.',
+    }).catch(err => {
+      console.error(err);
     });
-
-    return signature as string;
-  } catch (error: any) {
-    if (error.message === 'USER_REJECTED') {
-      throw error;
-    }
-    throw new Error(error.message || 'Wallet does not support eth_signTypedData_v4');
   }
+
+  if (provider && typeof (provider as any).request === 'function') {
+    const trySign = async (addr: string, data: any) => {
+      console.log(`[signDydxMessage] Trying eth_signTypedData_v4 with address ${addr}`);
+      return await (provider as any).request({
+        method: 'eth_signTypedData_v4',
+        params: [addr, data],
+      });
+    };
+
+    try {
+      // First try: stringified JSON with lowercase address (WalletConnect standard)
+      return (await trySign(lowerAddr, dataToSignStr)) as string;
+    } catch (e1: any) {
+      if (e1?.message === 'USER_REJECTED') throw e1;
+      try {
+        // Second try: stringified JSON with checksum address
+        return (await trySign(checksumAddr, dataToSignStr)) as string;
+      } catch (e2: any) {
+        if (e2?.message === 'USER_REJECTED') throw e2;
+        try {
+          // Third try: raw object with lowercase address
+          return (await trySign(lowerAddr, typedData)) as string;
+        } catch (e3: any) {
+          if (e3?.message === 'USER_REJECTED') throw e3;
+          try {
+            // Fourth try: raw object with checksum address
+            return (await trySign(checksumAddr, typedData)) as string;
+          } catch (e4: any) {
+            throw new Error(e4?.message || 'Wallet does not support eth_signTypedData_v4');
+          }
+        }
+      }
+    }
+  }
+
+  throw new Error('Wallet provider is missing or invalid.');
 }
 
 async function deriveDydxAddress(evmAddress: string, provider: unknown): Promise<DydxDerivation> {
@@ -240,8 +264,11 @@ class WalletService {
   }
 
   private async getOrCreateProvider(key: string): Promise<any> {
+    const debugProviderId = crypto.randomUUID();
+    console.log('[WC] PROVIDER INIT', { key, providerInstanceId: debugProviderId });
+
     const existing = this.providers.get(key);
-    if (existing) {
+    if (existing && (existing as any).__providerKey === key) {
       if (existing.session) {
         const expiry = existing.session?.expiry ?? 0;
         const isExpired = Date.now() / 1000 > expiry;
@@ -262,12 +289,7 @@ class WalletService {
           return existing;
         }
       } else {
-        console.warn(
-          `[WalletService] Provider '${key}' has no session — evicting stale provider from cache`
-        );
-        for (const [k, p] of this.providers.entries()) {
-          if (p === existing) this.providers.delete(k);
-        }
+        return existing;
       }
     }
 
@@ -295,6 +317,11 @@ class WalletService {
     ]);
 
     this.wrapProviderRequests(provider);
+
+    console.log('[WC] provider created', debugProviderId);
+    // Attach debug id and original key for later checks
+    (provider as any).__debugProviderId = debugProviderId;
+    (provider as any).__providerKey = key;
 
     this.providers.set(key, provider);
     return provider;
@@ -403,6 +430,10 @@ class WalletService {
   // Unified (multichain) connect
   // ---------------------------------------------------------------------------
 
+  clearSignRequests(): void {
+    this.isSignRequestInFlight.clear();
+  }
+
   async connectUnified(walletId: string): Promise<UnifiedConnectionResult> {
     this.emitState('evm', 'connecting');
 
@@ -429,6 +460,10 @@ class WalletService {
         ],
       });
       this.modals.set('unified', modal);
+
+      console.log('[WC] CONNECT START', {
+        providerInstanceId: (provider as any).__debugProviderId,
+      });
 
       const session = await new Promise<any>((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -478,6 +513,12 @@ class WalletService {
             modal!.closeModal();
             reject(err);
           });
+      });
+
+      console.log('[WC] CONNECT SUCCESS', {
+        providerInstanceId: (provider as any).__debugProviderId,
+        topic: session?.topic,
+        namespaces: session?.namespaces,
       });
 
       const result: UnifiedConnectionResult = {};
@@ -700,36 +741,76 @@ class WalletService {
     const lowerAddr = evmAddress.toLowerCase();
     const checksumAddr = getAddress(evmAddress);
 
+    console.log('[SIWE] SIGN START', {
+      providerInstanceId: (provider as any)?.__debugProviderId,
+      topic: (provider as any)?.session?.topic,
+      address: evmAddress,
+      message,
+      client: (provider as any)?.client,
+    });
+
     if (provider && typeof (provider as any).request === 'function') {
       try {
-        return await (provider as any).request({
+        const signature = await (provider as any).request({
           method: 'personal_sign',
           params: [hexMsg, lowerAddr],
         });
+        console.log('[SIWE] SIGN SUCCESS', {
+          providerInstanceId: (provider as any)?.__debugProviderId,
+          topic: (provider as any)?.session?.topic,
+          signature,
+        });
+        return signature;
       } catch (err1: any) {
-        if (err1?.message === 'USER_REJECTED') throw err1;
+        if (err1?.message === 'USER_REJECTED') {
+          console.error('[SIWE] SIGN ERROR (USER_REJECTED)', err1);
+          throw err1;
+        }
         try {
-          return await (provider as any).request({
+          const signature = await (provider as any).request({
             method: 'personal_sign',
             params: [hexMsg, checksumAddr],
           });
+          console.log('[SIWE] SIGN SUCCESS', {
+            providerInstanceId: (provider as any)?.__debugProviderId,
+            topic: (provider as any)?.session?.topic,
+            signature,
+          });
+          return signature;
         } catch (err2: any) {
-          if (err2?.message === 'USER_REJECTED') throw err2;
+          if (err2?.message === 'USER_REJECTED') {
+            console.error('[SIWE] SIGN ERROR (USER_REJECTED)', err2);
+            throw err2;
+          }
           try {
-            return await (provider as any).request({
+            const signature = await (provider as any).request({
               method: 'personal_sign',
               params: [lowerAddr, hexMsg],
             });
+            console.log('[SIWE] SIGN SUCCESS', {
+              providerInstanceId: (provider as any)?.__debugProviderId,
+              topic: (provider as any)?.session?.topic,
+              signature,
+            });
+            return signature;
           } catch (err3: any) {
+            console.error('[SIWE] SIGN ERROR', err3);
             if (err3?.message === 'USER_REJECTED') throw err3;
           }
         }
       }
     }
 
-    const browserProvider = new BrowserProvider(provider as any);
-    const signer = await browserProvider.getSigner(evmAddress);
-    return await signer.signMessage(message);
+    try {
+      const browserProvider = new BrowserProvider(provider as any);
+      const signer = await browserProvider.getSigner(evmAddress);
+      const signature = await signer.signMessage(message);
+      console.log('[SIWE] SIGN SUCCESS (BrowserProvider)', { signature });
+      return signature;
+    } catch (error) {
+      console.error('[SIWE] SIGN ERROR (BrowserProvider)', error);
+      throw error;
+    }
   }
 
   async signStellarChallenge(
@@ -1126,6 +1207,11 @@ class WalletService {
       }
     }
 
+    console.log('[WC] DISCONNECT START', {
+      providerInstanceId: (provider as any)?.__debugProviderId,
+      topic: provider?.session?.topic,
+    });
+
     if (provider) {
       this.registeredProviders.delete(provider);
 
@@ -1137,13 +1223,10 @@ class WalletService {
         }
       }
 
-      // Remove listeners after disconnect so WC's internal cleanup (IndexedDB session removal) completes first.
-      // Removing before disconnect leaves a zombie session in IndexedDB that the next provider init will restore.
-      provider.removeAllListeners?.();
-
-      for (const [k, p] of this.providers.entries()) {
-        if (p === provider) this.providers.delete(k);
-      }
+      console.log('[WC] DISCONNECT COMPLETE', {
+        providerInstanceId: (provider as any).__debugProviderId,
+        topic: provider.session?.topic,
+      });
     }
 
     // FIX #3: Clear per-type in-flight signing flags for all affected types.
@@ -1168,14 +1251,6 @@ class WalletService {
 
     if (this.sessions.size === 0) {
       await this.clearAppData();
-    } else {
-      // FIX #4: Always call clearWCStorageForKey regardless of which type disconnected.
-      // Also clear the 'unified' key when a unified session (evm+stellar) is torn down.
-      if (sharedTypes.includes('evm') && sharedTypes.includes('stellar')) {
-        this.clearWCStorageForKey('unified');
-      } else {
-        this.clearWCStorageForKey(type);
-      }
     }
 
     for (const t of sharedTypes) {
@@ -1193,7 +1268,14 @@ class WalletService {
     ];
 
     Object.keys(localStorage).forEach(key => {
-      if (!PRESERVE_KEYS.includes(key)) {
+      if (
+        !PRESERVE_KEYS.includes(key) &&
+        !key.startsWith('swiftex_unified') &&
+        !key.startsWith('swiftex_evm') &&
+        !key.startsWith('swiftex_cosmos') &&
+        !key.startsWith('swiftex_stellar') &&
+        !key.startsWith('wc@2')
+      ) {
         localStorage.removeItem(key);
       }
     });
@@ -1231,12 +1313,10 @@ class WalletService {
           console.warn('[WalletService] Error disconnecting provider:', err);
         }
       }
-      provider.removeAllListeners?.();
     }
 
     this.isSignRequestInFlight.clear();
     this.sessions.clear();
-    this.providers.clear();
     this.modals.clear();
     this.lastPingAt.clear();
     this.disconnecting.clear();
@@ -1246,35 +1326,6 @@ class WalletService {
     this.saveSession();
   }
 
-  private clearWCStorageForKey(providerKey: string): void {
-    const prefix = `swiftex_${providerKey}`;
-    Object.keys(localStorage)
-      .filter(k => k.startsWith(prefix))
-      .forEach(k => localStorage.removeItem(k));
-    this.clearWCIndexedDB(prefix);
-  }
-
-  private clearWCIndexedDB(prefix: string): void {
-    if (typeof indexedDB === 'undefined') return;
-    try {
-      const req = indexedDB.open('WALLET_CONNECT_V2_INDEXED_DB');
-      req.onsuccess = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains('keyvaluepairs')) return;
-        const tx = db.transaction('keyvaluepairs', 'readwrite');
-        const store = tx.objectStore('keyvaluepairs');
-        const cursor = store.openCursor();
-        cursor.onsuccess = () => {
-          const c = cursor.result;
-          if (!c) return;
-          if (String(c.key).startsWith(prefix)) c.delete();
-          c.continue();
-        };
-      };
-    } catch (e) {
-      console.log('clearing index Db', e);
-    }
-  }
   private handleDisconnect(type: WalletType): void {
     if (this.disconnecting.has(type)) return;
     void this.disconnect(type);
@@ -1689,7 +1740,10 @@ class WalletService {
       }
     });
 
-    provider.on('session_delete', () => getBoundTypes().forEach(t => this.handleDisconnect(t)));
+    provider.on('session_delete', (event: any) => {
+      console.log('[WC] SESSION DELETE', event);
+      getBoundTypes().forEach(t => this.handleDisconnect(t));
+    });
     provider.on('session_expire', () => getBoundTypes().forEach(t => this.handleDisconnect(t)));
     provider.on('session_ping', () =>
       getBoundTypes().forEach(t => this.lastPingAt.set(t, Date.now()))

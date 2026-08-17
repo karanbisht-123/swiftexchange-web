@@ -1,4 +1,4 @@
-import { HelpCircle } from 'lucide-react';
+import { HelpCircle, KeyRound } from 'lucide-react';
 import React, { useState } from 'react';
 
 import { useNotificationStore } from '../../../store/notificationStore';
@@ -50,7 +50,7 @@ const useTotalWalletBalance = (balances: Record<string, any>) => {
 };
 
 export const ExchangeOrderFormPanel: React.FC = () => {
-  const { asterSigner, userAddr } = useAsterAgent();
+  const { asterSigner, userAddr, isReady, deriveState, deriveAgentKey } = useAsterAgent();
   const market = useMarketStore(state => state.markets[state.selectedSymbol]);
 
   useAsterDataSync(asterSigner, userAddr);
@@ -246,7 +246,26 @@ export const ExchangeOrderFormPanel: React.FC = () => {
   };
 
   return (
-    <div className="bg-secondary border border-color rounded-lg h-full min-h-0 flex flex-col overflow-hidden">
+    <div className="bg-secondary border border-color rounded-lg h-full min-h-0 flex flex-col overflow-hidden relative">
+      {userAddr && !isReady && (
+        <div className="absolute inset-0 z-50 backdrop-blur-md bg-black/40 flex flex-col items-center justify-center p-6 text-center">
+          <KeyRound className="w-8 h-8 text-brand mb-3 drop-shadow-md" />
+          <h3 className="text-sm font-bold text-white mb-1 drop-shadow-md">
+            Trading Authorization
+          </h3>
+          <p className="text-xs text-white/80 mb-4 max-w-[200px] drop-shadow-md">
+            Sign a one-time request to enable gas-free trading.
+          </p>
+          <button
+            type="button"
+            onClick={() => deriveAgentKey()}
+            disabled={deriveState === 'signing'}
+            className="w-full max-w-[200px] bg-brand hover:bg-brand-hover text-white rounded-md py-2.5 font-semibold text-xs transition-colors shadow-lg disabled:opacity-50"
+          >
+            {deriveState === 'signing' ? 'Check Wallet...' : 'Prepare Wallet'}
+          </button>
+        </div>
+      )}
       <OrderForm
         onSubmitOrder={handlePlaceOrder}
         isLoading={isSubmitting}

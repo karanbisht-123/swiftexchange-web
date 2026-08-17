@@ -4,11 +4,6 @@ import { useWalletStore } from '../walletConnectStore';
 
 // Removed deviceId mock
 
-vi.mock('../../../../utils/fingerprint', () => ({
-  prewarmFingerprint: vi.fn(),
-  getFingerprint: vi.fn().mockResolvedValue('mocked-fingerprint'),
-}));
-
 vi.mock('../../services/walletService', () => ({
   walletService: {
     connectChainWallet: vi.fn().mockResolvedValue({
@@ -71,16 +66,12 @@ describe('walletConnectStore', () => {
       expect.objectContaining({
         address: '0x123',
         chainId: 1,
-        asLink: false,
-        fingerprint: 'mocked-fingerprint',
       })
     );
   });
 
-  it('calls prewarmFingerprint when openModal is called', async () => {
-    const { prewarmFingerprint } = await import('../../../../utils/fingerprint');
+  it('opens modal correctly', () => {
     useWalletStore.getState().openModal();
-    expect(prewarmFingerprint).toHaveBeenCalled();
     expect(useWalletStore.getState().isModalOpen).toBe(true);
   });
 

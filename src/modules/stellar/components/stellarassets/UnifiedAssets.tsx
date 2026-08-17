@@ -75,8 +75,8 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({
     const stellarChain = getChainById('pubnet');
 
     balances.forEach((b: any) => {
-      const code = b.asset_type === 'native' ? 'XLM' : b.asset_code;
-      const issuer = b.asset_type === 'native' ? '' : b.asset_issuer;
+      const code = b.asset_type === 'native' ? 'XLM' : b.asset_code || 'Unknown';
+      const issuer = b.asset_type === 'native' ? '' : b.asset_issuer || '';
       const key = getAssetKey(code, issuer);
       const registryAsset = stellarChain?.assets.find(
         a => a.symbol === code && (a.address === issuer || issuer === '')
@@ -270,12 +270,14 @@ const UnifiedAssets: React.FC<UnifiedAssetsProps> = ({
                           e.currentTarget.style.display = 'none';
                           const parent = e.currentTarget.parentElement;
                           if (parent) {
-                            parent.innerHTML = `<span class="font-bold text-xs text-primary">${asset.code[0]}</span>`;
+                            parent.innerHTML = `<span class="font-bold text-xs text-primary">${asset.code?.[0] || '?'}</span>`;
                           }
                         }}
                       />
                     ) : (
-                      <span className="font-bold text-xs text-primary">{asset.code[0]}</span>
+                      <span className="font-bold text-xs text-primary">
+                        {asset.code?.[0] || '?'}
+                      </span>
                     )}
                   </div>
 

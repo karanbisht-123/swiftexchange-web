@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
-import { getFingerprint, prewarmFingerprint } from '../../../utils/fingerprint';
 import { type NetworkType } from '../config/chains';
 import {
   buildSiweMessage,
@@ -205,8 +204,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
         if (type === 'evm') {
           get().authenticateEvm();
-        } else if (type === 'stellar') {
-          get().authenticateStellar();
         }
       } catch (error: any) {
         set(state => ({
@@ -277,9 +274,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
         if (result.evm) {
           get().authenticateEvm();
-        }
-        if (result.stellar) {
-          get().authenticateStellar();
         }
       } catch (error: any) {
         set(state => ({
@@ -371,18 +365,9 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         const message = await buildSiweMessage(evm.address, chainId);
         const signature = await walletService.signSiweMessage(evm.address, provider, message);
 
-        const fingerprint = await getFingerprint();
-        if (!fingerprint) {
-          throw new Error(
-            'Unable to verify device securely. Please disable ad blockers or privacy extensions and try again.'
-          );
-        }
-
         const { accessToken, expiresIn, refreshToken } = await verifySiwe(message, signature, {
           address: evm.address,
           chainId,
-          asLink: false,
-          fingerprint,
         });
 
         await setAccessToken(
@@ -416,6 +401,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
       }
     },
 
+    // NOT IN USE: Stellar wallets no longer require verification upon connection
     authenticateStellar: async () => {
       const state = get();
       if (state.isAuthenticating) return;
@@ -678,7 +664,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     },
 
     openModal: () => {
-      prewarmFingerprint();
       set({ isModalOpen: true });
     },
     closeModal: () => set({ isModalOpen: false, isAuthenticating: false }),
