@@ -202,6 +202,7 @@ export const useNearIntentCrossChain = ({
             stellarAddress,
           });
 
+          console.log(result, '-------- trasnction result from steallr wallet ');
           if (!result.success || !result.hash) {
             throw new Error(result.error || 'Stellar transaction failed');
           }
@@ -310,7 +311,6 @@ export const useNearIntentCrossChain = ({
       } catch (err: any) {
         const msg = (err?.message || String(err)).toLowerCase();
 
-        // Add console log to satisfy the user's request to see the error/rejection in the console
         console.log('[InterSwap] Transaction result/error:', err);
 
         const hasNestedRpcError =

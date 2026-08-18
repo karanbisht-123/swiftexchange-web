@@ -57,7 +57,7 @@ const FALLBACK_GAS_BY_CHAIN: Record<string, string> = {
 
 function getFallbackGasAmount(chainId?: number | string): string {
   // Stellar chain IDs are non-numeric strings ('pubnet', 'testnet')
-  if (typeof chainId === 'string' && isNaN(Number(chainId))) return '0.00001';
+  if (typeof chainId === 'string' && isNaN(Number(chainId))) return '0.01';
   const key = String(chainId);
   return FALLBACK_GAS_BY_CHAIN[key] ?? FALLBACK_GAS_BY_CHAIN.default;
 }

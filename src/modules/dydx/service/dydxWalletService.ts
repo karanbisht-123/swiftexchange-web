@@ -302,9 +302,7 @@ class DydxWalletService {
 
   private getAddressFromStore(): string | null {
     const store = useWalletStore.getState();
-    return (
-      store.connectedWallets.evm?.dydxAddress || store.connectedWallets.cosmos?.dydxAddress || null
-    );
+    return store.connectedWallets.evm?.dydxAddress || null;
   }
 
   private async checkSubaccountExists(): Promise<boolean> {

@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react';
 import { StargateClient } from '@cosmjs/stargate';
 import { SubaccountInfo } from '@dydxprotocol/v4-client-js';
 import { executeRoute, route as fetchSkipRoute } from '@skip-go/client';
+//@ts-expect-error - missing types for long
 import Long from 'long';
 
 import { walletService } from '../../walletconnect/services/walletService';
@@ -16,14 +17,14 @@ import {
   NOBLE_CHAIN_ID,
   NOBLE_USDC_DENOM,
   SKIP_BRIDGES,
-  getEvmSourceDenom,
   buildCosmosSigner,
   buildEvmSigner,
   buildUserAddresses,
   dydxToNoble,
   fetchDydxWalletUsdcBalance,
-  sumNobleFeesUusdc,
+  getEvmSourceDenom,
   pollUntilBalance,
+  sumNobleFeesUusdc,
 } from '../utils/skipBridgeUtils';
 
 const NOBLE_RPC_ENDPOINT = 'https://noble-rpc.polkachu.com:443';
@@ -59,8 +60,6 @@ function formatTxHash(hashRaw: unknown): string {
   }
   return 'submitted';
 }
-
-
 
 function isTransientBroadcastError(err: any): boolean {
   const msg = (err?.message ?? '').toLowerCase();
@@ -127,7 +126,7 @@ export const useDydxWithdraw = () => {
       if (safeAmountIn <= 0) {
         throw new Error(
           `Noble balance (${nobleBalUusdc} uusdc) too low to cover bridge fees ` +
-          `(~${feeBuffer} uusdc). Need at least ${feeBuffer + 1} uusdc.`
+            `(~${feeBuffer} uusdc). Need at least ${feeBuffer + 1} uusdc.`
         );
       }
 
@@ -190,8 +189,7 @@ export const useDydxWithdraw = () => {
         const storeState = useWalletStore.getState();
         const evmWallet = storeState.connectedWallets.evm;
         const evmAddress = toAddress ?? evmWallet?.address;
-        const dydxAddress =
-          evmWallet?.dydxAddress ?? storeState.connectedWallets.cosmos?.dydxAddress;
+        const dydxAddress = evmWallet?.dydxAddress ?? '';
 
         if (!evmAddress) throw new Error('EVM wallet not connected');
         if (!dydxAddress) throw new Error('dYdX address not available');
@@ -240,8 +238,8 @@ export const useDydxWithdraw = () => {
 
         console.log(
           `[gas] wallet=${walletUusdc} uusdc | ` +
-          `reserve=${NATIVE_WALLET_GAS_RESERVE_UUSDC} uusdc | ` +
-          `shortfall=${shortfallUusdc} uusdc`
+            `reserve=${NATIVE_WALLET_GAS_RESERVE_UUSDC} uusdc | ` +
+            `shortfall=${shortfallUusdc} uusdc`
         );
 
         // withdrawQuantums = user's requested amount + whatever the wallet still
@@ -376,8 +374,7 @@ export const useDydxWithdraw = () => {
         const storeState = useWalletStore.getState();
         const evmWallet = storeState.connectedWallets.evm;
         const evmAddress = toAddress ?? evmWallet?.address;
-        const dydxAddress =
-          evmWallet?.dydxAddress ?? storeState.connectedWallets.cosmos?.dydxAddress;
+        const dydxAddress = evmWallet?.dydxAddress ?? '';
 
         if (!evmAddress) throw new Error('EVM wallet not connected');
         if (!dydxAddress) throw new Error('dYdX address not available');

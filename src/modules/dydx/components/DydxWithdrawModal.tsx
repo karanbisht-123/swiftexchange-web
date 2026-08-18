@@ -19,16 +19,17 @@ import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useDydxWithdraw } from '../hooks/useDydxWithdraw';
 import { useSubaccounts } from '../hooks/useSubaccounts';
 import {
+  getCurrentWithdrawTx,
+  useCurrentWithdrawTx,
   useHasActivePendingDeposit,
   useHasActivePendingWithdraw,
   useTransactionStore,
   useTransactionTracker,
-  useCurrentWithdrawTx,
-  getCurrentWithdrawTx,
 } from '../hooks/useTransactionTracker';
-import { TransactionTracker } from './TransactionTracker';
 import { SUBACCOUNT_CONSTANTS } from '../types/trading.types';
 import { validateWithdrawAmount } from '../utils/inputValidation';
+import { TransactionTracker } from './TransactionTracker';
+
 // import { NATIVE_WALLET_GAS_RESERVE_UUSDC } from '../utils/skipBridgeUtils';
 
 interface DydxWithdrawModalProps {
@@ -41,7 +42,6 @@ interface DydxWithdrawModalProps {
 const formatCurr = (val: number) => `$${val.toFixed(2)}`;
 const formatPct = (val: number) => `${val.toFixed(2)}%`;
 
-
 const ModalShell: React.FC<{
   onClose: () => void;
   children: React.ReactNode;
@@ -49,16 +49,20 @@ const ModalShell: React.FC<{
 }> = ({ onClose, children, className }) => (
   <div
     className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center sm:p-4"
-    onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    onClick={e => {
+      if (e.target === e.currentTarget) onClose();
+    }}
   >
-    <div className={[
-      'bg-secondary w-full sm:max-w-[440px]',
-      'rounded-t-2xl sm:rounded-2xl',
-      'border border-color shadow-2xl font-sans',
-      'flex flex-col',
-      'max-h-[90dvh] sm:max-h-[680px] overflow-hidden',
-      className,
-    ].join(' ')}>
+    <div
+      className={[
+        'bg-secondary w-full sm:max-w-[440px]',
+        'rounded-t-2xl sm:rounded-2xl',
+        'border border-color shadow-2xl font-sans',
+        'flex flex-col',
+        'max-h-[90dvh] sm:max-h-[680px] overflow-hidden',
+        className,
+      ].join(' ')}
+    >
       {children}
     </div>
   </div>
@@ -67,10 +71,14 @@ const ModalShell: React.FC<{
 const AUTO_CLEAR_DELAY_MS = 10_000;
 
 export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, onClose }) => {
-  const { childSubaccounts, crossSubaccount, totalEquity, totalFreeCollateral: globalFreeCollateral } =
-    useSubaccounts();
+  const {
+    childSubaccounts,
+    crossSubaccount,
+    totalEquity,
+    totalFreeCollateral: globalFreeCollateral,
+  } = useSubaccounts();
 
-  const evmWallet = useWalletStore((state) => state.connectedWallets.evm);
+  const evmWallet = useWalletStore(state => state.connectedWallets.evm);
   const evmAddress = evmWallet?.address || '';
 
   const {
@@ -92,7 +100,6 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
   const depositIsPending = useHasActivePendingDeposit();
   const withdrawIsPending = useHasActivePendingWithdraw();
   const isWithdrawLocked = depositIsPending || withdrawIsPending;
-
 
   const [fromSubaccount, setFromSubaccount] = useState<any>(
     SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT
@@ -165,7 +172,9 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
   }, [bridgeTracker.isTerminal, currentWithdrawTx]);
 
   const amountRef = useRef(amount);
-  useEffect(() => { amountRef.current = amount; }, [amount]);
+  useEffect(() => {
+    amountRef.current = amount;
+  }, [amount]);
 
   useEffect(() => {
     if (!isWithdrawing) return;
@@ -173,8 +182,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     const currentWallets = useWalletStore.getState().connectedWallets;
     const requiredWallets = {
       evm: currentWallets.evm?.address,
-      dydx: currentWallets.evm?.dydxAddress || currentWallets.cosmos?.dydxAddress,
-      cosmos: currentWallets.cosmos?.address
+      dydx: currentWallets.evm?.dydxAddress,
     };
 
     store.setWithdrawTx({
@@ -189,7 +197,6 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     });
   }, [isWithdrawing, step, stepLabel, liveBridgeTxHash, liveBridgeChainId]);
 
-
   useEffect(() => {
     if (!bridgeTracker.isTerminal || !currentWithdrawTx) return;
     store.setWithdrawTx({
@@ -202,11 +209,10 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     if (isWithdrawing) setShowProgress(true);
   }, [isWithdrawing]);
 
-
   const sourceBalance = useMemo(() => {
     if (fromSubaccount === SUBACCOUNT_CONSTANTS.DEFAULT_CROSS_SUBACCOUNT && crossSubaccount)
       return parseFloat(crossSubaccount.freeCollateral);
-    const source = childSubaccounts.find((c) => c.subaccountNumber === fromSubaccount);
+    const source = childSubaccounts.find(c => c.subaccountNumber === fromSubaccount);
     return source ? parseFloat(source.freeCollateral) : 0;
   }, [childSubaccounts, crossSubaccount, fromSubaccount]);
 
@@ -219,7 +225,8 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
   const equityBefore = parseFloat(totalEquity) || 0;
   const globalFreeCol = parseFloat(globalFreeCollateral) || 0;
   const equityAfter = Math.max(0, equityBefore - amountValue);
-  const marginUsageAfter = equityAfter > 0 ? ((equityBefore - globalFreeCol) / equityAfter) * 100 : 0;
+  const marginUsageAfter =
+    equityAfter > 0 ? ((equityBefore - globalFreeCol) / equityAfter) * 100 : 0;
 
   const handleCopy = () => {
     if (!evmAddress) return;
@@ -237,8 +244,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     const currentWallets = useWalletStore.getState().connectedWallets;
     const requiredWallets = {
       evm: currentWallets.evm?.address,
-      dydx: currentWallets.evm?.dydxAddress || currentWallets.cosmos?.dydxAddress,
-      cosmos: currentWallets.cosmos?.address
+      dydx: currentWallets.evm?.dydxAddress,
     };
 
     store.setWithdrawTx({
@@ -257,7 +263,15 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     } else {
       store.clearWithdrawTx();
     }
-  }, [amountValidation.valid, withdraw, amountValue, fromSubaccount, evmAddress, clearWithdrawError, store]);
+  }, [
+    amountValidation.valid,
+    withdraw,
+    amountValue,
+    fromSubaccount,
+    evmAddress,
+    clearWithdrawError,
+    store,
+  ]);
 
   const handleDismissProgress = useCallback(() => {
     if (isWithdrawing) return;
@@ -292,16 +306,24 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
     const isStep2Active = ['ibc_to_noble', 'waiting_noble'].includes(step);
     const isStep3Active = ['bridging', 'pending'].includes(step) || !!trackerTxHash;
 
-    const isStep1Done = ['ibc_to_noble', 'waiting_noble', 'bridging', 'pending', 'success'].includes(step) || !!trackerTxHash;
+    const isStep1Done =
+      ['ibc_to_noble', 'waiting_noble', 'bridging', 'pending', 'success'].includes(step) ||
+      !!trackerTxHash;
     const isStep2Done = ['bridging', 'pending', 'success'].includes(step) || !!trackerTxHash;
-    const isStep3Done = step === 'success' || bridgeTracker.overallState === 'STATE_COMPLETED_SUCCESS';
+    const isStep3Done =
+      step === 'success' || bridgeTracker.overallState === 'STATE_COMPLETED_SUCCESS';
 
     if (isStep3Done) {
       step1Status = 'completed';
       step2Status = 'completed';
       step3Status = 'completed';
     } else if (step === 'error' || bridgeTracker.isError) {
-      if (isStep1Active || step === 'checking_gas' || step === 'transferring_to_main' || step === 'signing') {
+      if (
+        isStep1Active ||
+        step === 'checking_gas' ||
+        step === 'transferring_to_main' ||
+        step === 'signing'
+      ) {
         step1Status = 'error';
       } else if (isStep2Active || step === 'ibc_to_noble' || step === 'waiting_noble') {
         step1Status = 'completed';
@@ -349,7 +371,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
         title: 'Bridge to Destination',
         desc: 'Bridge USDC from Noble to Ethereum/EVM via CCTP/Skip bridge.',
         status: step3Status,
-      }
+      },
     ];
 
     return (
@@ -364,21 +386,23 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
             <div key={s.id} className="relative flex gap-4">
               {!isLast && (
                 <div
-                  className={`absolute left-[15px] top-8 bottom-[-24px] w-[2px] transition-all duration-500 ${isDone ? 'bg-brand' : 'bg-white/10'
-                    }`}
+                  className={`absolute left-[15px] top-8 bottom-[-24px] w-[2px] transition-all duration-500 ${
+                    isDone ? 'bg-brand' : 'bg-white/10'
+                  }`}
                 />
               )}
 
               <div className="shrink-0 z-10">
                 <div
-                  className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${isActive
+                  className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
+                    isActive
                       ? 'border-brand bg-brand/20 shadow-[0_0_12px_rgba(var(--brand-rgb),0.4)] scale-105'
                       : isDone
                         ? 'border-brand bg-brand text-white'
                         : isErr
                           ? 'border-danger bg-danger/20 text-danger'
                           : 'border-white/10 bg-secondary text-muted opacity-40'
-                    }`}
+                  }`}
                 >
                   {isActive ? (
                     <Loader2 className="w-4 h-4 text-brand animate-spin" />
@@ -392,7 +416,9 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
                 </div>
               </div>
 
-              <div className={`flex-1 pb-4 transition-opacity duration-300 ${!isActive && !isDone ? 'opacity-40' : 'opacity-100'}`}>
+              <div
+                className={`flex-1 pb-4 transition-opacity duration-300 ${!isActive && !isDone ? 'opacity-40' : 'opacity-100'}`}
+              >
                 <h4 className="text-sm font-bold text-primary">{s.title}</h4>
                 <p className="text-xs text-muted mt-0.5 leading-relaxed">{s.desc}</p>
 
@@ -427,9 +453,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
 
     const bridgeIsTerminal = bridgeTracker.isTerminal;
     const bridgeSucceeded =
-      bridgeTracker.overallState === 'STATE_COMPLETED_SUCCESS' ||
-      persistedTx?.status === 'success';
-
+      bridgeTracker.overallState === 'STATE_COMPLETED_SUCCESS' || persistedTx?.status === 'success';
 
     return (
       <ModalShell onClose={onClose} className="min-h-[500px] sm:min-h-[580px]">
@@ -484,7 +508,9 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
             <div className="flex items-start gap-4 p-4 bg-brand/5 border border-brand/20 rounded-2xl animate-in fade-in">
               <AlertCircle className="w-5 h-5 text-brand flex-shrink-0" />
               <div>
-                <div className="text-xs font-black text-brand uppercase tracking-wider mb-1">Status Update</div>
+                <div className="text-xs font-black text-brand uppercase tracking-wider mb-1">
+                  Status Update
+                </div>
                 <div className="text-[11px] font-bold text-muted leading-relaxed">
                   Your dYdX → Noble transfer was initiated. If progress doesn't appear soon, check{' '}
                   <a
@@ -522,7 +548,8 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
           {!isWithdrawing && elapsedMinutes > 0 && !bridgeIsTerminal && (
             <div className="flex items-center gap-2 text-xs text-muted bg-tertiary border border-color rounded-lg px-3 py-2">
               <Clock className="w-3.5 h-3.5 shrink-0" />
-              Started {elapsedMinutes} minute{elapsedMinutes !== 1 ? 's' : ''} ago — may still be processing on-chain.
+              Started {elapsedMinutes} minute{elapsedMinutes !== 1 ? 's' : ''} ago — may still be
+              processing on-chain.
             </div>
           )}
 
@@ -531,9 +558,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
             <div className="p-3 bg-danger/10 border border-danger/20 rounded-xl flex items-start gap-2 animate-in fade-in duration-300">
               <AlertTriangle className="w-4 h-4 text-danger shrink-0 mt-0.5" />
               <div className="flex-1">
-                <p className="text-xs font-black text-danger uppercase mb-1">
-                  Error Details
-                </p>
+                <p className="text-xs font-black text-danger uppercase mb-1">Error Details</p>
                 <p className="text-[11px] font-bold text-danger/80 break-words">
                   {withdrawError || bridgeTracker.errorMessage}
                 </p>
@@ -627,7 +652,10 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
                 <span className="text-xs text-muted font-mono">
                   {evmAddress ? `${evmAddress.slice(0, 6)}...${evmAddress.slice(-4)}` : '0x…'}
                 </span>
-                <button onClick={handleCopy} className="text-muted hover:text-primary transition-colors">
+                <button
+                  onClick={handleCopy}
+                  className="text-muted hover:text-primary transition-colors"
+                >
                   <Copy className="w-3.5 h-3.5" />
                 </button>
                 {isCopied && <span className="text-[10px] text-success">Copied!</span>}
@@ -662,7 +690,7 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
           <input
             type="text"
             value={amount}
-            onChange={(e) => {
+            onChange={e => {
               const val = e.target.value;
               if (val === '' || /^\d*\.?\d*$/.test(val)) setAmount(val);
             }}
@@ -681,7 +709,9 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
         <div className="space-y-3 pt-1">
           <div className="flex justify-between items-center">
             <span className="text-sm text-muted">You'll receive</span>
-            <span className="text-sm text-primary font-medium">{formatCurr(actualWithdrawAmount)}</span>
+            <span className="text-sm text-primary font-medium">
+              {formatCurr(actualWithdrawAmount)}
+            </span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-sm text-muted">Free Collateral</span>
@@ -736,9 +766,13 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
               <CheckCircle2 className="w-6 h-6 text-success" />
             </div>
             <div>
-              <div className="text-base font-semibold text-primary mb-0.5">Withdrawal Submitted!</div>
+              <div className="text-base font-semibold text-primary mb-0.5">
+                Withdrawal Submitted!
+              </div>
               {withdrawnAmount && (
-                <div className="text-sm text-muted">${withdrawnAmount.toFixed(2)} USDC is on its way</div>
+                <div className="text-sm text-muted">
+                  ${withdrawnAmount.toFixed(2)} USDC is on its way
+                </div>
               )}
             </div>
             {withdrawTxHash && (
@@ -753,13 +787,21 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
             )}
             <div className="flex gap-2 w-full">
               <button
-                onClick={() => { reset(); setSuccess(false); setAmount(''); bridgeTracker.acknowledge(); }}
+                onClick={() => {
+                  reset();
+                  setSuccess(false);
+                  setAmount('');
+                  bridgeTracker.acknowledge();
+                }}
                 className="flex-1 py-2.5 border border-color rounded-xl text-sm font-medium text-primary hover:bg-hover transition-colors"
               >
                 Withdraw Again
               </button>
               <button
-                onClick={() => { bridgeTracker.acknowledge(); onClose(); }}
+                onClick={() => {
+                  bridgeTracker.acknowledge();
+                  onClose();
+                }}
                 className="flex-1 py-2.5 btn btn-primary rounded-xl text-sm font-semibold"
               >
                 Close
@@ -775,9 +817,15 @@ export const DydxWithdrawModal: React.FC<DydxWithdrawModalProps> = ({ isOpen, on
             className="w-full py-3.5 btn btn-primary rounded-xl font-medium text-[15px] transition-all bg-brand text-white hover:opacity-90 disabled:bg-hover disabled:text-muted disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
           >
             {isWithdrawing ? (
-              <><Loader2 className="w-5 h-5 animate-spin" />{stepLabel}</>
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                {stepLabel}
+              </>
             ) : isWithdrawLocked ? (
-              <><Loader2 className="w-5 h-5 animate-spin" />Transfer in progress…</>
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Transfer in progress…
+              </>
             ) : (
               'Withdraw'
             )}

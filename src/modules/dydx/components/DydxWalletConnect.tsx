@@ -36,12 +36,7 @@ export const DydxWalletConnect: React.FC = () => {
   const openModal = useWalletStore(state => state.openModal);
   const deriveDydx = useWalletStore(state => state.deriveDydx);
   const evmWallet = useWalletStore(state => state.connectedWallets.evm);
-  const cosmosWallet = useWalletStore(state => state.connectedWallets.cosmos);
-
-  const hasDydxAddress = useMemo(
-    () => !!(evmWallet?.dydxAddress || cosmosWallet?.dydxAddress),
-    [evmWallet, cosmosWallet]
-  );
+  const hasDydxAddress = useMemo(() => !!evmWallet?.dydxAddress, [evmWallet]);
   const hasEvmWallet = useMemo(() => !!evmWallet, [evmWallet]);
   const needsDydxDerivation = useMemo(
     () => hasEvmWallet && !evmWallet?.dydxAddress,

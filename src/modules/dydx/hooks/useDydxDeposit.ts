@@ -163,8 +163,7 @@ export const useDydxDeposit = () => {
         const storeState = useWalletStore.getState();
         const evmWallet = storeState.connectedWallets.evm;
         const evmAddress = evmWallet?.address;
-        const dydxAddress =
-          evmWallet?.dydxAddress ?? storeState.connectedWallets.cosmos?.dydxAddress;
+        const dydxAddress = evmWallet?.dydxAddress;
 
         if (!evmAddress) throw new Error('EVM wallet not connected');
         if (!dydxAddress) throw new Error('dYdX wallet not derived -- please onboard first');
@@ -283,8 +282,7 @@ export const useDydxDeposit = () => {
                 estimatedTime: estTime,
                 requiredWallets: {
                   evm: currentWallets.evm?.address,
-                  dydx: currentWallets.evm?.dydxAddress || currentWallets.cosmos?.dydxAddress,
-                  cosmos: currentWallets.cosmos?.address,
+                  dydx: currentWallets.evm?.dydxAddress,
                 },
               });
             }
@@ -452,9 +450,7 @@ export const useDydxDeposit = () => {
     setPendingDydxQuantums(null);
 
     try {
-      const dydxAddress =
-        useWalletStore.getState().connectedWallets.evm?.dydxAddress ??
-        useWalletStore.getState().connectedWallets.cosmos?.dydxAddress;
+      const dydxAddress = useWalletStore.getState().connectedWallets.evm?.dydxAddress;
       if (!dydxAddress) return;
 
       const nobleAddress = dydxToNoble(dydxAddress);

@@ -162,7 +162,7 @@ class WebSocketManager {
   };
 
   async connect(wsUrl: string): Promise<void> {
-    const ENABLED = false;
+    const ENABLED = true;
     if (!ENABLED) {
       return Promise.resolve();
     }

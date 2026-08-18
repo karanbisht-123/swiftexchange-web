@@ -89,11 +89,9 @@ export const PortfolioCardsGrid: React.FC<PortfolioCardsGridProps> = ({
           walletId: isDydxConnected
             ? connectedWallets.evm?.dydxAddress
               ? connectedWallets.evm.walletId
-              : connectedWallets.cosmos?.walletId || 'Derived'
+              : 'Derived'
             : 'Not Connected',
-          address: isDydxConnected
-            ? connectedWallets.evm?.dydxAddress || connectedWallets.cosmos?.dydxAddress || ''
-            : '',
+          address: isDydxConnected ? connectedWallets.evm?.dydxAddress || '' : '',
           color: 'from-emerald-500/20 to-teal-500/10 border-emerald-500/30 text-emerald-400',
           glow: 'shadow-emerald-500/10',
           activeBg:

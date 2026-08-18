@@ -16,9 +16,9 @@
     "preview": "vite preview",
     "doctor": "npx react-doctor@latest",
     "prepare": "husky",
-    "test": "vitest",
-    "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage"
+    "test": "NODE_OPTIONS='--experimental-require-module' vitest",
+    "test:ui": "NODE_OPTIONS='--experimental-require-module' vitest --ui",
+    "test:coverage": "NODE_OPTIONS='--experimental-require-module' vitest run --coverage"
   },
   "dependencies": {
     "@allbridge/bridge-core-sdk": "^3.29.1",

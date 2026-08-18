@@ -28,8 +28,7 @@ export const useDydxWallet = (): UseDydxWalletReturn => {
   const dydxAddress = useWalletStore(
     useCallback(state => {
       const evm = state.connectedWallets.evm;
-      const cosmos = state.connectedWallets.cosmos;
-      return evm?.dydxAddress || cosmos?.dydxAddress || null;
+      return evm?.dydxAddress || null;
     }, [])
   );
 

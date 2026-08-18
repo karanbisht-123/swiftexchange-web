@@ -53,11 +53,7 @@ const AssetSelectorModal: FC = () => {
         return !!connectedWallets.stellar?.address;
       }
       if (String(cId).startsWith('dydx')) {
-        return !!(
-          connectedWallets.evm?.dydxAddress ||
-          connectedWallets.cosmos?.dydxAddress ||
-          localStorage.getItem('_sx_dkm_addr')
-        );
+        return !!(connectedWallets.evm?.dydxAddress || localStorage.getItem('_sx_dkm_addr'));
       }
       return !!connectedWallets.evm?.address;
     },
@@ -298,7 +294,7 @@ const AssetSelectorModal: FC = () => {
         a =>
           a.chainId === selectedNetwork ||
           (selectedNetwork === STELLAR_CHAIN_ID && a.chainType === 'stellar') ||
-          (selectedNetwork === DYDX_CHAIN_ID && a.chainType === 'cosmos')
+          selectedNetwork === DYDX_CHAIN_ID
       );
     }
 

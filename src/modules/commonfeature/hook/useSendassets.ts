@@ -212,11 +212,7 @@ export const useSendAsset = (onBack?: () => void) => {
   const senderAddress = useMemo(() => {
     if (!currentAsset) return null;
     if (currentAsset.type === 'dydx') {
-      return (
-        (connectedWallets.evm as any)?.dydxAddress ||
-        (connectedWallets.cosmos as any)?.dydxAddress ||
-        localStorage.getItem('_sx_dkm_addr')
-      );
+      return (connectedWallets.evm as any)?.dydxAddress || localStorage.getItem('_sx_dkm_addr');
     }
     return connectedWallets[currentAsset.walletType]?.address || null;
   }, [connectedWallets, currentAsset]);

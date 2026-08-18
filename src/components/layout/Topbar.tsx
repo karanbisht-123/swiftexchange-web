@@ -26,10 +26,7 @@ const Topbar: React.FC = () => {
 
   const isAnyWalletConnected = Object.keys(connectedWallets).length > 0;
 
-  const hasDydx = useWalletStore(
-    state =>
-      !!(state.connectedWallets.evm?.dydxAddress || state.connectedWallets.cosmos?.dydxAddress)
-  );
+  const hasDydx = useWalletStore(state => !!state.connectedWallets.evm?.dydxAddress);
   const { openModal } = useApiTradingKeys();
   const openExportPhraseModal = useWalletStore(state => state.openExportPhraseModal);
 

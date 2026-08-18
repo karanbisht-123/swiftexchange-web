@@ -1,5 +1,3 @@
-
-
 import { sendCustomNotification } from '../service/notificationService';
 
 export function getRequestExpiry(minutes = 2): number {
@@ -25,7 +23,6 @@ export async function sendEVMTransaction(
   chainId: number | string,
   txParams: Record<string, any>
 ): Promise<string> {
-
   // if (isPending) {
   //   throw new Error('A transaction is already pending. Please wait.');
   // }
@@ -36,19 +33,29 @@ export async function sendEVMTransaction(
     if (!topic) throw new Error('No WalletConnect session topic');
 
     await notifyWalletSignRequest(txParams.to);
-    return await provider.client.request({
+    const result = await provider.client.request({
       topic,
       chainId: `eip155:${numericChainId}`,
       request: {
         method: 'eth_sendTransaction',
         params: [txParams],
       },
-    }) as Promise<string>;
+    });
+
+    if (typeof result === 'string') return result;
+    if (result && typeof result === 'object' && result.hash) return result.hash;
+
+    throw new Error('Transaction succeeded but wallet did not return a transaction hash');
   }
 
   await notifyWalletSignRequest(txParams.to);
-  return await provider.request({
+  const result = await provider.request({
     method: 'eth_sendTransaction',
     params: [txParams],
   });
+
+  if (typeof result === 'string') return result;
+  if (result && typeof result === 'object' && result.hash) return result.hash;
+
+  throw new Error('Transaction succeeded but wallet did not return a transaction hash');
 }

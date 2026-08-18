@@ -777,7 +777,7 @@ const EvmTransactionHistory: React.FC = () => {
         <EmptyState
           icon={<Clock size={32} />}
           title="No Wallet Connected"
-          description="Please connect a wallet (EVM, Stellar, or Cosmos) to view your transaction history."
+          description="Please connect a wallet (EVM or Stellar) to view your transaction history."
         />
       </PageLayout>
     );

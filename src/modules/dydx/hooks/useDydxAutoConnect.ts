@@ -6,12 +6,7 @@ import { dydxWalletService } from '../service/dydxWalletService';
 export function useDydxAutoConnect() {
   const network = useWalletStore(state => state.network);
   const evmWallet = useWalletStore(state => state.connectedWallets.evm);
-  const cosmosWallet = useWalletStore(state => state.connectedWallets.cosmos);
-
-  const hasDydxAddress = useMemo(
-    () => !!(evmWallet?.dydxAddress || cosmosWallet?.dydxAddress),
-    [evmWallet, cosmosWallet]
-  );
+  const hasDydxAddress = useMemo(() => !!evmWallet?.dydxAddress, [evmWallet]);
   const [isConnecting, setIsConnecting] = useState(false);
   useEffect(() => {
     if (

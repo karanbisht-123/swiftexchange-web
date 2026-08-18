@@ -1,8 +1,8 @@
-import { type Asset } from '../../store/portfolioStore';
-import { type IPortfolioProvider, type PortfolioFetchParams } from '../types';
 import { getIndexerClient } from '../../../dydx/client/clients';
 import { getAssetBySymbol, getGlobalAssetMetadata } from '../../../evm/utils/Chainregistry';
 import { CHAINS } from '../../../evm/utils/assetmanagement/chains';
+import { type Asset } from '../../store/portfolioStore';
+import { type IPortfolioProvider, type PortfolioFetchParams } from '../types';
 
 export class DydxPortfolioProvider implements IPortfolioProvider {
   public id = 'dydx';
@@ -10,7 +10,7 @@ export class DydxPortfolioProvider implements IPortfolioProvider {
   async fetch(params: PortfolioFetchParams): Promise<Asset[]> {
     const { connectedWallets } = params;
 
-    const dydxAddress = (connectedWallets.evm as any)?.dydxAddress || (connectedWallets.cosmos as any)?.dydxAddress;
+    const dydxAddress = (connectedWallets.evm as any)?.dydxAddress;
     if (!dydxAddress) return [];
 
     try {
@@ -34,7 +34,10 @@ export class DydxPortfolioProvider implements IPortfolioProvider {
           id: `dydx-USDC`,
           symbol,
           name: registryAsset?.name || 'USD Coin',
-          image: registryAsset?.logoURI || globalMeta?.logoURI || 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png',
+          image:
+            registryAsset?.logoURI ||
+            globalMeta?.logoURI ||
+            'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png',
           balance: usdcBalance,
           current_price: 0,
           price_change_percentage_24h: 0,
@@ -62,7 +65,10 @@ export class DydxPortfolioProvider implements IPortfolioProvider {
             id: `dydx-${symbol}`,
             symbol,
             name: registryAsset?.name || symbol,
-            image: registryAsset?.logoURI || globalMeta?.logoURI || `https://ui-avatars.com/api/?name=${symbol}&background=random`,
+            image:
+              registryAsset?.logoURI ||
+              globalMeta?.logoURI ||
+              `https://ui-avatars.com/api/?name=${symbol}&background=random`,
             balance,
             current_price: 0,
             price_change_percentage_24h: 0,

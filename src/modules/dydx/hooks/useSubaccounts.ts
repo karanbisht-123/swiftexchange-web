@@ -17,8 +17,7 @@ export const useSubaccounts = () => {
   const dydxAddress = useWalletStore(
     useCallback(state => {
       const evm = state.connectedWallets.evm;
-      const cosmos = state.connectedWallets.cosmos;
-      return evm?.dydxAddress || cosmos?.dydxAddress || null;
+      return evm?.dydxAddress || null;
     }, [])
   );
 
@@ -145,32 +144,48 @@ export const useSubaccounts = () => {
     return parentData?.freeCollateral || '0';
   }, [parentData?.freeCollateral]);
 
-  return useMemo(() => ({
-    childSubaccounts,
-    crossSubaccount,
-    isolatedSubaccounts,
-    totalEquity,
-    totalFreeCollateral,
+  return useMemo(
+    () => ({
+      childSubaccounts,
+      crossSubaccount,
+      isolatedSubaccounts,
+      totalEquity,
+      totalFreeCollateral,
 
-    selectedMarginMode,
-    setMarginMode,
-    activeSubaccountNumber,
-    setActiveSubaccount,
+      selectedMarginMode,
+      setMarginMode,
+      activeSubaccountNumber,
+      setActiveSubaccount,
 
-    getSubaccountForMarket,
-    getNextIsolatedSubaccount,
-    getBalance,
-    validateIsolatedPosition,
+      getSubaccountForMarket,
+      getNextIsolatedSubaccount,
+      getBalance,
+      validateIsolatedPosition,
 
-    transfer,
-    sweepToCross,
-    isTransferring,
-    transferError,
-    clearTransferError: () => setTransferError(null),
-  }), [
-    childSubaccounts, crossSubaccount, isolatedSubaccounts, totalEquity, totalFreeCollateral,
-    selectedMarginMode, setMarginMode, activeSubaccountNumber, setActiveSubaccount,
-    getSubaccountForMarket, getNextIsolatedSubaccount, getBalance, validateIsolatedPosition,
-    transfer, sweepToCross, isTransferring, transferError
-  ]);
+      transfer,
+      sweepToCross,
+      isTransferring,
+      transferError,
+      clearTransferError: () => setTransferError(null),
+    }),
+    [
+      childSubaccounts,
+      crossSubaccount,
+      isolatedSubaccounts,
+      totalEquity,
+      totalFreeCollateral,
+      selectedMarginMode,
+      setMarginMode,
+      activeSubaccountNumber,
+      setActiveSubaccount,
+      getSubaccountForMarket,
+      getNextIsolatedSubaccount,
+      getBalance,
+      validateIsolatedPosition,
+      transfer,
+      sweepToCross,
+      isTransferring,
+      transferError,
+    ]
+  );
 };

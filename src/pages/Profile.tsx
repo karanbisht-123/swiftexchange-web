@@ -1300,8 +1300,7 @@ const Profile: React.FC = () => {
             <div className="space-y-1">
               <h4 className="font-bold text-lg">No wallets connected</h4>
               <p className="text-sm text-(--color-text-secondary) max-w-sm mx-auto">
-                Connect your EVM, Stellar, or Cosmos wallet to start syncing your balances and
-                performance.
+                Connect your EVM or Stellar wallet to start syncing your balances and performance.
               </p>
             </div>
             <button

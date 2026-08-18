@@ -1,10 +1,10 @@
 import { Check, ChevronDown, Copy, Plus, X } from 'lucide-react';
 import React, { useRef, useState } from 'react';
 
-import { COSMOS_WALLETS, EVM_WALLETS, STELLAR_WALLETS, WalletType } from '../constants/Wallet';
+import { EVM_WALLETS, STELLAR_WALLETS, WalletType } from '../constants/Wallet';
 import { useWalletConnect } from '../hooks/useWalletConnect';
 
-const ALL_WALLETS = [...EVM_WALLETS, ...COSMOS_WALLETS, ...STELLAR_WALLETS];
+const ALL_WALLETS = [...EVM_WALLETS, ...STELLAR_WALLETS];
 
 const WALLETCONNECT_ICON =
   'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRWu9CeO85RIMN2ixs9U_6YhnatWBxtCzn6L_e7QRO_CiEV1SB0LGbSXJijfHYt0N46slY&usqp=CAU';
@@ -176,7 +176,7 @@ export const ConnectWalletButton: React.FC = () => {
             <div className="overflow-y-auto max-h-72 scrollbar-thin">
               {validConnectedWallets.map(([type, conn]) => {
                 const icon = getWalletIcon(conn.walletId, type, conn.peerIcon);
-                const typeLabel = type === 'evm' ? 'EVM' : type === 'cosmos' ? 'Cosmos' : 'Stellar';
+                const typeLabel = type === 'evm' ? 'EVM' : 'Stellar';
 
                 return (
                   <div

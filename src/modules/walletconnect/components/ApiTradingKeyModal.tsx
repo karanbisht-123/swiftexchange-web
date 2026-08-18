@@ -1,10 +1,10 @@
-import { X, Copy, Check, ShieldCheck } from 'lucide-react';
+import { Check, Copy, ShieldCheck, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useApiTradingKeys } from '../hooks/useWalletConnect';
-import { useWalletStore } from '../store/walletConnectStore';
 import type { ApiTradingKey } from '../services/apiTradingKeyService';
+import { useWalletStore } from '../store/walletConnectStore';
 
 function truncateAddress(addr: string, head = 8, tail = 6): string {
   if (addr.length <= head + tail + 3) return addr;
@@ -91,10 +91,7 @@ const KeyRow: React.FC<{
         >
           {truncateAddress(apiKey.address, 10, 8)}
         </span>
-        <CopyButton
-          text={apiKey.address}
-          id={`copy-api-key-address-${apiKey.id}`}
-        />
+        <CopyButton text={apiKey.address} id={`copy-api-key-address-${apiKey.id}`} />
       </div>
       <p style={{ color: 'var(--color-text-muted)' }} className="text-[11px]">
         Created {formatDate(apiKey.createdAt)}
@@ -140,23 +137,14 @@ const KeyRow: React.FC<{
 );
 
 export const ApiTradingKeyModal: React.FC = () => {
-  const {
-    keys,
-    generate,
-    revoke,
-    isGenerating,
-    revokingKeyId,
-    error,
-    isModalOpen,
-    closeModal,
-  } = useApiTradingKeys();
+  const { keys, generate, revoke, isGenerating, revokingKeyId, error, isModalOpen, closeModal } =
+    useApiTradingKeys();
 
   const connectedWallets = useWalletStore(state => state.connectedWallets);
-  const dydxAddress =
-    connectedWallets.evm?.dydxAddress ?? connectedWallets.cosmos?.dydxAddress ?? '';
+  const dydxAddress = connectedWallets.evm?.dydxAddress ?? '';
 
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
   );
   const [labelInput, setLabelInput] = useState('');
   const [showLabelInput, setShowLabelInput] = useState(false);
@@ -170,7 +158,9 @@ export const ApiTradingKeyModal: React.FC = () => {
       setShowLabelInput(false);
       setLabelInput('');
     }
-    return () => { document.body.style.overflow = 'unset'; };
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
   }, [isModalOpen]);
 
   useEffect(() => {
@@ -190,9 +180,12 @@ export const ApiTradingKeyModal: React.FC = () => {
     setShowLabelInput(false);
   }, [generate, labelInput]);
 
-  const handleRevoke = useCallback((id: string) => {
-    revoke(id);
-  }, [revoke]);
+  const handleRevoke = useCallback(
+    (id: string) => {
+      revoke(id);
+    },
+    [revoke]
+  );
 
   const handleBackdropClick = useCallback(() => {
     if (!isGenerating && !revokingKeyId) closeModal();
@@ -213,8 +206,9 @@ export const ApiTradingKeyModal: React.FC = () => {
     >
       <div
         style={{ background: 'var(--color-bg-secondary)' }}
-        className={`w-full md:w-[520px] rounded-t-3xl md:rounded-2xl shadow-2xl max-h-[88vh] flex flex-col ${isMobile ? 'animate-slide-up' : 'animate-fade-in'
-          }`}
+        className={`w-full md:w-[520px] rounded-t-3xl md:rounded-2xl shadow-2xl max-h-[88vh] flex flex-col ${
+          isMobile ? 'animate-slide-up' : 'animate-fade-in'
+        }`}
         onClick={e => e.stopPropagation()}
       >
         {isMobile && (
@@ -230,10 +224,7 @@ export const ApiTradingKeyModal: React.FC = () => {
           style={{ borderColor: 'var(--color-border)' }}
           className="flex items-center justify-between px-5 py-4 border-b flex-shrink-0"
         >
-          <h2
-            style={{ color: 'var(--color-text-primary)' }}
-            className="text-lg font-bold"
-          >
+          <h2 style={{ color: 'var(--color-text-primary)' }} className="text-lg font-bold">
             API Trading Keys
           </h2>
           <button
@@ -250,9 +241,8 @@ export const ApiTradingKeyModal: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto scrollbar-thin px-5 py-4 space-y-4">
           <p style={{ color: 'var(--color-text-secondary)' }} className="text-sm leading-relaxed">
-            API wallets perform actions on behalf of your account without withdrawal
-            permissions. You must still use your account&apos;s public address for info
-            requests.
+            API wallets perform actions on behalf of your account without withdrawal permissions.
+            You must still use your account&apos;s public address for info requests.
           </p>
 
           <div className="flex flex-col sm:flex-row items-stretch gap-3">
@@ -264,24 +254,24 @@ export const ApiTradingKeyModal: React.FC = () => {
               className="flex-1 rounded-xl border p-3 flex items-center justify-between min-w-0"
             >
               <div className="min-w-0 flex-1">
-                <p style={{ color: 'var(--color-text-muted)' }} className="text-[10px] uppercase tracking-wider font-semibold mb-0.5">
+                <p
+                  style={{ color: 'var(--color-text-muted)' }}
+                  className="text-[10px] uppercase tracking-wider font-semibold mb-0.5"
+                >
                   Your dYdX Address
                 </p>
                 <p
                   style={{ color: 'var(--color-brand-primary)' }}
                   className="text-xs font-mono font-semibold truncate"
                 >
-                  {dydxAddress
-                    ? dydxAddress
-                    : <span style={{ color: 'var(--color-text-muted)' }}>Not connected</span>}
+                  {dydxAddress ? (
+                    dydxAddress
+                  ) : (
+                    <span style={{ color: 'var(--color-text-muted)' }}>Not connected</span>
+                  )}
                 </p>
               </div>
-              {dydxAddress && (
-                <CopyButton
-                  text={dydxAddress}
-                  id="copy-owner-dydx-address"
-                />
-              )}
+              {dydxAddress && <CopyButton text={dydxAddress} id="copy-owner-dydx-address" />}
             </div>
 
             <button
@@ -311,7 +301,10 @@ export const ApiTradingKeyModal: React.FC = () => {
           <div className="space-y-2">
             {showLabelInput && (
               <div
-                style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg-tertiary)' }}
+                style={{
+                  borderColor: 'var(--color-border)',
+                  background: 'var(--color-bg-tertiary)',
+                }}
                 className="flex items-center gap-2 p-2 rounded-xl border animate-fade-in"
               >
                 <input
@@ -321,7 +314,10 @@ export const ApiTradingKeyModal: React.FC = () => {
                   placeholder='Label (e.g. "My trading bot")'
                   value={labelInput}
                   onChange={e => setLabelInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleGenerate(); if (e.key === 'Escape') setShowLabelInput(false); }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleGenerate();
+                    if (e.key === 'Escape') setShowLabelInput(false);
+                  }}
                   maxLength={40}
                   style={{
                     background: 'transparent',
@@ -428,8 +424,8 @@ export const ApiTradingKeyModal: React.FC = () => {
             style={{ color: 'var(--color-brand-primary)', opacity: 0.7 }}
           />
           <p style={{ color: 'var(--color-text-muted)' }} className="text-xs leading-relaxed">
-            API keys are scoped to order placement and cancellation only. Withdrawal
-            transactions require your owner wallet, which never leaves this browser session.
+            API keys are scoped to order placement and cancellation only. Withdrawal transactions
+            require your owner wallet, which never leaves this browser session.
           </p>
         </div>
       </div>

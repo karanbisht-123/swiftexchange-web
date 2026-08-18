@@ -160,8 +160,7 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
           const providersToFetch = portfolioService.getProviders().filter(p => {
             if (p.id === 'evm') return !!connectedWallets.evm?.address;
             if (p.id === 'stellar') return !!connectedWallets.stellar?.address;
-            if (p.id === 'dydx')
-              return !!(connectedWallets.evm?.dydxAddress || connectedWallets.cosmos?.dydxAddress);
+            if (p.id === 'dydx') return !!connectedWallets.evm?.dydxAddress;
             return true;
           });
 

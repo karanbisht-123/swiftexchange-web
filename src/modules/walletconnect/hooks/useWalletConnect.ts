@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 
-import { getCosmosChains, getEVMChains, getStellarConfig } from '../config/chains';
+import { getEVMChains, getStellarConfig } from '../config/chains';
 import { WalletType } from '../constants/Wallet';
 import { walletService } from '../services/walletService';
 import {
@@ -171,50 +171,6 @@ export const useEVMWallet = () => {
   };
 };
 
-export const useCosmosWallet = () => {
-  const wallet = useWalletStore(selectConnectedWallet('cosmos'));
-  const status = useWalletStore(selectConnectionStatus('cosmos'));
-
-  const connectWallet = useWalletStore(state => state.connectWallet);
-  const disconnect = useWalletStore(state => state.disconnect);
-  const isConnected = useWalletStore(state => state.isConnected);
-  const isConnecting = useWalletStore(state => state.isConnecting);
-
-  const connected = useMemo(() => isConnected('cosmos'), [isConnected]);
-  const connecting = useMemo(() => isConnecting('cosmos'), [isConnecting]);
-
-  const connect = useCallback(
-    async (walletId: string) => {
-      await connectWallet('cosmos', walletId);
-    },
-    [connectWallet]
-  );
-
-  const disconnectWallet = useCallback(async () => {
-    try {
-      await disconnect('cosmos');
-    } catch (error: any) {
-      console.error(error);
-    }
-  }, [disconnect]);
-
-  const getProvider = useCallback(() => {
-    if (!wallet) return null;
-    return walletService.getProvider('cosmos');
-  }, [wallet]);
-
-  return {
-    wallet,
-    dydxAddress: wallet?.dydxAddress,
-    status: status || { state: 'idle' as const },
-    isConnected: connected,
-    isConnecting: connecting,
-    connect,
-    disconnect: disconnectWallet,
-    getProvider,
-  };
-};
-
 export const useStellarWallet = () => {
   const wallet = useWalletStore(selectConnectedWallet('stellar'));
   const status = useWalletStore(selectConnectionStatus('stellar'));
@@ -271,7 +227,6 @@ export const useWalletNetwork = () => {
   const setNetwork = useWalletStore(state => state.setNetwork);
 
   const availableEVMChains = useMemo(() => getEVMChains(network), [network]);
-  const availableCosmosChains = useMemo(() => getCosmosChains(network), [network]);
   const currentStellarConfig = useMemo(() => getStellarConfig(network), [network]);
 
   const switchNetwork = useCallback(
@@ -286,7 +241,6 @@ export const useWalletNetwork = () => {
     network,
     switchNetwork,
     availableEVMChains,
-    availableCosmosChains,
     currentStellarConfig,
   };
 };

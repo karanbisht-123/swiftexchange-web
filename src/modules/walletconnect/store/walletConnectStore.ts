@@ -21,7 +21,7 @@ import { extractErrorMessage } from '../utils/walletErrorHandler';
 
 export const TRADING_AUTH_PREF_KEY = '_sx_trading_auth_pref';
 
-export type WalletType = 'evm' | 'cosmos' | 'stellar';
+export type WalletType = 'evm' | 'stellar';
 
 type ConnectionState =
   'idle' | 'connecting' | 'connected' | 'signing' | 'deriving' | 'failed' | 'disconnected';
@@ -168,23 +168,13 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         const session =
           type === 'stellar'
             ? await walletService.connectStellar(walletId)
-            : await walletService.connectChainWallet(walletId, type);
+            : await walletService.connectChainWallet(walletId);
 
         const wallet: ConnectedWallet = {
           type,
           walletId,
-          address:
-            type === 'evm'
-              ? session.evmAddress!
-              : type === 'cosmos'
-                ? session.cosmosAddress!
-                : session.stellarAddress!,
-          chainId:
-            type === 'evm'
-              ? session.evmChainId
-              : type === 'cosmos'
-                ? session.cosmosChainId
-                : session.stellarChainId,
+          address: type === 'evm' ? session.evmAddress! : session.stellarAddress!,
+          chainId: type === 'evm' ? session.evmChainId : session.stellarChainId,
           dydxAddress: session.dydxAddress,
           peerName: session.peerName,
           peerIcon: session.peerIcon,
@@ -521,7 +511,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         const hasWallets = Object.keys(remainingWallets).length > 0;
         const nextRawSession = hasWallets
           ? walletService.getProvider('evm')?.session ||
-            walletService.getProvider('cosmos')?.session ||
             walletService.getProvider('stellar')?.session ||
             null
           : null;
@@ -550,8 +539,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           portfolio.clearAssetsByType('dydx');
         } else if (type === 'stellar') {
           portfolio.clearAssetsByType('stellar');
-        } else if (type === 'cosmos') {
-          portfolio.clearAssetsByType('dydx');
         }
       }
 
@@ -598,18 +585,8 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           wallets[s.type] = {
             type: s.type,
             walletId: s.walletId,
-            address:
-              s.type === 'evm'
-                ? s.evmAddress!
-                : s.type === 'cosmos'
-                  ? s.cosmosAddress!
-                  : s.stellarAddress!,
-            chainId:
-              s.type === 'evm'
-                ? s.evmChainId
-                : s.type === 'cosmos'
-                  ? s.cosmosChainId
-                  : s.stellarChainId,
+            address: s.type === 'evm' ? s.evmAddress! : s.stellarAddress!,
+            chainId: s.type === 'evm' ? s.evmChainId : s.stellarChainId,
             dydxAddress: s.dydxAddress,
             peerName: s.peerName,
             peerIcon: s.peerIcon,
@@ -620,7 +597,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
 
         const rawSession =
           walletService.getProvider('evm')?.session ||
-          walletService.getProvider('cosmos')?.session ||
           walletService.getProvider('stellar')?.session ||
           null;
 
@@ -751,7 +727,6 @@ export const initWalletListener = async () => {
             const hasWallets = Object.keys(remainingWallets).length > 0;
             const nextRawSession = hasWallets
               ? walletService.getProvider('evm')?.session ||
-                walletService.getProvider('cosmos')?.session ||
                 walletService.getProvider('stellar')?.session ||
                 null
               : null;
@@ -778,8 +753,6 @@ export const initWalletListener = async () => {
               portfolio.clearAssetsByType('dydx');
             } else if (type === 'stellar') {
               portfolio.clearAssetsByType('stellar');
-            } else if (type === 'cosmos') {
-              portfolio.clearAssetsByType('dydx');
             }
           }
 
@@ -807,18 +780,8 @@ export const initWalletListener = async () => {
           const updatedWallet: ConnectedWallet = {
             type,
             walletId: session.walletId,
-            address:
-              type === 'evm'
-                ? session.evmAddress!
-                : type === 'cosmos'
-                  ? session.cosmosAddress!
-                  : session.stellarAddress!,
-            chainId:
-              type === 'evm'
-                ? session.evmChainId
-                : type === 'cosmos'
-                  ? session.cosmosChainId
-                  : session.stellarChainId,
+            address: type === 'evm' ? session.evmAddress! : session.stellarAddress!,
+            chainId: type === 'evm' ? session.evmChainId : session.stellarChainId,
             dydxAddress: session.dydxAddress,
             peerName: session.peerName,
             peerIcon: session.peerIcon,
@@ -859,19 +822,14 @@ export const selectIsAnyWalletConnected = (state: WalletState) =>
 
 export const selectDydxWallet = (state: WalletState) => {
   const evm = state.connectedWallets.evm;
-  const cosmos = state.connectedWallets.cosmos;
 
   if (evm?.dydxAddress) {
     return { address: evm.dydxAddress, ethAddress: evm.address };
-  }
-  if (cosmos?.dydxAddress) {
-    return { address: cosmos.dydxAddress, cosmosAddress: cosmos.address };
   }
   return null;
 };
 
 export const selectHasDydxWallet = (state: WalletState) => {
   const evm = state.connectedWallets.evm;
-  const cosmos = state.connectedWallets.cosmos;
-  return Boolean(evm?.dydxAddress ?? cosmos?.dydxAddress);
+  return Boolean(evm?.dydxAddress);
 };

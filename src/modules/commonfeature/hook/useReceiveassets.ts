@@ -121,11 +121,7 @@ export const useReceiveAssets = () => {
       const connectedFirst = assets.find(a => {
         const isDydx = a.chainId && String(a.chainId).startsWith('dydx');
         if (isDydx) {
-          return (
-            !!(connectedWallets.evm as any)?.dydxAddress ||
-            !!(connectedWallets.cosmos as any)?.dydxAddress ||
-            !!localStorage.getItem('_sx_dkm_addr')
-          );
+          return !!(connectedWallets.evm as any)?.dydxAddress;
         }
         return !!connectedWallets[a.walletType as WalletType];
       });
@@ -143,8 +139,7 @@ export const useReceiveAssets = () => {
     if (!currentAsset) return '';
     const walletType = currentAsset.walletType as WalletType;
     if (currentAsset.chainId && String(currentAsset.chainId).startsWith('dydx')) {
-      const addr =
-        (connectedWallets.evm as any)?.dydxAddress || (connectedWallets.cosmos as any)?.dydxAddress;
+      const addr = (connectedWallets.evm as any)?.dydxAddress;
       return addr || localStorage.getItem('_sx_dkm_addr') || '';
     }
     return connectedWallets[walletType]?.address || '';
@@ -289,9 +284,7 @@ export const useReceiveAssets = () => {
     isWalletTypeConnected:
       !!currentAsset &&
       (currentAsset.chainId && String(currentAsset.chainId).startsWith('dydx')
-        ? !!(connectedWallets.evm as any)?.dydxAddress ||
-          !!(connectedWallets.cosmos as any)?.dydxAddress ||
-          !!localStorage.getItem('_sx_dkm_addr')
+        ? !!(connectedWallets.evm as any)?.dydxAddress
         : !!connectedWallets[currentAsset.walletType as WalletType]),
     handleCopy,
     handleShare,
