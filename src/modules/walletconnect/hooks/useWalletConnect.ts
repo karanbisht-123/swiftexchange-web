@@ -38,7 +38,6 @@ export const useWalletConnect = () => {
   const closeModal = useWalletStore(state => state.closeModal);
   const isConnected = useWalletStore(state => state.isConnected);
   const isConnecting = useWalletStore(state => state.isConnecting);
-  const deriveDydx = useWalletStore(state => state.deriveDydx);
   const checkSessionHealth = useWalletStore(state => state.checkSessionHealth);
 
   useEffect(() => {
@@ -107,7 +106,6 @@ export const useWalletConnect = () => {
     disconnect,
     disconnectAll,
     restoreSessions,
-    deriveDydx,
     checkSessionHealth,
 
     setNetwork,
@@ -133,7 +131,6 @@ export const useEVMWallet = () => {
   const disconnect = useWalletStore(state => state.disconnect);
   const isConnected = useWalletStore(state => state.isConnected);
   const isConnecting = useWalletStore(state => state.isConnecting);
-  const deriveDydx = useWalletStore(state => state.deriveDydx);
 
   const connected = useMemo(() => isConnected('evm'), [isConnected]);
   const connecting = useMemo(() => isConnecting('evm'), [isConnecting]);
@@ -160,13 +157,11 @@ export const useEVMWallet = () => {
 
   return {
     wallet,
-    dydxAddress: wallet?.dydxAddress,
     status: status || { state: 'idle' as const },
     isConnected: connected,
     isConnecting: connecting,
     connect,
     disconnect: disconnectWallet,
-    deriveDydx,
     getProvider,
   };
 };
@@ -272,66 +267,4 @@ export const useWalletConnectionStatus = (type: WalletType) => {
   );
 };
 
-export const useApiTradingKeys = () => {
-  const keys = useWalletStore(state => state.apiTradingKeys);
-  const isGenerating = useWalletStore(state => state.isGeneratingApiKey);
-  const revokingKeyId = useWalletStore(state => state.revokingKeyId);
-  const error = useWalletStore(state => state.apiKeyError);
-  const isModalOpen = useWalletStore(state => state.isApiKeyModalOpen);
-  const restrictWithdrawalToWebsite = useWalletStore(state => state.restrictWithdrawalToWebsite);
 
-  const _generate = useWalletStore(state => state.generateApiTradingKey);
-  const _revoke = useWalletStore(state => state.revokeApiTradingKey);
-  const _load = useWalletStore(state => state.loadApiTradingKeys);
-  const _open = useWalletStore(state => state.openApiKeyModal);
-  const _close = useWalletStore(state => state.closeApiKeyModal);
-  const _setRestrict = useWalletStore(state => state.setRestrictWithdrawalToWebsite);
-
-  const generate = useCallback(
-    async (label?: string) => {
-      try {
-        await _generate(label);
-      } catch (err) {
-        console.log(err, '[usewalletconnect] => key generation error');
-      }
-    },
-    [_generate]
-  );
-
-  const revoke = useCallback(
-    async (id: string) => {
-      try {
-        await _revoke(id);
-      } catch (err) {
-        console.log(err, '[usewalletconnect] => revoke id error');
-      }
-    },
-    [_revoke]
-  );
-
-  const openModal = useCallback(() => {
-    _load();
-    _open();
-  }, [_load, _open]);
-
-  const closeModal = useCallback(() => _close(), [_close]);
-
-  const setRestrictWithdrawalToWebsite = useCallback(
-    (v: boolean) => _setRestrict(v),
-    [_setRestrict]
-  );
-
-  return {
-    keys,
-    generate,
-    revoke,
-    isGenerating,
-    revokingKeyId,
-    error,
-    isModalOpen,
-    openModal,
-    closeModal,
-    restrictWithdrawalToWebsite,
-    setRestrictWithdrawalToWebsite,
-  };
-};

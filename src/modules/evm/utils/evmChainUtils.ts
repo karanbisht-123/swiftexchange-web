@@ -16,6 +16,17 @@ export async function switchOrAddChain(provider: any, chainId: number | string):
   }
 
   const hexChainId = typeof chainId === 'number' ? `0x${chainId.toString(16)}` : chainId;
+  const numChainId = typeof chainId === 'string' && chainId.startsWith('0x') ? parseInt(chainId, 16) : Number(chainId);
+
+  if (typeof provider.setDefaultChain === 'function') {
+    try {
+      provider.setDefaultChain(`eip155:${numChainId}`, targetChain.rpcUrl);
+      // For WalletConnect, setDefaultChain is often enough
+      return;
+    } catch (e) {
+      console.warn('[switchOrAddChain] Failed to setDefaultChain on UniversalProvider', e);
+    }
+  }
 
   try {
     await provider.request({

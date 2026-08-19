@@ -1,9 +1,7 @@
 import { ArrowRight, ArrowUpDown, ChevronDown, RefreshCw, Zap } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-
 import { ethers } from 'ethers';
-
 import { Tooltip } from '../../../../../components/common/Tooltip';
 import PageLayout from '../../../../../components/layout/PageLayout';
 import { useNotificationStore } from '../../../../../store/notificationStore';
@@ -29,22 +27,14 @@ import {
 } from '../../../utils/Chainregistry';
 import { switchOrAddChain } from '../../../utils/evmChainUtils';
 import { STELLAR_CHAIN_ID } from '../constants/swap.constants';
-// Extracted hooks
 import { useEvmSwap } from '../hooks/useEvmSwap';
 import { useNearIntentCrossChain } from '../hooks/useNearIntentCrossChain';
 import { useSwapAssetDefaults } from '../hooks/useSwapAssetDefaults';
 import { useSwapExecution } from '../hooks/useSwapExecution';
 import { useSwapQuote } from '../hooks/useSwapQuote';
 import { useSwapValidation } from '../hooks/useSwapValidation';
-// import {
-//   getBridgeQuote as getEvmBridgeQuote,
-//   prepareBridgeTransaction,
-// } from '../services/evmSwapService';
-import { prepareBridgeTransaction } from '../services/evmSwapService';
-// import { getStellarBridgeQuote, getSupportedTokens } from '../services/stellarBridgeService';
 import type { FusionQuote } from '../types/swap.types';
 import { calculateMaxSwapAmount, toPlainString } from '../utils/swapAmountUtils';
-// Utilities & constants
 import { isSameAsset, isStellar, matchesAddress } from '../utils/swapAssetUtils';
 import { parseWalletError } from '../utils/swapErrorHandler';
 import FusionQuoteScreen from './FusionQuoteScreen';
@@ -371,9 +361,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     toChainConfig,
     fetchSwapQuoteInternal,
     fetchFusionQuote,
-    // getEvmBridgeQuote,
-    // getStellarBridgeQuote,
-    // getSupportedTokens,
     setFeePayType,
     setCrossChainWarning,
     setBridgeErrorMsg,
@@ -464,7 +451,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     fetchFusionQuote,
     performSwap,
     performFusionSwap,
-    prepareBridgeTransaction,
+
     handleReset,
     resetSwap,
     resetInputs,
@@ -975,30 +962,30 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   // touching the underlying asset data (swap logic still uses the original).
   const normalizedSellDisplay = selectedSellAsset
     ? normalizeTokenForDisplay(
-        {
-          symbol: (selectedSellAsset as any).symbol,
-          name: (selectedSellAsset as any).name,
-          logoURI: (selectedSellAsset as any).logoURI,
-          address: (selectedSellAsset as any).address,
-          isNative: (selectedSellAsset as any).isNative,
-          type: (selectedSellAsset as any).type,
-        },
-        fromChainId
-      )
+      {
+        symbol: (selectedSellAsset as any).symbol,
+        name: (selectedSellAsset as any).name,
+        logoURI: (selectedSellAsset as any).logoURI,
+        address: (selectedSellAsset as any).address,
+        isNative: (selectedSellAsset as any).isNative,
+        type: (selectedSellAsset as any).type,
+      },
+      fromChainId
+    )
     : null;
 
   const normalizedBuyDisplay = selectedBuyAsset
     ? normalizeTokenForDisplay(
-        {
-          symbol: (selectedBuyAsset as any).symbol,
-          name: (selectedBuyAsset as any).name,
-          logoURI: (selectedBuyAsset as any).logoURI,
-          address: (selectedBuyAsset as any).address,
-          isNative: (selectedBuyAsset as any).isNative,
-          type: (selectedBuyAsset as any).type,
-        },
-        toChainId
-      )
+      {
+        symbol: (selectedBuyAsset as any).symbol,
+        name: (selectedBuyAsset as any).name,
+        logoURI: (selectedBuyAsset as any).logoURI,
+        address: (selectedBuyAsset as any).address,
+        isNative: (selectedBuyAsset as any).isNative,
+        type: (selectedBuyAsset as any).type,
+      },
+      toChainId
+    )
     : null;
 
   return (
@@ -1042,13 +1029,13 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 onSwitchToEVM={
                   isConnected
                     ? () => {
-                        setFromChainId(137);
-                        setToChainId(137);
-                        setSellAssetSymbol('USDT');
-                        setBuyAssetSymbol('USDC');
-                        setSellAssetAddress('');
-                        setBuyAssetAddress('');
-                      }
+                      setFromChainId(137);
+                      setToChainId(137);
+                      setSellAssetSymbol('USDT');
+                      setBuyAssetSymbol('USDC');
+                      setSellAssetAddress('');
+                      setBuyAssetAddress('');
+                    }
                     : undefined
                 }
               />
@@ -1369,15 +1356,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               </div>
             </div>
 
-            {/* Old Route Selector removed */}
-
-            {/* Details Section Inside Receive Card */}
             <div
               className={`grid transition-all duration-500 ease-in-out ${(actionType === 'SWAP' && (swapQuote || (activeQuote.source === 'stellar' && activeQuote.data))) || (actionType === 'BRIDGE' && !!activeQuote.data) ? 'grid-rows-[1fr] opacity-100 mt-4' : 'grid-rows-[0fr] opacity-0 mt-0 pointer-events-none'}`}
             >
               <div className="overflow-hidden">
                 <div className="pt-5 sm:pt-6 border-t border-dotted border-white/10 space-y-1">
-                  {/* Better Quote Banner */}
                   {activeQuote.alternativeQuote && (
                     <div className="flex items-center justify-between py-3 border-b border-white/5">
                       <div className="flex flex-col">
@@ -1391,17 +1374,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
                       <button
                         onClick={toggleRoute}
-                        className={`relative inline-flex h-[22px] w-[42px] shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                          activeQuote.source === 'near_intent' ? 'bg-[#00E08B]' : 'bg-white/10'
-                        }`}
+                        className={`relative inline-flex h-[22px] w-[42px] shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${activeQuote.source === 'near_intent' ? 'bg-[#00E08B]' : 'bg-white/10'
+                          }`}
                         role="switch"
                         aria-checked={activeQuote.source === 'near_intent'}
                       >
                         <span
                           aria-hidden="true"
-                          className={`pointer-events-none inline-block h-[18px] w-[18px] transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                            activeQuote.source === 'near_intent' ? 'translate-x-5' : 'translate-x-0'
-                          }`}
+                          className={`pointer-events-none inline-block h-[18px] w-[18px] transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${activeQuote.source === 'near_intent' ? 'translate-x-5' : 'translate-x-0'
+                            }`}
                         />
                       </button>
                     </div>
@@ -1435,36 +1416,26 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                           </div>
                         )}
 
-                        {/* Allbridge */}
-                        {activeQuote.source === 'bridge' && (
-                          <img
-                            src="/allbrg.png"
-                            className="w-4 h-4 rounded-full bg-white object-contain"
-                            alt="Allbridge"
-                          />
-                        )}
 
                         {/* Uniswap */}
                         {(swapQuote?.provider === 'UNISWAP' ||
                           activeQuote.data?.provider === 'UNISWAP') && (
-                          <img
-                            src="https://cryptologos.cc/logos/uniswap-uni-logo.png"
-                            className="w-4 h-4 rounded-full"
-                            alt="Uniswap"
-                          />
-                        )}
+                            <img
+                              src="https://cryptologos.cc/logos/uniswap-uni-logo.png"
+                              className="w-4 h-4 rounded-full"
+                              alt="Uniswap"
+                            />
+                          )}
 
                         <span className="text-[11px] font-black text-brand uppercase tracking-wider">
                           {activeQuote.source === 'fusion_plus'
                             ? '1inch Fusion+'
                             : activeQuote.source === 'near_intent'
                               ? 'NEAR Intents'
-                              : activeQuote.source === 'bridge'
-                                ? 'Allbridge'
-                                : swapQuote?.provider ||
-                                  activeQuote.data?.provider ||
-                                  activeQuote.source?.toUpperCase() ||
-                                  'UNISWAP'}
+                              : swapQuote?.provider ||
+                              activeQuote.data?.provider ||
+                              activeQuote.source?.toUpperCase() ||
+                              'UNISWAP'}
                         </span>
                       </div>
                     </div>
@@ -1911,21 +1882,21 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           onRefreshQuote={
             !isFusionLoading && !swapTxHash && selectedSellAsset && selectedBuyAsset && sellAmount
               ? async () => {
-                  try {
-                    setIsFusionLoading(true);
-                    await fetchFusionQuote(
-                      selectedSellAsset as any,
-                      selectedBuyAsset as any,
-                      sellAmount
-                    );
-                  } catch (err) {
-                    console.error('Refresh quote failed:', err);
-                    setShowFusionScreen(false);
-                    setBridgeErrorMsg(parseWalletError(err));
-                  } finally {
-                    setIsFusionLoading(false);
-                  }
+                try {
+                  setIsFusionLoading(true);
+                  await fetchFusionQuote(
+                    selectedSellAsset as any,
+                    selectedBuyAsset as any,
+                    sellAmount
+                  );
+                } catch (err) {
+                  console.error('Refresh quote failed:', err);
+                  setShowFusionScreen(false);
+                  setBridgeErrorMsg(parseWalletError(err));
+                } finally {
+                  setIsFusionLoading(false);
                 }
+              }
               : undefined
           }
           onConfirm={async preset => {

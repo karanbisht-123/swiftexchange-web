@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
+import { switchOrAddChain } from '../../../utils/evmChainUtils';
 import { getEVMNetworkConfig } from '../../../utils/evmUtils';
 import { rpcManager } from '../../../utils/rpcProvider';
 import type { SwapQuote } from '../types/swap.types';
@@ -45,10 +46,7 @@ export async function executeSwap(
     const currentChainHex = await rawProvider.request({ method: 'eth_chainId' });
     const currentChainId = parseInt(currentChainHex, 16);
     if (currentChainId !== Number(chainId)) {
-      await rawProvider.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: `0x${Number(chainId).toString(16)}` }],
-      });
+      await switchOrAddChain(rawProvider, chainId);
     }
   } catch (switchErr: any) {
     console.warn('[executeSwap] Chain switch failed, proceeding anyway:', switchErr?.message);

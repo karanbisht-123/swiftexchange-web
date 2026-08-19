@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-
 import { ethers } from 'ethers';
-
 import { notifyWalletSignRequest } from '../../../../../utils/walletConnectUtils';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { usePortfolioStore } from '../../../../walletconnect/store/portfolioStore';
@@ -499,8 +497,7 @@ export const useEvmSwap = ({
           swapHash => {
             if (
               quote.provider === 'ONEINCH' ||
-              quote.provider === 'UNISWAP' ||
-              quote.provider === 'ALLBRIDGE'
+              quote.provider === 'UNISWAP'
             ) {
               storeSwapOrder({
                 txHash: swapHash,
@@ -512,7 +509,7 @@ export const useEvmSwap = ({
                 toToken: buyAsset.symbol,
                 amountIn: sellAmount,
                 amountOut: quote.outputAmount,
-                txType: quote.provider === 'ALLBRIDGE' ? 'Bridge' : 'Swap',
+                txType: 'Swap',
               } as any).catch(err => console.error('Failed to store swap order on backend:', err));
             } else if (chainId !== 'pubnet' && chainId !== 'testnet' && chainId !== 'stellar') {
               addLocalTransaction({
@@ -606,9 +603,9 @@ export const useEvmSwap = ({
               amountOut:
                 fQuote.toTokenAmount || fQuote.dstTokenAmount
                   ? ethers.formatUnits(
-                      fQuote.toTokenAmount || fQuote.dstTokenAmount || '0',
-                      buyAsset.decimals || 18
-                    )
+                    fQuote.toTokenAmount || fQuote.dstTokenAmount || '0',
+                    buyAsset.decimals || 18
+                  )
                   : '0',
               txType: 'Token Approval',
             } as any).catch(backendErr =>
@@ -636,9 +633,9 @@ export const useEvmSwap = ({
             amountOut:
               fQuote.toTokenAmount || fQuote.dstTokenAmount
                 ? ethers.formatUnits(
-                    fQuote.toTokenAmount || fQuote.dstTokenAmount || '0',
-                    buyAsset.decimals || 18
-                  )
+                  fQuote.toTokenAmount || fQuote.dstTokenAmount || '0',
+                  buyAsset.decimals || 18
+                )
                 : '0',
             txType: 'Swap',
           } as any);

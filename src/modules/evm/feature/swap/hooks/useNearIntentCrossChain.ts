@@ -1,8 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
-
 import * as StellarSDK from '@stellar/stellar-sdk';
 import { ethers } from 'ethers';
-
 import { notifyWalletSignRequest } from '../../../../../utils/walletConnectUtils';
 import { StellarSequenceTracker } from '../../../../stellar/utils/StellarSequenceTracker';
 import { signAndSubmitTransaction } from '../../../../stellar/utils/transactionService';

@@ -1,4 +1,4 @@
-import { formatMarketPrice, formatNumericWithCommas } from '../../dydx/utils/BigNumberUtils';
+import { formatMarketPrice, formatNumericWithCommas } from '../../../utils/BigNumberUtils';
 import { type Asset } from '../store/portfolioStore';
 import BigNumber from 'bignumber.js';
 
@@ -19,7 +19,7 @@ export const portfolioUtils = {
       if (bn.isNaN() || bn.isZero()) return '0';
 
       const num = Math.abs(bn.toNumber());
-      
+
       // Determine appropriate decimal places based on size
       let decimals = maxDecimals;
       if (num >= 1000) {
@@ -30,12 +30,12 @@ export const portfolioUtils = {
 
       // Format with commas and rounding
       let formatted = bn.toFormat(decimals, BigNumber.ROUND_HALF_UP);
-      
+
       // Remove trailing zeros in decimal part if any
       if (formatted.includes('.')) {
         formatted = formatted.replace(/0+$/, '').replace(/\.$/, '');
       }
-      
+
       // If it rounded to 0 but the original value is not zero, find the first significant digit and format
       if (formatted === '0' && !bn.isZero()) {
         const str = bn.toFixed(20);

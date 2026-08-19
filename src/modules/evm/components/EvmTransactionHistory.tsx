@@ -3,11 +3,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import PageLayout from '../../../components/layout/PageLayout';
-import { DydxDepositModal } from '../../dydx/components/DydxDepositModal';
 import AllTransactionsUI from '../../stellar/components/AllTransactionsUI';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
-import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useEvmTransaction } from '../hook/useEvmTransaction';
 import {
@@ -188,28 +186,8 @@ const EvmTransactionHistory: React.FC = () => {
     Record<string, 'success' | 'failed'>
   >({});
   const [showPendingOnly, setShowPendingOnly] = useState(false);
-  const [depositModalOpen, setDepositModalOpen] = useState(false);
-  const [depositModalAsset, setDepositModalAsset] = useState<any>(null);
-  const [depositModalAmount, setDepositModalAmount] = useState<string>('');
 
-  const handleOpenDepositModal = (tx: any, chainId: string | number, amount: string) => {
-    let destChainId = chainId;
-    if (tx.toChainSymbol) {
-      const allChains = getEvmChainsForNetwork(currentNetwork);
-      const found = allChains.find(
-        c =>
-          c.symbol?.toLowerCase() === tx.toChainSymbol.toLowerCase() ||
-          c.name.toLowerCase() === tx.toChainSymbol.toLowerCase()
-      );
-      if (found) destChainId = found.chainId;
-    }
-    const usdcAsset = usePortfolioStore
-      .getState()
-      .assets.find(a => String(a.chainId) === String(destChainId) && a.symbol === 'USDC');
-    setDepositModalAsset(usdcAsset || null);
-    setDepositModalAmount(amount);
-    setDepositModalOpen(true);
-  };
+
 
   const {
     ordersData: backendOrders,
@@ -403,56 +381,6 @@ const EvmTransactionHistory: React.FC = () => {
     const interval = setInterval(pollSkipStatuses, 15000);
     return () => clearInterval(interval);
   }, [backendOrders?.data, currentNetwork, liveStatusOverrides]);
-
-  useEffect(() => {
-    const pendingSrbOrders = backendOrders?.data?.filter(
-      (order: SwapOrder) =>
-        order.provider?.toUpperCase() === 'SRBTODYDX' &&
-        order.status === 'pending' &&
-        !liveStatusOverrides[order.txHash.toLowerCase()]
-    );
-
-    if (!pendingSrbOrders || pendingSrbOrders.length === 0) return;
-
-    const pollSrbStatuses = async () => {
-      for (const order of pendingSrbOrders) {
-        try {
-          const res = await getTransactionStatus({
-            walletType: 'SRB',
-            txHash: order.txHash,
-            provider: 'ALLBRIDGE',
-          });
-
-          if (res.receive && res.receive.txId) {
-            setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'success' }));
-            updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'completed' }).catch(
-              console.error
-            );
-          } else if (res.isSuspended) {
-            setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
-            updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(
-              console.error
-            );
-          }
-        } catch (err: any) {
-          console.error('Failed to poll Allbridge status for SRBTODYDX:', err);
-          if (err?.message?.toLowerCase().includes('not found')) {
-            const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
-            if (timeElapsed > 60 * 60 * 1000) {
-              setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
-              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(
-                console.error
-              );
-            }
-          }
-        }
-      }
-    };
-
-    pollSrbStatuses();
-    const interval = setInterval(pollSrbStatuses, 20000);
-    return () => clearInterval(interval);
-  }, [backendOrders?.data, liveStatusOverrides]);
 
   const activeAddresses = useMemo(() => {
     return [evmWallet?.address, stellarWallet?.address].filter(Boolean) as string[];
@@ -750,7 +678,7 @@ const EvmTransactionHistory: React.FC = () => {
         getTransactionStatus({
           walletType: tx.fromChainSymbol || 'ETH',
           txHash: tx.hash,
-          provider: tx.provider === 'SRBTODYDX' ? 'ALLBRIDGE' : tx.provider,
+          provider: tx.provider,
         }).catch((err: any) => console.error('Failed to refresh backend order status:', err));
       }
     }
@@ -977,7 +905,7 @@ const EvmTransactionHistory: React.FC = () => {
 
       const txProvider = ((tx as any).provider || '').toUpperCase();
       const isFusion = txProvider === 'ONEINCH_FUSION' || txProvider === 'ONEINCH_FUSION_PLUS';
-      const isAllbridge = txProvider === 'ALLBRIDGE' || txProvider === 'SRBTODYDX';
+      const isAllbridge = false;
       const isNearIntent = txProvider === 'NEARINTENT';
 
       const rawLabel =
@@ -1104,15 +1032,14 @@ const EvmTransactionHistory: React.FC = () => {
         <React.Fragment key={tx.hash}>
           <div
             onClick={() => handleLocalTxClick(tx)}
-            className={`w-full px-3 py-2.5 rounded-xl cursor-pointer transition-all select-none ${
-              isSelected
+            className={`w-full px-3 py-2.5 rounded-xl cursor-pointer transition-all select-none ${isSelected
                 ? 'bg-secondary border border-color shadow-sm'
                 : isPending
                   ? 'bg-primary border border-yellow-500/20 hover:border-yellow-500/40 shadow-sm shadow-yellow-500/5'
                   : isFailed
                     ? 'bg-primary border border-red-500/25 hover:border-red-500/45 shadow-sm shadow-red-500/5 bg-red-500/[0.01]'
                     : 'bg-primary border border-transparent hover:border-color'
-            }`}
+              }`}
           >
             <div className="flex items-center gap-2.5">
               <div
@@ -1182,9 +1109,7 @@ const EvmTransactionHistory: React.FC = () => {
                     className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 capitalize tracking-wide ${statusStyle}`}
                   >
                     {tx.status === 'pending' &&
-                    (txProvider === 'SKIP' ||
-                      txProvider === 'SRBTODYDX' ||
-                      txProvider === 'ALLBRIDGE')
+                      (txProvider === 'SKIP')
                       ? 'Bridging'
                       : tx.status === 'pending' && txProvider === 'DYDX'
                         ? 'Settling'
@@ -1262,8 +1187,7 @@ const EvmTransactionHistory: React.FC = () => {
                             await getTransactionStatus({
                               walletType: (tx as any).fromChainSymbol || 'ETH',
                               txHash: tx.hash,
-                              provider:
-                                txProvider === 'SRBTODYDX' ? 'ALLBRIDGE' : txProvider || 'UNKNOWN',
+                              provider: txProvider || 'UNKNOWN',
                             });
                           } catch (err) {
                             console.error('Failed to manually refresh backend status:', err);
@@ -1282,9 +1206,7 @@ const EvmTransactionHistory: React.FC = () => {
                       href={
                         isNearIntent
                           ? `https://explorer.near-intents.org/transactions/${tx.hash}`
-                          : isAllbridge
-                            ? `https://core.allbridge.io/explorer?search=${tx.hash}`
-                            : getExplorerUrl(tx.chainId, 'tx', tx.hash)
+                          : getExplorerUrl(tx.chainId, 'tx', tx.hash)
                       }
                       target="_blank"
                       rel="noopener noreferrer"
@@ -1293,9 +1215,7 @@ const EvmTransactionHistory: React.FC = () => {
                       title={
                         isNearIntent
                           ? 'View on NEAR Intents Explorer'
-                          : isAllbridge
-                            ? 'View on Allbridge Explorer'
-                            : 'View on Explorer'
+                          : 'View on Explorer'
                       }
                     >
                       <ExternalLink size={12} />
@@ -1308,53 +1228,6 @@ const EvmTransactionHistory: React.FC = () => {
               </div>
             </div>
 
-            {(() => {
-              if (tx.hash) {
-                try {
-                  const intentStr = localStorage.getItem('dydx_intent_' + tx.hash);
-                  if (intentStr) {
-                    const intent = JSON.parse(intentStr);
-                    if (tx.status === 'success') {
-                      return (
-                        <div className="mt-4 pt-3 border-t border-dashed border-white/10 flex items-center justify-between">
-                          <span className="text-xs text-muted font-medium">
-                            {intent.amountOut} USDC Ready to Deposit
-                          </span>
-                          <button
-                            onClick={e => {
-                              e.stopPropagation();
-                              handleOpenDepositModal(
-                                tx,
-                                tx.chainId || selectedView,
-                                intent.amountOut
-                              );
-                            }}
-                            className="px-3 py-1.5 bg-brand text-white text-[11px] font-bold rounded-lg shadow hover:bg-brand/90 transition-colors flex items-center gap-1.5"
-                          >
-                            Deposit to dYdX
-                          </button>
-                        </div>
-                      );
-                    } else if (tx.status === 'pending') {
-                      return (
-                        <div className="mt-4 pt-3 border-t border-dashed border-white/10 flex items-center justify-between">
-                          <span className="text-[11px] text-muted font-medium flex items-center gap-1.5">
-                            <Loader2 size={11} className="animate-spin text-yellow-500/80" />
-                            Step 1: Preparing Funds...
-                          </span>
-                          <span className="text-[10px] text-muted/50 font-medium">
-                            Deposit unlocks on completion
-                          </span>
-                        </div>
-                      );
-                    }
-                  }
-                } catch {
-                  /* ignore */
-                }
-              }
-              return null;
-            })()}
           </div>
         </React.Fragment>
       );
@@ -1373,21 +1246,19 @@ const EvmTransactionHistory: React.FC = () => {
               <div className="flex bg-tertiary rounded-lg p-0.5 gap-0.5 border border-color">
                 <button
                   onClick={() => setShowPendingOnly(false)}
-                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all ${
-                    !showPendingOnly
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all ${!showPendingOnly
                       ? 'bg-primary text-secondary shadow-sm'
                       : 'text-muted hover:text-primary'
-                  }`}
+                    }`}
                 >
                   All
                 </button>
                 <button
                   onClick={() => setShowPendingOnly(true)}
-                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all flex items-center gap-1 ${
-                    showPendingOnly
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition-all flex items-center gap-1 ${showPendingOnly
                       ? 'bg-primary text-yellow-500 shadow-sm border border-yellow-500/10'
                       : 'text-muted hover:text-primary'
-                  }`}
+                    }`}
                 >
                   Pending
                   <span className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse" />
@@ -1482,9 +1353,8 @@ const EvmTransactionHistory: React.FC = () => {
         <EmptyState
           icon={<SearchX size={32} />}
           title="Wallet Not Connected"
-          description={`Connect your EVM wallet to view transaction history on ${
-            typeof selectedView === 'number' ? getChainName(selectedView) : selectedView
-          }.`}
+          description={`Connect your EVM wallet to view transaction history on ${typeof selectedView === 'number' ? getChainName(selectedView) : selectedView
+            }.`}
           actionButton={
             <button
               onClick={openModal}
@@ -1502,9 +1372,8 @@ const EvmTransactionHistory: React.FC = () => {
         <EmptyState
           icon={<SearchX size={32} />}
           title="No Transactions Found"
-          description={`No transactions found for ${
-            typeof selectedView === 'number' ? getChainName(selectedView) : selectedView
-          }.`}
+          description={`No transactions found for ${typeof selectedView === 'number' ? getChainName(selectedView) : selectedView
+            }.`}
         />
       );
     }
@@ -1580,9 +1449,8 @@ const EvmTransactionHistory: React.FC = () => {
                 <div key={tx.uniqueId} className="flex flex-col">
                   <button
                     onClick={() => handleTxClick(tx)}
-                    className={`w-full rounded-lg bg-primary p-3 flex items-center justify-between transition-all group text-left ${
-                      isSelected ? 'border' : 'hover:bg-tertiary/50'
-                    }`}
+                    className={`w-full rounded-lg bg-primary p-3 flex items-center justify-between transition-all group text-left ${isSelected ? 'border' : 'hover:bg-tertiary/50'
+                      }`}
                   >
                     <div className="flex items-center gap-4">
                       <div className="relative w-9 h-9 lg:w-10 lg:h-10 shrink-0">
@@ -1617,9 +1485,9 @@ const EvmTransactionHistory: React.FC = () => {
                         {(() => {
                           const formattedTime = tx.metadata?.blockTimestamp
                             ? new Date(tx.metadata.blockTimestamp).toLocaleTimeString(undefined, {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
                             : '';
                           return (
                             <div className="text-xs text-muted font-mono mt-1 flex items-center gap-1.5 truncate">
@@ -1669,41 +1537,6 @@ const EvmTransactionHistory: React.FC = () => {
                         </div>
                       </div>
                     </div>
-
-                    {/* Inline dYdX Deposit Button inside the button wrapper */}
-                    {(() => {
-                      if (tx.hash) {
-                        try {
-                          const intentStr = localStorage.getItem('dydx_intent_' + tx.hash);
-                          if (intentStr) {
-                            const intent = JSON.parse(intentStr);
-                            return (
-                              <div className="mt-4 pt-3 border-t border-dashed border-white/10 flex items-center justify-between w-full">
-                                <span className="text-xs text-muted font-medium">
-                                  {intent.amountOut} USDC Ready to Deposit
-                                </span>
-                                <button
-                                  onClick={e => {
-                                    e.stopPropagation();
-                                    handleOpenDepositModal(
-                                      tx as any,
-                                      tx.chainId || selectedView,
-                                      intent.amountOut
-                                    );
-                                  }}
-                                  className="px-3 py-1.5 bg-brand text-white text-[11px] font-bold rounded-lg shadow hover:bg-brand/90 transition-colors flex items-center gap-1.5"
-                                >
-                                  Deposit to dYdX
-                                </button>
-                              </div>
-                            );
-                          }
-                        } catch {
-                          /* ignore */
-                        }
-                      }
-                      return null;
-                    })()}
                   </button>
                 </div>
               );
@@ -1749,9 +1582,8 @@ const EvmTransactionHistory: React.FC = () => {
     >
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 relative items-start">
         <div
-          className={`${
-            isStellarView ? 'col-span-1 lg:col-span-12' : 'lg:col-span-7 xl:col-span-8'
-          } flex flex-col`}
+          className={`${isStellarView ? 'col-span-1 lg:col-span-12' : 'lg:col-span-7 xl:col-span-8'
+            } flex flex-col`}
         >
           {isStellarView ? (
             <AllTransactionsUI embedded />
@@ -1782,7 +1614,7 @@ const EvmTransactionHistory: React.FC = () => {
                       if (isBypassed && pollOnChain) {
                         const chainConfig = findChain(
                           (selectedLocalTx as any).fromChainSymbol ||
-                            String(selectedLocalTx.chainId),
+                          String(selectedLocalTx.chainId),
                           currentNetwork
                         );
                         if (chainConfig && chainConfig.rpcUrls?.length) {
@@ -1819,10 +1651,7 @@ const EvmTransactionHistory: React.FC = () => {
                         getTransactionStatus({
                           walletType: (selectedLocalTx as any).fromChainSymbol || 'ETH',
                           txHash: selectedLocalTx.hash,
-                          provider:
-                            (selectedLocalTx as any).provider === 'SRBTODYDX'
-                              ? 'ALLBRIDGE'
-                              : (selectedLocalTx as any).provider,
+                          provider: (selectedLocalTx as any).provider,
                         });
                       }
                     }
@@ -1866,73 +1695,63 @@ const EvmTransactionHistory: React.FC = () => {
           onRefresh={
             selectedLocalTx
               ? () => {
-                  if (
-                    (selectedLocalTx as any).isBackendOrder &&
-                    (selectedLocalTx as any).provider
-                  ) {
-                    const providerUpper = (selectedLocalTx as any).provider.toUpperCase();
-                    const isBypassed = isBypassedProvider(providerUpper);
-                    const pollOnChain = false;
+                if (
+                  (selectedLocalTx as any).isBackendOrder &&
+                  (selectedLocalTx as any).provider
+                ) {
+                  const providerUpper = (selectedLocalTx as any).provider.toUpperCase();
+                  const isBypassed = isBypassedProvider(providerUpper);
+                  const pollOnChain = false;
 
-                    if (isBypassed && pollOnChain) {
-                      const chainConfig = findChain(
-                        (selectedLocalTx as any).fromChainSymbol || String(selectedLocalTx.chainId),
-                        currentNetwork
-                      );
-                      if (chainConfig && chainConfig.rpcUrls?.length) {
-                        rpcManager
-                          .fetchWithFallback(
-                            chainConfig.chainId,
-                            chainConfig.rpcUrls,
-                            async provider => provider.getTransactionReceipt(selectedLocalTx.hash)
-                          )
-                          .then(receipt => {
-                            if (receipt) {
-                              const newStatus = receipt.status === 1 ? 'success' : 'failed';
-                              setLiveStatusOverrides(prev => ({
-                                ...prev,
-                                [selectedLocalTx.hash.toLowerCase()]: newStatus,
-                              }));
-                              updateSwapOrderStatus({
-                                txHash: selectedLocalTx.hash,
-                                orderStatus: receipt.status === 1 ? 'completed' : 'failed',
-                              }).catch(err =>
-                                console.error('Failed to update Uniswap status in DB:', err)
-                              );
-                            }
-                          })
-                          .catch(err =>
-                            console.error('Failed to verify UNISWAP order on-chain:', err)
-                          );
-                      }
-                    } else if (isBypassed) {
-                      if (activeAddresses.length > 0) {
-                        refreshOrders(activeAddresses, 1, 10, false);
-                      }
-                    } else {
-                      getTransactionStatus({
-                        walletType: (selectedLocalTx as any).fromChainSymbol || 'ETH',
-                        txHash: selectedLocalTx.hash,
-                        provider:
-                          (selectedLocalTx as any).provider === 'SRBTODYDX'
-                            ? 'ALLBRIDGE'
-                            : (selectedLocalTx as any).provider,
-                      });
+                  if (isBypassed && pollOnChain) {
+                    const chainConfig = findChain(
+                      (selectedLocalTx as any).fromChainSymbol || String(selectedLocalTx.chainId),
+                      currentNetwork
+                    );
+                    if (chainConfig && chainConfig.rpcUrls?.length) {
+                      rpcManager
+                        .fetchWithFallback(
+                          chainConfig.chainId,
+                          chainConfig.rpcUrls,
+                          async provider => provider.getTransactionReceipt(selectedLocalTx.hash)
+                        )
+                        .then(receipt => {
+                          if (receipt) {
+                            const newStatus = receipt.status === 1 ? 'success' : 'failed';
+                            setLiveStatusOverrides(prev => ({
+                              ...prev,
+                              [selectedLocalTx.hash.toLowerCase()]: newStatus,
+                            }));
+                            updateSwapOrderStatus({
+                              txHash: selectedLocalTx.hash,
+                              orderStatus: receipt.status === 1 ? 'completed' : 'failed',
+                            }).catch(err =>
+                              console.error('Failed to update Uniswap status in DB:', err)
+                            );
+                          }
+                        })
+                        .catch(err =>
+                          console.error('Failed to verify UNISWAP order on-chain:', err)
+                        );
                     }
+                  } else if (isBypassed) {
+                    if (activeAddresses.length > 0) {
+                      refreshOrders(activeAddresses, 1, 10, false);
+                    }
+                  } else {
+                    getTransactionStatus({
+                      walletType: (selectedLocalTx as any).fromChainSymbol || 'ETH',
+                      txHash: selectedLocalTx.hash,
+                      provider: (selectedLocalTx as any).provider,
+                    });
                   }
                 }
+              }
               : undefined
           }
           backendStatus={statusData}
         />
       )}
-
-      <DydxDepositModal
-        isOpen={depositModalOpen}
-        onClose={() => setDepositModalOpen(false)}
-        initialAsset={depositModalAsset}
-        initialAmount={depositModalAmount}
-      />
     </PageLayout>
   );
 };

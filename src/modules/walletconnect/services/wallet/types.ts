@@ -12,7 +12,6 @@ export interface WalletSession {
   walletId: string;
   evmAddress?: string;
   evmChainId?: number;
-  dydxAddress?: string;
   stellarAddress?: string;
   stellarChainId?: string;
   connectionMode?: 'unified' | 'separate';
@@ -25,10 +24,7 @@ export interface WalletSession {
   };
 }
 
-export interface DydxDerivation {
-  address: string;
-  mnemonic: string;
-}
+
 
 export interface UnifiedConnectionResult {
   evm?: WalletSession;

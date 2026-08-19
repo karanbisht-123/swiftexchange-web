@@ -1,6 +1,6 @@
 import { getStellarConfig } from '../../config/chains';
 import { WALLET_METADATA_MAP } from '../../constants/Wallet';
-import { decryptAndRestore, hasEncryptedBlob, purge } from '../dydxKeyManager';
+
 import { setupEVMListeners, setupWalletConnectListeners } from './eventListeners';
 import { resolveEvmProvider } from './providerRegistry';
 import { getOrCreateProvider } from './providerRegistry';
@@ -55,12 +55,10 @@ export async function restoreSessions(ctx: WalletServiceContext): Promise<Wallet
       return [];
     }
 
-    const hasDydxBlob = hasEncryptedBlob();
-
     for (const [typeStr, savedSession] of Object.entries(data)) {
       const type = typeStr as WalletType;
       try {
-        const restoredSession = await restoreSession(ctx, type, savedSession, hasDydxBlob);
+        const restoredSession = await restoreSession(ctx, type, savedSession);
         if (restoredSession) restored.push(restoredSession);
       } catch (error) {
         console.warn(`[WalletService] Failed to restore session for ${type}:`, error);
@@ -76,14 +74,13 @@ export async function restoreSessions(ctx: WalletServiceContext): Promise<Wallet
 async function restoreSession(
   ctx: WalletServiceContext,
   type: WalletType,
-  savedSession: WalletSession,
-  hasDydxBlob: boolean
+  savedSession: WalletSession
 ): Promise<WalletSession | null> {
   const isWalletConnect =
     savedSession.connectionMode === 'unified' || savedSession.connectionMode === 'separate';
 
   if (!isWalletConnect) {
-    return restoreExtensionSession(ctx, type, savedSession, hasDydxBlob);
+    return restoreExtensionSession(ctx, type, savedSession);
   }
 
   const providerKey = savedSession.connectionMode === 'unified' ? 'unified' : type;
@@ -122,11 +119,6 @@ async function restoreSession(
 
   const refreshed = await refreshSessionFromProvider(provider, savedSession);
 
-  if (hasDydxBlob && savedSession.dydxAddress) {
-    const didRestore = await decryptAndRestore();
-    if (didRestore) refreshed.dydxAddress = savedSession.dydxAddress;
-  }
-
   ctx.sessions.set(type, refreshed);
   ctx.emitState(type, 'connected');
   return refreshed;
@@ -135,8 +127,7 @@ async function restoreSession(
 async function restoreExtensionSession(
   ctx: WalletServiceContext,
   type: WalletType,
-  savedSession: WalletSession,
-  hasDydxBlob: boolean
+  savedSession: WalletSession
 ): Promise<WalletSession | null> {
   const win = window as any;
 
@@ -198,11 +189,6 @@ async function restoreExtensionSession(
         peerIcon: savedSession.peerIcon || meta.peerIcon,
         peerRedirect: savedSession.peerRedirect || meta.peerRedirect,
       };
-
-      if (hasDydxBlob && savedSession.dydxAddress) {
-        const didRestore = await decryptAndRestore();
-        if (didRestore) session.dydxAddress = savedSession.dydxAddress;
-      }
 
       ctx.sessions.set('evm', session);
       ctx.providers.set('evm', evmProvider);
@@ -276,8 +262,6 @@ export function clearSessionStorage(): void {
         localStorage.removeItem(key);
       }
     });
-
-    purge();
   } catch (error) {
     console.warn('[WalletService] Session storage clear failed:', error);
   }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Zap, X, ArrowDown, ShieldCheck, Clock, TrendingDown, Layers, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
-import type { FusionQuote } from '../../../../../types/evm/swap.types';
+; import { type FusionQuote } from '../types/swap.types';
 import TransactionButton from '../../../../commonfeature/components/TransactionButton';
 import { ethers } from 'ethers';
 import { getExplorerUrl } from '../../../../evm/utils/Chainregistry';
@@ -122,7 +122,9 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
         const value = parseFloat(ethers.formatUnits(presetData.auctionStartAmount, buyDecimals));
         return (value * toTokenPrice);
       }
-    } catch { }
+    } catch (e) { 
+      console.debug(e);
+    }
     return null;
   })();
 

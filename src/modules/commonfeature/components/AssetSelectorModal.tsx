@@ -52,9 +52,7 @@ const AssetSelectorModal: FC = () => {
       if (cId === 'pubnet' || cId === 'testnet' || cId === 'stellar') {
         return !!connectedWallets.stellar?.address;
       }
-      if (String(cId).startsWith('dydx')) {
-        return !!(connectedWallets.evm?.dydxAddress || localStorage.getItem('_sx_dkm_addr'));
-      }
+
       return !!connectedWallets.evm?.address;
     },
     [connectedWallets]
@@ -234,20 +232,20 @@ const AssetSelectorModal: FC = () => {
             activeChainId === STELLAR_CHAIN_ID || pairedChainId === STELLAR_CHAIN_ID;
 
           if (isStellarInvolved && !showAllStellarAssets) {
-            const chainConfig = getChainById(activeChainId);
-            const allbridgeSupportedSymbols =
-              chainConfig?.bridgeSupportTokens?.map((t: any) => t.symbol.toUpperCase()) || [];
 
             // Get tokens supported by NEAR Intents for this chain
             const intentsSupportedSymbols = nearTokens
               .filter(nt => {
-                const tChainId = activeChainId === STELLAR_CHAIN_ID ? 'stellar' : getEvmChainId(nt);
+                if (activeChainId === STELLAR_CHAIN_ID) {
+                  return nt.blockchain?.toLowerCase().includes('stellar');
+                }
+                const tChainId = getEvmChainId(nt);
                 return String(tChainId) === String(activeChainId);
               })
               .map(nt => nt.symbol.toUpperCase());
 
             const combinedSupportedSymbols = Array.from(
-              new Set([...allbridgeSupportedSymbols, ...intentsSupportedSymbols])
+              new Set([...intentsSupportedSymbols])
             );
 
             validTokens = registryTokens.filter(t =>

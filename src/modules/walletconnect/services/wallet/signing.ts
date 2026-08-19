@@ -1,12 +1,7 @@
-import { BECH32_PREFIX, LocalWallet as LW, onboarding } from '@dydxprotocol/v4-client-js';
 import { BrowserProvider, getAddress, hexlify, toUtf8Bytes } from 'ethers';
 
 import { sendCustomNotification } from '../../../../service/notificationService';
-import type { DydxDerivation } from './types';
 
-// ---------------------------------------------------------------------------
-// dYdX EIP-712 typed-data signing
-// ---------------------------------------------------------------------------
 
 export async function signDydxMessage(evmAddress: string, provider: unknown): Promise<string> {
   const typedData = {
@@ -70,24 +65,6 @@ export async function signDydxMessage(evmAddress: string, provider: unknown): Pr
   throw new Error('Wallet provider is missing or invalid.');
 }
 
-// ---------------------------------------------------------------------------
-// dYdX address derivation
-// ---------------------------------------------------------------------------
-
-export async function deriveDydxAddress(
-  evmAddress: string,
-  provider: unknown
-): Promise<DydxDerivation> {
-  const signature = await signDydxMessage(evmAddress, provider);
-  const derived = onboarding.deriveHDKeyFromEthereumSignature(signature);
-
-  if (!derived.mnemonic) {
-    throw new Error('Failed to derive mnemonic from signature');
-  }
-
-  const wallet = await LW.fromMnemonic(derived.mnemonic, BECH32_PREFIX);
-  return { address: wallet.address ?? '', mnemonic: derived.mnemonic };
-}
 
 // ---------------------------------------------------------------------------
 // SIWE (EIP-4361) personal_sign — multi-fallback

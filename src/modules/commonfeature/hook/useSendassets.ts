@@ -30,6 +30,7 @@ import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 
+
 interface TransactionState {
   txHash: string | null;
   step: 'form' | 'review' | 'signing' | 'success' | 'error';
@@ -49,7 +50,7 @@ export interface EnhancedSendAsset {
   tokenAddress?: string;
   decimals: number;
   isNative: boolean;
-  type: 'evm' | 'stellar' | 'dydx';
+  type: 'evm' | 'stellar';
   networkKey: number | string;
   baseFee: number;
   balance: number;
@@ -89,8 +90,8 @@ export const useSendAsset = (onBack?: () => void) => {
     const activeFromStore = storeAssets
       .filter(a => (a.balance || 0) > 0)
       .map(asset => {
-        const type: 'evm' | 'stellar' | 'dydx' =
-          asset.chainType === 'stellar' ? 'stellar' : asset.chainType === 'dydx' ? 'dydx' : 'evm';
+        const type: 'evm' | 'stellar' =
+          asset.chainType === 'stellar' ? 'stellar' : 'evm';
         const chainId = asset.chainId || (type === 'stellar' ? 'pubnet' : 0);
         return {
           value: asset.id,
@@ -99,14 +100,14 @@ export const useSendAsset = (onBack?: () => void) => {
           logo: asset.image,
           network: asset.chainName,
           chainId,
-          addressType: type === 'dydx' ? 'cosmos' : type,
+          addressType: type,
           walletType: type === 'stellar' ? WalletType.STELLAR : WalletType.EVM,
           tokenAddress: asset.address,
           decimals: asset.decimals || (type === 'stellar' ? 7 : 18),
           isNative: asset.isNative || false,
           type,
           networkKey: chainId,
-          baseFee: type === 'stellar' ? 0.00001 : type === 'dydx' ? 0.0001 : 0.001,
+          baseFee: type === 'stellar' ? 0.00001 : 0.001,
           balance: asset.balance || 0,
           blockExplorerUrl: asset.blockExplorerUrl,
         };
@@ -119,12 +120,10 @@ export const useSendAsset = (onBack?: () => void) => {
     const registryAssets: EnhancedSendAsset[] = [];
     for (const config of CHAIN_REGISTRY) {
       if (config.sendEnable) {
-        const type: 'evm' | 'stellar' | 'dydx' =
-          config.chainId === 'pubnet'
+        const type: 'evm' | 'stellar' =
+          config.chainId === 'pubnet' || config.chainId === 'testnet'
             ? 'stellar'
-            : String(config.chainId).startsWith('dydx')
-              ? 'dydx'
-              : 'evm';
+            : 'evm';
         registryAssets.push({
           value: `send-${config.chainId}-native`,
           symbol: config.nativeCurrency.symbol,
@@ -132,14 +131,14 @@ export const useSendAsset = (onBack?: () => void) => {
           logo: config.nativeCurrency.logoURI,
           network: config.name,
           chainId: config.chainId,
-          addressType: type === 'dydx' ? 'cosmos' : type,
+          addressType: type,
           walletType: type === 'stellar' ? WalletType.STELLAR : WalletType.EVM,
           tokenAddress: undefined,
           decimals: config.nativeCurrency.decimals || (type === 'stellar' ? 7 : 18),
           isNative: true,
           type,
           networkKey: config.chainId,
-          baseFee: type === 'stellar' ? 0.00001 : type === 'dydx' ? 0.0001 : 0.001,
+          baseFee: type === 'stellar' ? 0.00001 : 0.001,
           balance: 0,
         });
 
@@ -152,14 +151,14 @@ export const useSendAsset = (onBack?: () => void) => {
             logo: asset.logoURI,
             network: config.name,
             chainId: config.chainId,
-            addressType: type === 'dydx' ? 'cosmos' : type,
+            addressType: type,
             walletType: type === 'stellar' ? WalletType.STELLAR : WalletType.EVM,
             tokenAddress: asset.address,
             decimals: asset.decimals || (type === 'stellar' ? 7 : 18),
             isNative: false,
             type,
             networkKey: config.chainId,
-            baseFee: type === 'stellar' ? 0.00001 : type === 'dydx' ? 0.0001 : 0.001,
+            baseFee: type === 'stellar' ? 0.00001 : 0.001,
             balance: 0,
           });
         });
@@ -211,9 +210,6 @@ export const useSendAsset = (onBack?: () => void) => {
 
   const senderAddress = useMemo(() => {
     if (!currentAsset) return null;
-    if (currentAsset.type === 'dydx') {
-      return (connectedWallets.evm as any)?.dydxAddress || localStorage.getItem('_sx_dkm_addr');
-    }
     return connectedWallets[currentAsset.walletType]?.address || null;
   }, [connectedWallets, currentAsset]);
 
@@ -231,7 +227,7 @@ export const useSendAsset = (onBack?: () => void) => {
       }
 
       try {
-        let balStr: string;
+        let balStr: string = '0';
         if (currentAsset.type === 'evm') {
           const config = getEVMNetworkConfig(Number(currentAsset.networkKey));
           balStr = await rpcManager.fetchWithFallback(
@@ -251,9 +247,6 @@ export const useSendAsset = (onBack?: () => void) => {
             ? 'native'
             : `${currentAsset.symbol}:${currentAsset.tokenAddress}`;
           balStr = await getStellarBalance(key, senderAddress);
-        } else {
-          // dydx balance is already in storeAssets, but we can refresh via service if needed
-          balStr = toPlainString(currentAsset.balance);
         }
         setBalance(balStr);
       } catch (e) {
@@ -351,8 +344,6 @@ export const useSendAsset = (onBack?: () => void) => {
           );
         } else if (currentAsset.type === 'stellar') {
           fees = await estimateStellarFees();
-        } else {
-          fees = { totalCost: '0.0001', error: null }; // dYdX fees are very low/fixed for now
         }
         setEstimatedFees(fees);
       } catch (e: any) {
@@ -532,32 +523,6 @@ export const useSendAsset = (onBack?: () => void) => {
           hash: res.hash || undefined,
           isStellar: true,
         });
-      } else {
-        // dYdX direct handling via service
-        console.log('[useSendAsset] Handling dYdX transaction via service');
-        const { dydxWalletService } = await import('../../dydx/service/dydxWalletService');
-        let result;
-        if (currentAsset.symbol === 'USDC') {
-          // USDC is collateral, needs withdraw
-          result = await dydxWalletService.withdraw(amount, recipientAddress);
-        } else {
-          // Native DYDX
-          result = await dydxWalletService.send(amount, recipientAddress);
-        }
-
-        if (!result.success) throw new Error(result.error || 'Transaction failed');
-
-        setRecipientAddress('');
-        setAmount('');
-        setMemo('');
-        setTransactionState({ txHash: null, step: 'form', error: null });
-
-        useTransactionModalStore.getState().openModal({
-          status: 'success',
-          type: 'Send',
-          hash: result.transactionHash || undefined,
-          isStellar: true,
-        });
       }
     } catch (e: any) {
       console.error('[useSendAsset] Transaction exception caught:', e);
@@ -578,7 +543,7 @@ export const useSendAsset = (onBack?: () => void) => {
         status: 'error',
         type: 'Send',
         error: errMsg,
-        isStellar: currentAsset?.type === 'stellar' || currentAsset?.type === 'dydx',
+        isStellar: currentAsset?.type === 'stellar',
       });
     } finally {
       isConfirmingRef.current = false;
@@ -660,10 +625,10 @@ export const useSendAsset = (onBack?: () => void) => {
       : !senderAddress
         ? null
         : recipientAddress &&
-            !validateAddress(recipientAddress, {
-              addressType: currentAsset.addressType as any,
-              network: currentAsset.network,
-            })
+          !validateAddress(recipientAddress, {
+            addressType: currentAsset.addressType as any,
+            network: currentAsset.network,
+          })
           ? 'Invalid address'
           : amount && amount !== '.' && new BigNumber(amount).isGreaterThan(balance) && hasTrustline
             ? 'Insufficient funds'

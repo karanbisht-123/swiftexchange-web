@@ -144,12 +144,12 @@ export const STELLAR_CONFIG_TESTNET: StellarChainConfig = {
     'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png',
 };
 
-export const getCosmosChains = (network: NetworkType): CosmosChainConfig[] => {
-  return network === 'mainnet' ? COSMOS_CHAINS_MAINNET : COSMOS_CHAINS_TESTNET;
+export const getCosmosChains = (network: NetworkType | string): CosmosChainConfig[] => {
+  return network === 'mainnet' || network === 'pubnet' ? COSMOS_CHAINS_MAINNET : COSMOS_CHAINS_TESTNET;
 };
 
-export const getStellarConfig = (network: NetworkType): StellarChainConfig => {
-  return network === 'mainnet' ? STELLAR_CONFIG_MAINNET : STELLAR_CONFIG_TESTNET;
+export const getStellarConfig = (network: NetworkType | string): StellarChainConfig => {
+  return network === 'mainnet' || network === 'pubnet' ? STELLAR_CONFIG_MAINNET : STELLAR_CONFIG_TESTNET;
 };
 
 export const getDydxConfig = (network: NetworkType): CosmosChainConfig => {

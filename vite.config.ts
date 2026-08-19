@@ -33,13 +33,13 @@ export default defineConfig(({ command }) => ({
   ].filter(Boolean),
 
   optimizeDeps: {
-    include: [
-      '@dydxprotocol/v4-client-js',
-      '@skip-go/client',
-      '@cosmjs/stargate',
-      '@cosmjs/amino',
-      '@cosmjs/proto-signing',
-    ],
+    // include: [
+    //   '@dydxprotocol/v4-client-js',
+    //   '@skip-go/client',
+    //   '@cosmjs/stargate',
+    //   '@cosmjs/amino',
+    //   '@cosmjs/proto-signing',
+    // ],
     exclude: ['buffer', 'process', 'vm-browserify', 'node-stdlib-browser'],
     esbuildOptions: {
       target: 'esnext',

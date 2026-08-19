@@ -1,16 +1,9 @@
-import { type LocalWallet } from '@dydxprotocol/v4-client-js';
-import { CompositeClient, Network, onboarding } from '@dydxprotocol/v4-client-js';
+
 
 import { type NetworkType } from '../../config/chains';
 import { WALLET_METADATA_MAP } from '../../constants/Wallet';
-import { type ApiTradingKey } from '../apiTradingKeyService';
-import {
-  generateApiTradingKey as _generateApiTradingKey,
-  listApiTradingKeys as _listApiTradingKeys,
-  revokeApiTradingKey as _revokeApiTradingKey,
-} from '../apiTradingKeyService';
-import { decryptStoredMnemonic, encryptAndStore } from '../dydxKeyManager';
-import { sessionVault } from '../sessionVault';
+
+
 import { disconnect, disconnectAll } from './disconnect';
 import { connectChainWallet } from './evmConnect';
 import {
@@ -23,7 +16,7 @@ import { signSiweMessage, signStellarChallenge } from './signing';
 import { connectStellar } from './stellarConnect';
 import type {
   ConnectionState,
-  DydxDerivation,
+
   UnifiedConnectionResult,
   WalletServiceContext,
   WalletSession,
@@ -33,9 +26,6 @@ import { connectUnified } from './unifiedConnect';
 
 class WalletService {
   private ctx: WalletServiceContext;
-  private _compositeClient: CompositeClient | null = null;
-  private _compositeClientNetwork: NetworkType | null = null;
-
   constructor() {
     // Build the shared context — all modules read/write this object
     this.ctx = {
@@ -97,22 +87,6 @@ class WalletService {
     });
   }
 
-  private async getOrCreateCompositeClient(): Promise<CompositeClient> {
-    if (this._compositeClient && this._compositeClientNetwork === this.ctx.currentNetwork) {
-      return this._compositeClient;
-    }
-    const networkObj =
-      this.ctx.currentNetwork === 'testnet' ? Network.testnet() : Network.mainnet();
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('CompositeClient connection timeout')), 15000)
-    );
-    this._compositeClient = await Promise.race([
-      CompositeClient.connect(networkObj),
-      timeoutPromise,
-    ]);
-    this._compositeClientNetwork = this.ctx.currentNetwork;
-    return this._compositeClient;
-  }
 
   private openMobileDeepLink(walletId: string, uri: string): void {
     if (!/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return;
@@ -181,8 +155,6 @@ class WalletService {
     if (this.ctx.currentNetwork === network) return;
     this.ctx.currentNetwork = network;
     localStorage.setItem('network', network);
-    this._compositeClient = null;
-    this._compositeClientNetwork = null;
     await Promise.all([this.disconnect('evm'), this.disconnect('stellar')]);
     clearSessionStorage();
   }
@@ -203,86 +175,6 @@ class WalletService {
     return connectStellar(this.ctx, walletId);
   }
 
-  // ---------------------------------------------------------------------------
-  // dYdX derivation
-  // ---------------------------------------------------------------------------
-
-  async deriveDydx(): Promise<DydxDerivation> {
-    const session = this.ctx.sessions.get('evm');
-    if (!session) throw new Error('Wallet not connected');
-
-    if (session.dydxAddress && sessionVault.has()) {
-      return { address: session.dydxAddress, mnemonic: '' };
-    }
-
-    const evmProvider = this.ctx.providers.get('evm');
-    if (!evmProvider || !session.evmAddress) {
-      throw new Error('EVM wallet required for dYdX derivation');
-    }
-
-    if (this.ctx.derivationInProgress) {
-      throw new Error('Derivation already in progress');
-    }
-
-    try {
-      this.ctx.derivationInProgress = true;
-      this.emitState(session.type, 'signing');
-
-      // Inline the typed-data sign + key derivation
-      const typedData = {
-        domain: { name: 'dYdX Chain', chainId: 1 },
-        primaryType: 'dYdX',
-        types: {
-          EIP712Domain: [
-            { name: 'name', type: 'string' },
-            { name: 'chainId', type: 'uint256' },
-          ],
-          dYdX: [{ name: 'action', type: 'string' }],
-        },
-        message: { action: 'dYdX Chain Onboarding' },
-      };
-
-      const trySign = async (addr: string, data: any) =>
-        (evmProvider as any).request({
-          method: 'eth_signTypedData_v4',
-          params: [addr, data],
-        });
-
-      const lowerAddr = session.evmAddress.toLowerCase();
-      const dataStr = JSON.stringify(typedData);
-      let signature: string;
-      try {
-        signature = await trySign(lowerAddr, dataStr);
-      } catch {
-        try {
-          signature = await trySign(session.evmAddress, dataStr);
-        } catch {
-          signature = await trySign(lowerAddr, typedData);
-        }
-      }
-
-      const derived = onboarding.deriveHDKeyFromEthereumSignature(signature);
-      if (!derived.mnemonic) throw new Error('Failed to derive mnemonic from signature');
-
-      const dydxAddress = await encryptAndStore(derived.mnemonic);
-
-      session.dydxAddress = dydxAddress;
-      this.ctx.sessions.set(session.type, session);
-      this.ctx.derivationInProgress = false;
-      this.emitState(session.type, 'connected');
-      saveSession(this.ctx);
-
-      return { address: dydxAddress, mnemonic: '' };
-    } catch (error: any) {
-      this.ctx.derivationInProgress = false;
-      this.emitState(session.type, 'connected');
-
-      if (error.message === 'USER_REJECTED') {
-        throw new Error('Signature rejected by user');
-      }
-      throw error;
-    }
-  }
 
   // ---------------------------------------------------------------------------
   // Signing pass-throughs
@@ -363,13 +255,6 @@ class WalletService {
     return this.ctx.sessions.has(type);
   }
 
-  getSigningWallet(): LocalWallet | null {
-    return sessionVault.get();
-  }
-
-  hasDydxWallet(): boolean {
-    return !!this.ctx.sessions.get('evm')?.dydxAddress;
-  }
 
   isExtensionInstalled(walletId: string): boolean {
     return isExtensionInstalled(this.ctx, walletId);
@@ -380,27 +265,6 @@ class WalletService {
   }
 
   // ---------------------------------------------------------------------------
-  // API Trading Keys
-  // ---------------------------------------------------------------------------
-
-  async generateApiTradingKey(label?: string): Promise<ApiTradingKey> {
-    const client = await this.getOrCreateCompositeClient();
-    return _generateApiTradingKey(label, client);
-  }
-
-  async revokeApiTradingKey(id: string): Promise<void> {
-    const client = await this.getOrCreateCompositeClient();
-    return _revokeApiTradingKey(id, client);
-  }
-
-  listApiTradingKeys(): ApiTradingKey[] {
-    return _listApiTradingKeys();
-  }
-
-  async getOwnerSecretPhrase(): Promise<string | null> {
-    return decryptStoredMnemonic();
-  }
-
   updateSessionPing(type: WalletType): void {
     this.ctx.lastPingAt.set(type, Date.now());
   }

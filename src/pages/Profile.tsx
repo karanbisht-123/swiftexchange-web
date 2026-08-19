@@ -3,22 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { StellarCostBasisModal } from '../components/StellarCostBasisModal';
 import PageLayout from '../components/layout/PageLayout';
-import LiquidationRiskBanner from '../modules/dydx/components/LiquidationRiskBanner';
-import PositionsPanel from '../modules/dydx/components/orderHistory/PositionsPanel';
-import { useDydxAutoConnect } from '../modules/dydx/hooks/useDydxAutoConnect';
-import { useDydxData } from '../modules/dydx/hooks/useDydxData';
-import {
-  type Fill,
-  type FundingPayment,
-  type HistoricalPnl,
-  type Order,
-  dydxDataService,
-  normalizeFill,
-  normalizeOrder,
-} from '../modules/dydx/service/dydxOrderService';
-import { dydxWalletService } from '../modules/dydx/service/dydxWalletService';
-import { useDateRangeStore } from '../modules/dydx/store/dateRangeStore';
-import { selectPortfolioMetrics, useWebSocketStore } from '../modules/dydx/store/websocketStore';
+
 import { useProfilePortfolio } from '../modules/walletconnect/hooks/useProfilePortfolio';
 import {
   useWalletConnect,
@@ -27,9 +12,9 @@ import {
 import { useWalletStore } from '../modules/walletconnect/store/walletConnectStore';
 import { portfolioUtils } from '../modules/walletconnect/utils/portfolioUtils';
 import { fetchStellarPnl } from '../service/apiService';
-import { exportDydxReport, exportStellarReport } from '../utils/exportService';
+import { exportStellarReport } from '../utils/exportService';
 import { AssetsTableSection } from './profile/components/AssetsTableSection';
-import { DydxPerformanceCard } from './profile/components/DydxPerformanceCard';
+
 import { ExportProgressModal } from './profile/components/ExportProgressModal';
 import { PortfolioCardsGrid } from './profile/components/PortfolioCardsGrid';
 import { StellarPerformanceCard } from './profile/components/StellarPerformanceCard';
@@ -54,7 +39,7 @@ const Profile: React.FC = () => {
 
   const devicePayload = session?.peer?.metadata?.userDevice;
   const isSwiftExUser = isValidDevicePayload(devicePayload);
-  const { isConnecting: dydxConnecting } = useDydxAutoConnect();
+
   const {
     isAnyWalletConnected,
     loading,
@@ -62,7 +47,7 @@ const Profile: React.FC = () => {
     refetch,
     evmTotal,
     stellarTotal,
-    dydxTotal,
+
     grandTotal,
     activeTabs,
     activeTab,
@@ -75,34 +60,23 @@ const Profile: React.FC = () => {
     filteredAssets,
   } = useProfilePortfolio();
 
-  const {
-    positions: dydxPositions,
-    openOrderCount,
-    orders: dydxOrders,
-    fills: dydxFills,
-    refreshPositions,
-    refreshOrders,
-    refreshFills,
-  } = useDydxData();
 
-  const { fromDate, toDate, setFromDate, setToDate, clearRange } = useDateRangeStore();
-  const isDateRangeActive = !!(fromDate || toDate);
 
   const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
-  const [historicalPnl, setHistoricalPnl] = useState<HistoricalPnl[]>([]);
-  const [transfers, setTransfers] = useState<any[]>([]);
-  const [loadingPnl, setLoadingPnl] = useState(false);
-  const [timeframe, setTimeframe] = useState<'1d' | '7d' | '30d' | '90d'>('7d');
+  const [fromDate, setFromDate] = useState<string | null>(null);
+  const [toDate, setToDate] = useState<string | null>(null);
+  const isDateRangeActive = !!(fromDate || toDate);
+  const clearRange = () => {
+    setFromDate(null);
+    setToDate(null);
+  };
 
-  // Funding payments states
-  const [fundingPayments, setFundingPayments] = useState<FundingPayment[]>([]);
-  const [loadingFunding, setLoadingFunding] = useState(false);
 
   // Export progress modal states
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportStep, setExportStep] = useState(0); // 0 = config, 1+ = steps
   const [exportError, setExportError] = useState<string | null>(null);
-  const [exportType, setExportType] = useState<'dydx' | 'stellar'>('dydx');
+  const [exportType, setExportType] = useState<'stellar'>('stellar');
   const [exportTimeframe, setExportTimeframe] = useState<string>('');
   const [exportFromDate, setExportFromDate] = useState<string | null>(null);
   const [exportToDate, setExportToDate] = useState<string | null>(null);
@@ -275,33 +249,37 @@ const Profile: React.FC = () => {
     return (stellarPnlData?.totalPnL || 0) + totalOpeningCostBasis;
   }, [stellarPnlData?.totalPnL, totalOpeningCostBasis]);
 
-  const [dateRangeOrders, setDateRangeOrders] = useState<any[]>([]);
-  const [dateRangeFillCount, setDateRangeFillCount] = useState(0);
-  const [dateRangeFills, setDateRangeFills] = useState<Fill[]>([]);
-  const [loadingDateRange, setLoadingDateRange] = useState(false);
+  // Date picker limit helpers (Max 90 days range, no future dates, timezone-safe local dates)
+  const getLocalDateString = (d: Date = new Date()) => {
+    const offset = d.getTimezoneOffset();
+    const localDate = new Date(d.getTime() - offset * 60 * 1000);
+    return localDate.toISOString().split('T')[0];
+  };
 
-  useEffect(() => {
-    if (!dydxDataService.isReady()) {
-      setHistoricalPnl([]);
-      return;
-    }
-    setLoadingPnl(true);
-    if (isDateRangeActive && fromDate && toDate) {
-      dydxDataService
-        .getPnlByDateRange(fromDate, toDate)
-        .then(data => setHistoricalPnl(data || []))
-        .catch(err => console.warn('[Profile] Failed to fetch date-range PnL:', err))
-        .finally(() => setLoadingPnl(false));
-    } else {
-      const days = timeframe === '1d' ? 1 : timeframe === '7d' ? 7 : timeframe === '30d' ? 30 : 90;
-      const effectiveAtOrAfter = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-      dydxDataService
-        .getHistoricalPnl(undefined, effectiveAtOrAfter, 100, true, timeframe !== '1d')
-        .then(data => setHistoricalPnl(data || []))
-        .catch(err => console.warn('[Profile] Failed to fetch historical PnL:', err))
-        .finally(() => setLoadingPnl(false));
-    }
-  }, [connectedWallets, timeframe, dydxConnecting, isDateRangeActive, fromDate, toDate]);
+  const todayStr = getLocalDateString();
+
+  const minFromDate = useMemo(() => {
+    if (!toDate) return '';
+    const d = new Date(toDate);
+    d.setDate(d.getDate() - 90);
+    return getLocalDateString(d);
+  }, [toDate]);
+
+  const maxFromDate = useMemo(() => {
+    return toDate || todayStr;
+  }, [toDate, todayStr]);
+
+  const minToDate = useMemo(() => {
+    return fromDate || '';
+  }, [fromDate]);
+
+  const maxToDate = useMemo(() => {
+    if (!fromDate) return todayStr;
+    const d = new Date(fromDate);
+    d.setDate(d.getDate() + 90);
+    const maxD = getLocalDateString(d);
+    return maxD < todayStr ? maxD : todayStr;
+  }, [fromDate, todayStr]);
 
   useEffect(() => {
     let isMounted = true;
@@ -348,93 +326,9 @@ const Profile: React.FC = () => {
     isSwiftExUser,
   ]);
 
-  useEffect(() => {
-    if (!dydxDataService.isReady()) {
-      setTransfers([]);
-      return;
-    }
-    if (isDateRangeActive && fromDate && toDate) {
-      dydxDataService
-        .getTransfersByDateRange(fromDate, toDate)
-        .then(data => setTransfers(data))
-        .catch(err => console.warn('[Profile] Failed to fetch date-range transfers:', err));
-    } else {
-      dydxDataService
-        .getTransfers(100)
-        .then(res => setTransfers(res?.transfers || []))
-        .catch(err => console.warn('[Profile] Failed to fetch transfers:', err));
-    }
-  }, [connectedWallets, dydxConnecting, isDateRangeActive, fromDate, toDate]);
 
-  useEffect(() => {
-    if (!dydxDataService.isReady()) {
-      setFundingPayments([]);
-      return;
-    }
-    setLoadingFunding(true);
-    const fetchFunding = async () => {
-      try {
-        let data: FundingPayment[] = [];
-        if (isDateRangeActive && fromDate && toDate) {
-          data = await dydxDataService.getFundingPaymentsByDateRange(fromDate, toDate);
-        } else {
-          const days =
-            timeframe === '1d' ? 1 : timeframe === '7d' ? 7 : timeframe === '30d' ? 30 : 90;
-          const fromISO = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-            .toISOString()
-            .slice(0, 10);
-          const toISO = new Date().toISOString().slice(0, 10);
-          data = await dydxDataService.getFundingPaymentsByDateRange(fromISO, toISO);
-        }
-        setFundingPayments(data || []);
-      } catch (err) {
-        console.warn('[Profile] Failed to fetch funding payments:', err);
-        setFundingPayments([]);
-      } finally {
-        setLoadingFunding(false);
-      }
-    };
-    fetchFunding();
-  }, [connectedWallets, timeframe, dydxConnecting, isDateRangeActive, fromDate, toDate]);
 
-  const fundingStats = useMemo(() => {
-    let received = 0;
-    let paid = 0;
-    fundingPayments.forEach(p => {
-      const val = parseFloat(p.payment || '0');
-      if (val > 0) {
-        received += val;
-      } else {
-        paid += Math.abs(val);
-      }
-    });
-    return {
-      received,
-      paid,
-      net: received - paid,
-    };
-  }, [fundingPayments]);
 
-  useEffect(() => {
-    if (!isDateRangeActive || !fromDate || !toDate || !dydxDataService.isReady()) {
-      setDateRangeOrders([]);
-      setDateRangeFills([]);
-      setDateRangeFillCount(0);
-      return;
-    }
-    setLoadingDateRange(true);
-    Promise.all([
-      dydxDataService.getOrdersByDateRange(fromDate, toDate),
-      dydxDataService.getFillsByDateRange(fromDate, toDate),
-    ])
-      .then(([orders, fills]) => {
-        setDateRangeOrders(orders);
-        setDateRangeFills(fills);
-        setDateRangeFillCount(fills.length);
-      })
-      .catch(err => console.warn('[Profile] Failed to fetch date-range stats:', err))
-      .finally(() => setLoadingDateRange(false));
-  }, [isDateRangeActive, fromDate, toDate, connectedWallets]);
 
   const handleCopy = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -444,408 +338,32 @@ const Profile: React.FC = () => {
     }, 2000);
   };
 
-  const filteredFills = useMemo(() => {
-    if (isDateRangeActive) {
-      return dateRangeFills.map(normalizeFill);
-    }
-    const daysMap = { '1d': 1, '7d': 7, '30d': 30, '90d': 90 };
-    const days = daysMap[timeframe] ?? 7;
-    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    return (dydxFills || [])
-      .map(normalizeFill)
-      .filter(f => new Date(f.createdAt).getTime() >= cutoff);
-  }, [isDateRangeActive, dateRangeFills, dydxFills, timeframe]);
 
-  const filteredOrders = useMemo(() => {
-    if (isDateRangeActive) {
-      return dateRangeOrders.map(normalizeOrder);
-    }
-    const daysMap = { '1d': 1, '7d': 7, '30d': 30, '90d': 90 };
-    const days = daysMap[timeframe] ?? 7;
-    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    return (dydxOrders || []).map(normalizeOrder).filter(o => {
-      const timeStr = o.updatedAt || o.goodTilBlockTime;
-      const orderTime = timeStr ? new Date(timeStr).getTime() : (o as any)._firstSeenAt || 0;
-      return orderTime >= cutoff;
-    });
-  }, [isDateRangeActive, dateRangeOrders, dydxOrders, timeframe]);
-
-  const filteredTransfers = useMemo(() => {
-    if (isDateRangeActive) {
-      return transfers;
-    }
-    const daysMap = { '1d': 1, '7d': 7, '30d': 30, '90d': 90 };
-    const days = daysMap[timeframe] ?? 7;
-    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    return transfers.filter(tx => new Date(tx.createdAt).getTime() >= cutoff);
-  }, [isDateRangeActive, transfers, timeframe]);
-
-  const visiblePnlPoints = useMemo(() => {
-    try {
-      const indexerPoints = Array.isArray(historicalPnl)
-        ? [...historicalPnl]
-            .filter(p => p && p.createdAt && p.equity)
-            .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-        : [];
-
-      const latestIndexerTime =
-        indexerPoints.length > 0
-          ? new Date(indexerPoints[indexerPoints.length - 1].createdAt).getTime()
-          : 0;
-
-      const recentEvents: { time: number; createdAt: string; impact: number }[] = [];
-
-      if (Array.isArray(filteredTransfers)) {
-        filteredTransfers.forEach(tx => {
-          if (!tx) return;
-          const time = new Date(tx.createdAt).getTime();
-          if (isNaN(time) || time <= latestIndexerTime) return;
-
-          const val = parseFloat(tx.size || '0');
-          if (isNaN(val) || val === 0) return;
-
-          const impact = tx.type === 'DEPOSIT' ? val : -val;
-          recentEvents.push({ time, createdAt: tx.createdAt, impact });
-        });
-      }
-
-      if (Array.isArray(filteredFills)) {
-        filteredFills.forEach(f => {
-          if (!f) return;
-          const time = new Date(f.createdAt).getTime();
-          if (isNaN(time) || time <= latestIndexerTime) return;
-
-          if (f.positionSideBefore && f.positionSizeBefore && f.entryPriceBefore) {
-            const sizeBefore = parseFloat(f.positionSizeBefore);
-            const entry = parseFloat(f.entryPriceBefore);
-            const fp = parseFloat(f.price);
-            const fs = parseFloat(f.size);
-
-            if (isNaN(sizeBefore) || isNaN(entry) || isNaN(fp) || isNaN(fs)) return;
-
-            let cpnl: number | null = null;
-            if (f.positionSideBefore === 'LONG' && f.side === 'SELL') {
-              cpnl = (fp - entry) * Math.min(sizeBefore, fs);
-            } else if (f.positionSideBefore === 'SHORT' && f.side === 'BUY') {
-              cpnl = (entry - fp) * Math.min(sizeBefore, fs);
-            }
-
-            if (cpnl !== null && !isNaN(cpnl) && cpnl !== 0) {
-              recentEvents.push({ time, createdAt: f.createdAt, impact: cpnl });
-            }
-          }
-        });
-      }
-
-      // Sort recent events in reverse chronological order (latest first) to walk backward
-      recentEvents.sort((a, b) => b.time - a.time);
-
-      const recentPoints: { createdAt: string; equity: string }[] = [];
-      let currentVal = dydxTotal;
-
-      // Point 1: current time / live equity
-      recentPoints.push({
-        createdAt: new Date().toISOString(),
-        equity: currentVal.toString(),
-      });
-
-      // Walk backward subtraction-by-subtraction for recent events
-      recentEvents.forEach(event => {
-        currentVal = currentVal - event.impact;
-        recentPoints.push({
-          createdAt: event.createdAt,
-          equity: currentVal.toString(),
-        });
-      });
-
-      // Reverse recentPoints to be in chronological order
-      recentPoints.reverse();
-
-      // 3. Combine indexer history with the reconstructed recent points
-      const mappedIndexerPoints = indexerPoints.map(p => ({
-        createdAt: p.createdAt,
-        equity: p.equity,
-      }));
-
-      const combinedPoints = [...mappedIndexerPoints, ...recentPoints];
-
-      // Sort all combined points chronologically
-      const sortedCombined = combinedPoints.sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      );
-
-      // Deduplicate by timestamp (second precision) to satisfy lightweight-charts strictly ascending constraint
-      const uniquePoints: { createdAt: string; equity: string }[] = [];
-      const seenSeconds = new Set<number>();
-      for (const p of sortedCombined) {
-        const seconds = Math.floor(new Date(p.createdAt).getTime() / 1000);
-        if (isNaN(seconds)) continue;
-
-        if (!seenSeconds.has(seconds)) {
-          seenSeconds.add(seconds);
-          uniquePoints.push(p);
-        } else {
-          // If the timestamp matches, keep the later point's equity value
-          uniquePoints[uniquePoints.length - 1] = p;
-        }
-      }
-
-      // If we have less than 2 points, apply fallback
-      if (uniquePoints.length < 2) {
-        let startTimeStr = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        if (isDateRangeActive && fromDate) {
-          startTimeStr = new Date(fromDate).toISOString();
-        } else {
-          const daysMap = { '1d': 1, '7d': 7, '30d': 30, '90d': 90 };
-          const days = daysMap[timeframe] ?? 7;
-          startTimeStr = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-        }
-        const today = new Date().toISOString();
-        return [
-          { createdAt: startTimeStr, equity: dydxTotal.toString() },
-          { createdAt: today, equity: dydxTotal.toString() },
-        ];
-      }
-
-      return uniquePoints;
-    } catch (err) {
-      console.error('[Profile] Failed to construct combined equity timeline:', err);
-      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const today = new Date().toISOString();
-      return [
-        { createdAt: yesterday, equity: dydxTotal.toString() },
-        { createdAt: today, equity: dydxTotal.toString() },
-      ];
-    }
-  }, [
-    historicalPnl,
-    filteredTransfers,
-    filteredFills,
-    dydxTotal,
-    timeframe,
-    isDateRangeActive,
-    fromDate,
-  ]);
-
-  const pnlStats = useMemo(() => {
-    if (visiblePnlPoints.length < 2) {
-      return { change: 0, percentChange: 0, currentEquity: dydxTotal };
-    }
-    const firstPoint = visiblePnlPoints[0];
-    const lastPoint = visiblePnlPoints[visiblePnlPoints.length - 1];
-    const startEquity = parseFloat(firstPoint.equity || '0');
-    const currentEquity = parseFloat(lastPoint.equity || '0') || dydxTotal;
-    const change = currentEquity - startEquity;
-    const percentChange = startEquity > 0 ? (change / startEquity) * 100 : 0;
-    return { change, percentChange, currentEquity };
-  }, [visiblePnlPoints, dydxTotal]);
 
   // Cost Basis is handled entirely in the exported Excel file — no in-app input needed.
+
 
   const cardPnL = useMemo(() => {
     const stellarPnL = stellarPnlData?.totalPnL || 0;
     const stellarStart = stellarTotal - stellarPnL;
     const stellarPct = stellarStart > 0 ? (stellarPnL / stellarStart) * 100 : 0;
 
-    const dydxPnL = pnlStats.change || 0;
-    const dydxPct = pnlStats.percentChange || 0;
-
-    const totalPnL = stellarPnL + dydxPnL;
-    const totalStart = stellarTotal + dydxTotal + evmTotal - totalPnL;
+    const totalPnL = stellarPnL;
+    const totalStart = stellarTotal + evmTotal - totalPnL;
     const totalPct = totalStart > 0 ? (totalPnL / totalStart) * 100 : 0;
 
     return {
       total: { change: totalPnL, percent: totalPct },
       evm: { change: 0, percent: 0 },
       stellar: { change: stellarPnL, percent: stellarPct },
-      dydx: { change: dydxPnL, percent: dydxPct },
     };
   }, [
     stellarPnlData?.totalPnL,
     stellarTotal,
-    dydxTotal,
     evmTotal,
-    pnlStats.change,
-    pnlStats.percentChange,
   ]);
 
-  const periodStats = useMemo(() => {
-    let totalDeposits = 0;
-    let totalWithdrawals = 0;
-    filteredTransfers.forEach(tx => {
-      const val = parseFloat(tx.size || '0');
-      if (tx.type === 'DEPOSIT') {
-        totalDeposits += val;
-      } else {
-        totalWithdrawals += val;
-      }
-    });
 
-    const netCapitalChange = totalDeposits - totalWithdrawals;
-
-    const startEquity =
-      visiblePnlPoints.length > 0 ? parseFloat(visiblePnlPoints[0].equity || '0') : 0;
-    const endEquity =
-      visiblePnlPoints.length > 0
-        ? parseFloat(visiblePnlPoints[visiblePnlPoints.length - 1].equity || '0') || dydxTotal
-        : dydxTotal;
-    let closedTradesCount = 0;
-    let profitableTradesCount = 0;
-    let totalClosedPnl = 0;
-
-    filteredFills.forEach(f => {
-      if (f.positionSideBefore && f.positionSizeBefore && f.entryPriceBefore) {
-        const sizeBefore = parseFloat(f.positionSizeBefore);
-        const entry = parseFloat(f.entryPriceBefore);
-        const fp = parseFloat(f.price);
-        const fs = parseFloat(f.size);
-        let cpnl: number | null = null;
-        if (f.positionSideBefore === 'LONG' && f.side === 'SELL')
-          cpnl = (fp - entry) * Math.min(sizeBefore, fs);
-        if (f.positionSideBefore === 'SHORT' && f.side === 'BUY')
-          cpnl = (entry - fp) * Math.min(sizeBefore, fs);
-        if (cpnl !== null) {
-          closedTradesCount++;
-          totalClosedPnl += cpnl;
-          if (cpnl > 0) profitableTradesCount++;
-        }
-      }
-    });
-
-    const netTradingGain = totalClosedPnl;
-    const gainPercentage =
-      startEquity + totalDeposits > 0 ? (netTradingGain / (startEquity + totalDeposits)) * 100 : 0;
-
-    const winRate = closedTradesCount > 0 ? (profitableTradesCount / closedTradesCount) * 100 : 0;
-
-    return {
-      startEquity,
-      endEquity,
-      totalDeposits,
-      totalWithdrawals,
-      netCapitalChange,
-      netTradingGain,
-      gainPercentage,
-      closedTradesCount,
-      profitableTradesCount,
-      totalClosedPnl,
-      winRate,
-    };
-  }, [filteredTransfers, visiblePnlPoints, dydxTotal, filteredFills]);
-
-  const tradePnlPoints = useMemo(() => {
-    const sorted = [...filteredFills]
-      .filter(f => f.positionSideBefore && f.positionSizeBefore && f.entryPriceBefore)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-
-    let runningPnl = 0;
-    const points: { time: number; value: number }[] = [];
-
-    if (sorted.length > 0) {
-      const firstTime = Math.floor(new Date(sorted[0].createdAt).getTime() / 1000);
-      points.push({ time: (firstTime - 1) as any, value: 0 });
-    }
-
-    sorted.forEach(f => {
-      const sizeBefore = parseFloat(f.positionSizeBefore || '0');
-      const entry = parseFloat(f.entryPriceBefore || '0');
-      const fp = parseFloat(f.price);
-      const fs = parseFloat(f.size);
-      let cpnl = 0;
-      if (f.positionSideBefore === 'LONG' && f.side === 'SELL')
-        cpnl = (fp - entry) * Math.min(sizeBefore, fs);
-      if (f.positionSideBefore === 'SHORT' && f.side === 'BUY')
-        cpnl = (entry - fp) * Math.min(sizeBefore, fs);
-
-      runningPnl += cpnl;
-      points.push({
-        time: Math.floor(new Date(f.createdAt).getTime() / 1000) as any,
-        value: runningPnl,
-      });
-    });
-    return points;
-  }, [filteredFills]);
-
-  // Date picker limit helpers (Max 90 days range, no future dates, timezone-safe local dates)
-  const getLocalDateString = (d: Date = new Date()) => {
-    const offset = d.getTimezoneOffset();
-    const localDate = new Date(d.getTime() - offset * 60 * 1000);
-    return localDate.toISOString().split('T')[0];
-  };
-
-  const todayStr = getLocalDateString();
-
-  const minFromDate = useMemo(() => {
-    if (!toDate) return '';
-    const d = new Date(toDate);
-    d.setDate(d.getDate() - 90);
-    return getLocalDateString(d);
-  }, [toDate]);
-
-  const maxFromDate = useMemo(() => {
-    return toDate || todayStr;
-  }, [toDate, todayStr]);
-
-  const minToDate = useMemo(() => {
-    return fromDate || '';
-  }, [fromDate]);
-
-  const maxToDate = useMemo(() => {
-    if (!fromDate) return todayStr;
-    const d = new Date(fromDate);
-    d.setDate(d.getDate() + 90);
-    const maxD = getLocalDateString(d);
-    return maxD < todayStr ? maxD : todayStr;
-  }, [fromDate, todayStr]);
-
-  const dydxLeverage = useMemo(() => {
-    if (dydxPositions.length === 0 || dydxTotal <= 0) return 0;
-    let totalNotional = 0;
-    dydxPositions.forEach(pos => {
-      const sizeVal = Math.abs(parseFloat(pos.size || '0'));
-      const entryPriceVal = parseFloat(pos.entryPrice || '0');
-      totalNotional += sizeVal * entryPriceVal;
-    });
-    return totalNotional / dydxTotal;
-  }, [dydxPositions, dydxTotal]);
-
-  const activeAddress = dydxWalletService.getAddress();
-  const parentKey = activeAddress ? `parent_subaccount_${activeAddress}_0` : null;
-  const wsUpdateTrigger = useWebSocketStore(s => s.updateTrigger);
-  const optimisticDelta = useWebSocketStore(s => s.optimisticFreeCollateralDelta);
-  const marketsMap = useWebSocketStore(s => s.markets);
-
-  const parentData = useWebSocketStore(
-    useCallback(
-      s => (parentKey ? s.parentSubaccounts.get(parentKey) : undefined),
-      [parentKey, wsUpdateTrigger]
-    )
-  );
-
-  const leveragesMap = useMemo(() => {
-    const map: Record<string, number> = {};
-    if (!parentData?.childSubaccounts) return map;
-    parentData.childSubaccounts.forEach(child => {
-      const positions = Object.keys(child.openPerpetualPositions || {});
-      positions.forEach(ticker => {
-        const marketKey = `dydx_leverage_${ticker}`;
-        const saved = localStorage.getItem(marketKey) ?? localStorage.getItem('dydx_leverage');
-        const parsed = saved ? parseFloat(saved) : 5.0;
-        if (!isNaN(parsed) && parsed > 0) map[ticker] = parsed;
-      });
-    });
-    return map;
-  }, [parentData, wsUpdateTrigger]);
-
-  const marginMetrics = useMemo(
-    () => selectPortfolioMetrics(parentData, optimisticDelta, marketsMap, leveragesMap),
-    [parentData, optimisticDelta, marketsMap, leveragesMap]
-  );
-
-  const displayedFillCount = isDateRangeActive ? dateRangeFillCount : filteredFills.length || 0;
-  const displayedOrderCount = isDateRangeActive
-    ? dateRangeOrders.length
-    : filteredOrders.length || 0;
 
   const handleStartExport = useCallback(
     async (
@@ -863,115 +381,6 @@ const Profile: React.FC = () => {
       setExportError(null);
       const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-      if (exportType === 'dydx') {
-        let fills: Fill[] = [];
-        let orders: Order[] = [];
-        let exportTransfers: any[] = [];
-        let exportPnlHistory: HistoricalPnl[] = [];
-        let exportFunding: FundingPayment[] = [];
-
-        const periodLabel =
-          isCustom && selFromDate && selToDate
-            ? `${selFromDate} to ${selToDate}`
-            : `Last ${selTimeframe}`;
-
-        try {
-          const daysMap = { '1d': 1, '7d': 7, '30d': 30, '90d': 90 };
-          const days = daysMap[selTimeframe as '1d' | '7d' | '30d' | '90d'] ?? 7;
-          const cutoff = isCustom ? 0 : Date.now() - days * 86400000;
-
-          let fromStr = '';
-          let toStr = '';
-
-          if (isCustom && selFromDate && selToDate) {
-            fromStr = selFromDate;
-            toStr = selToDate;
-          } else {
-            fromStr = new Date(cutoff).toISOString().slice(0, 10);
-            toStr = new Date().toISOString().slice(0, 10);
-          }
-
-          await delay(500);
-
-          // Step 2: Collecting funding payment data
-          setExportStep(2);
-          exportFunding = await dydxDataService.getFundingPaymentsByDateRange(fromStr, toStr);
-
-          await delay(500);
-
-          // Step 3: Processing transactions
-          setExportStep(3);
-          if (isCustom && selFromDate && selToDate) {
-            const fromTime = new Date(selFromDate).getTime();
-            const toTime = new Date(selToDate).getTime() + 86400000;
-
-            [fills, orders] = await Promise.all([
-              dydxDataService.getFillsByDateRange(selFromDate, selToDate),
-              dydxDataService.getOrdersByDateRange(selFromDate, selToDate),
-            ]);
-
-            exportTransfers = transfers.filter(tx => {
-              const t = new Date(tx.createdAt).getTime();
-              return t >= fromTime && t <= toTime;
-            });
-
-            const pnlHist = visiblePnlPoints.map(p => ({
-              id: p.createdAt,
-              equity: p.equity,
-              totalPnl: '0',
-              netTransfers: '0',
-              createdAt: p.createdAt,
-              blockHeight: '0',
-              blockTime: p.createdAt,
-            }));
-            exportPnlHistory = pnlHist.filter(p => {
-              const t = new Date(p.createdAt).getTime();
-              return t >= fromTime && t <= toTime;
-            });
-          } else {
-            [fills, orders] = await Promise.all([
-              dydxDataService.getFillsByDateRange(fromStr, toStr),
-              dydxDataService.getOrdersByDateRange(fromStr, toStr),
-            ]);
-
-            exportTransfers = transfers.filter(tx => new Date(tx.createdAt).getTime() >= cutoff);
-
-            const pnlHist = visiblePnlPoints.map(p => ({
-              id: p.createdAt,
-              equity: p.equity,
-              totalPnl: '0',
-              netTransfers: '0',
-              createdAt: p.createdAt,
-              blockHeight: '0',
-              blockTime: p.createdAt,
-            }));
-            exportPnlHistory = pnlHist.filter(p => new Date(p.createdAt).getTime() >= cutoff);
-          }
-
-          await delay(500);
-
-          // Step 4: Generating Excel statement
-          setExportStep(4);
-          exportDydxReport({
-            pnlHistory: exportPnlHistory,
-            fills,
-            orders,
-            transfers: exportTransfers,
-            fundingPayments: exportFunding,
-            period: periodLabel,
-          });
-
-          await delay(500);
-
-          // Step 5: Statement is ready
-          setExportStep(5);
-        } catch (e: any) {
-          console.error('[Profile] Export failed:', e);
-          setExportError(
-            e?.message || 'Failed to export dYdX report. Please check connection and try again.'
-          );
-        }
-      } else {
         // Stellar Export Flow
         try {
           if (!isSwiftExUser || !connectedWallets.stellar?.address) {
@@ -1079,25 +488,17 @@ const Profile: React.FC = () => {
           console.error('[Stellar Export] Failed to export report:', err);
           setExportError(err?.message || 'Failed to export report');
         }
-      }
     },
     [
       exportType,
       isSwiftExUser,
       connectedWallets.stellar?.address,
-      transfers,
-      visiblePnlPoints,
       stellarCostBasis,
     ]
   );
 
   const handleSyncBalances = async () => {
     refetch();
-    if (dydxDataService.isReady()) {
-      refreshPositions().catch(() => {});
-      refreshOrders().catch(() => {});
-      refreshFills().catch(() => {});
-    }
   };
 
   if (loading && grandTotal === 0) {
@@ -1271,7 +672,7 @@ const Profile: React.FC = () => {
         </div>
       </div>
 
-      {dydxDataService.isReady() && <LiquidationRiskBanner />}
+
 
       {/* ========== PORTFOLIO CARDS ========== */}
       <div className="space-y-4">
@@ -1333,12 +734,7 @@ const Profile: React.FC = () => {
                         Stellar: {((stellarTotal / grandTotal) * 100).toFixed(0)}%
                       </span>
                     )}
-                    {dydxTotal > 0 && (
-                      <span className="flex items-center gap-1.5 bg-emerald-500/5 px-2 py-0.5 rounded border border-emerald-500/10">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                        dYdX: {((dydxTotal / grandTotal) * 100).toFixed(0)}%
-                      </span>
-                    )}
+
                   </div>
                 </div>
                 <div className="w-full h-1.5 rounded-full bg-(--color-bg-tertiary) flex overflow-hidden">
@@ -1354,12 +750,7 @@ const Profile: React.FC = () => {
                       className="h-full bg-gradient-to-r from-purple-600 to-purple-400 transition-all duration-500"
                     />
                   )}
-                  {dydxTotal > 0 && (
-                    <div
-                      style={{ width: `${(dydxTotal / grandTotal) * 100}%` }}
-                      className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-500"
-                    />
-                  )}
+
                 </div>
               </div>
             )}
@@ -1372,7 +763,7 @@ const Profile: React.FC = () => {
               grandTotal={grandTotal}
               evmTotal={evmTotal}
               stellarTotal={stellarTotal}
-              dydxTotal={dydxTotal}
+
               connectedWallets={connectedWallets}
               copiedStates={copiedStates}
               handleCopy={handleCopy}
@@ -1380,49 +771,11 @@ const Profile: React.FC = () => {
               openModal={openModal}
             />
 
-            {/* ========== PERFORMANCE SECTIONS (dYdX & Stellar) ========== */}
-            {(activeTab === 'dydx' ||
-              activeTab === 'stellar' ||
+            {/* ========== PERFORMANCE SECTIONS (Stellar) ========== */}
+            {(activeTab === 'stellar' ||
               (activeTab === 'total' &&
-                (dydxDataService.isReady() ||
-                  (connectWithSwiftEx && connectedWallets.stellar?.address)))) && (
+                (connectWithSwiftEx && connectedWallets.stellar?.address))) && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
-                {(activeTab === 'dydx' || (activeTab === 'total' && dydxDataService.isReady())) && (
-                  <DydxPerformanceCard
-                    dydxTotal={dydxTotal}
-                    openOrderCount={openOrderCount}
-                    timeframe={timeframe}
-                    setTimeframe={setTimeframe}
-                    fromDate={fromDate}
-                    toDate={toDate}
-                    setFromDate={setFromDate}
-                    setToDate={setToDate}
-                    clearRange={clearRange}
-                    isDateRangeActive={isDateRangeActive}
-                    minFromDate={minFromDate}
-                    maxFromDate={maxFromDate}
-                    minToDate={minToDate}
-                    maxToDate={maxToDate}
-                    visiblePnlPoints={visiblePnlPoints}
-                    tradePnlPoints={tradePnlPoints}
-                    loadingPnl={loadingPnl}
-                    loadingDateRange={loadingDateRange}
-                    displayedFillCount={displayedFillCount}
-                    displayedOrderCount={displayedOrderCount}
-                    periodStats={periodStats}
-                    pnlStats={pnlStats}
-                    marginMetrics={marginMetrics}
-                    dydxLeverage={dydxLeverage}
-                    onExportReport={() => {
-                      setExportType('dydx');
-                      setExportStep(0);
-                      setExportError(null);
-                      setIsExportModalOpen(true);
-                    }}
-                    loadingFunding={loadingFunding}
-                    fundingStats={fundingStats}
-                  />
-                )}
                 {(activeTab === 'stellar' ||
                   (activeTab === 'total' &&
                     connectWithSwiftEx &&
@@ -1464,19 +817,7 @@ const Profile: React.FC = () => {
               </div>
             )}
 
-            {/* ========== POSITIONS PANEL (dYdX) ========== */}
-            {((activeTab === 'dydx' && dydxDataService.isReady()) ||
-              (activeTab === 'total' && dydxDataService.isReady())) && (
-              <div
-                id="open-margin-positions"
-                className="w-full bg-(--color-bg-secondary) border border-(--color-border) rounded-2xl p-4 shadow-md space-y-3"
-              >
-                <h4 className="text-sm font-bold">Open Margin Positions</h4>
-                <div className="border border-(--color-border) rounded-xl overflow-hidden min-h-[180px] py-3 bg-primary">
-                  <PositionsPanel />
-                </div>
-              </div>
-            )}
+
 
             {/* ========== ASSET TABLE ========== */}
             <AssetsTableSection
@@ -1516,7 +857,7 @@ const Profile: React.FC = () => {
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         exportType={exportType}
-        defaultTimeframe={exportType === 'dydx' ? timeframe : stellarTimeframe}
+        defaultTimeframe={stellarTimeframe}
         defaultFromDate={isDateRangeActive ? fromDate : null}
         defaultToDate={isDateRangeActive ? toDate : null}
         onStartExport={handleStartExport}

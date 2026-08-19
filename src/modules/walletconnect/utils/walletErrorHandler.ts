@@ -24,7 +24,7 @@ export function extractErrorMessage(error: any): string {
     }
   }
 
-  if (!msg || msg.includes('UNKNOWN_ERROR') || msg.includes('could not coalesce error')) {
+  if (!msg || typeof msg !== 'string' || msg.includes('UNKNOWN_ERROR') || msg.includes('could not coalesce error')) {
     return 'Something went wrong, please try again in a moment.';
   }
   return msg;
@@ -33,7 +33,7 @@ export function extractErrorMessage(error: any): string {
 export function isUserRejection(error: any): boolean {
   if (!error) return false;
 
-  const msg = extractErrorMessage(error).toLowerCase();
+  const msg = extractErrorMessage(error)?.toLowerCase() || '';
 
   return (
     error?.code === 4001 ||

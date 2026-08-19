@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { AllbridgeCoreSdk, nodeRpcUrlsDefault } from '@allbridge/bridge-core-sdk';
+
 import { ethers } from 'ethers';
 
 import { WalletType } from '../../walletconnect/constants/Wallet';
@@ -12,8 +12,7 @@ import {
   removeLocalTransaction,
   updateLocalTransactionStatus,
 } from '../service/localTransactionService';
-import { getChainById } from '../utils/Chainregistry';
-
+;
 export type TransactionStatus = 'pending' | 'success' | 'failed';
 
 export interface LocalTransactionWithStatus extends LocalTransaction {
@@ -34,11 +33,7 @@ interface UseLocalTransactionsReturn {
 
 const REFRESH_INTERVAL = 30000;
 
-const getChainSymbol = (chainId: number | string): string => {
-  if (chainId === 'pubnet' || chainId === 'testnet') return 'XLM';
-  const chain = getChainById(chainId);
-  return chain?.symbol || chain?.nativeCurrency.symbol || 'ETH';
-};
+
 
 export const useLocalTransactions = (): UseLocalTransactionsReturn => {
   const { getProvider } = useWalletConnect();
@@ -47,13 +42,11 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
 
   const evmWallet = connectedWallets[WalletType.EVM];
   const stellarWallet = connectedWallets[WalletType.STELLAR];
-  const cosmosWallet = connectedWallets[WalletType.COSMOS];
+
 
   const currentAddresses = [
     evmWallet?.address,
-    evmWallet?.dydxAddress,
     stellarWallet?.address,
-    cosmosWallet?.address,
   ].filter(Boolean) as string[];
 
   const currentAddress = currentAddresses[0];
@@ -84,12 +77,12 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
         let toAddress: string | undefined = tx.to;
 
         const providerUpper = tx.provider?.toUpperCase();
-        const isBypassed = !tx.provider || 
-          providerUpper === 'UNISWAP' || 
-          providerUpper === 'EVMTX' || 
-          providerUpper === 'ONEINCH' || 
-          providerUpper === 'ONEINCH_FUSION' || 
-          providerUpper === 'ONEINCH_FUSION_PLUS' || 
+        const isBypassed = !tx.provider ||
+          providerUpper === 'UNISWAP' ||
+          providerUpper === 'EVMTX' ||
+          providerUpper === 'ONEINCH' ||
+          providerUpper === 'ONEINCH_FUSION' ||
+          providerUpper === 'ONEINCH_FUSION_PLUS' ||
           providerUpper === 'RANGO';
         if (tx.chainId === 'pubnet' || tx.chainId === 'testnet' || tx.chainId === 'stellar') {
           /* Commented out for now to avoid polling Horizon for Stellar transactions
@@ -139,8 +132,8 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
                           newStatus = 'success';
                           const steps = skipData.transfer_sequence || [];
                           const lastStep = steps[steps.length - 1];
-                          const lastStepDetails = lastStep 
-                            ? (lastStep[Object.keys(lastStep).find(k => k.endsWith('_transfer')) ?? ''] ?? lastStep) 
+                          const lastStepDetails = lastStep
+                            ? (lastStep[Object.keys(lastStep).find(k => k.endsWith('_transfer')) ?? ''] ?? lastStep)
                             : null;
                           const pkt = lastStepDetails?.packet_txs ?? lastStepDetails?.txs;
                           destinationHash = pkt?.receive_tx?.tx_hash || pkt?.acknowledge_tx?.tx_hash || pkt?.receive_tx?.txHash || pkt?.acknowledge_tx?.txHash;
@@ -156,20 +149,7 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
                       console.warn('Skip-specific detail fetch failed:', skipErr);
                       newStatus = 'pending';
                     }
-                  } else {
-                    try {
-                      const sdk = new AllbridgeCoreSdk(nodeRpcUrlsDefault);
-                      const chainSymbol = getChainSymbol(tx.chainId);
-                      const bridgeStatus = (await sdk.getTransferStatus(chainSymbol, tx.hash)) as any;
 
-                      if (bridgeStatus) {
-                        destinationHash = bridgeStatus.receive?.txId || bridgeStatus.destinationTxId;
-                        fromAddress = bridgeStatus.senderAddress || bridgeStatus.send?.sender;
-                        toAddress = bridgeStatus.recipientAddress || bridgeStatus.receive?.recipient;
-                      }
-                    } catch (bridgeErr) {
-                      console.warn('Bridge-specific detail fetch failed:', bridgeErr);
-                    }
                   }
                 }
               } else {

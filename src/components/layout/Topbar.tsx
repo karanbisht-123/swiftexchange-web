@@ -1,14 +1,11 @@
-import { Bell, ChevronDown, Menu } from 'lucide-react';
+import { Bell, Menu } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { ROUTES } from '../../constants/routes';
 import { ConnectWalletButton } from '../../modules/walletconnect/components/ConnectWalletButton';
 import NetworkSwitch from '../../modules/walletconnect/components/NetworkSwitch';
-import {
-  useApiTradingKeys,
-  useWalletConnect,
-} from '../../modules/walletconnect/hooks/useWalletConnect';
+import { useWalletConnect } from '../../modules/walletconnect/hooks/useWalletConnect';
 import { hasStoredAgentKey } from '../../modules/walletconnect/services/asterAgentKeyManager';
 import { useWalletStore } from '../../modules/walletconnect/store/walletConnectStore';
 import { useNotificationStore } from '../../store/notificationStore';
@@ -26,9 +23,7 @@ const Topbar: React.FC = () => {
 
   const isAnyWalletConnected = Object.keys(connectedWallets).length > 0;
 
-  const hasDydx = useWalletStore(state => !!state.connectedWallets.evm?.dydxAddress);
-  const { openModal } = useApiTradingKeys();
-  const openExportPhraseModal = useWalletStore(state => state.openExportPhraseModal);
+
 
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
@@ -43,7 +38,6 @@ const Topbar: React.FC = () => {
     return () => document.removeEventListener('mousedown', cb);
   }, [isMoreOpen]);
 
-  const isPerpsView = loc.pathname === ROUTES.TRADING_PERPS;
 
   useEffect(() => {
     if (isRestoringSession) return;
@@ -93,48 +87,7 @@ const Topbar: React.FC = () => {
           </div>
         )} */}
 
-        {isPerpsView && hasDydx && (
-          <div
-            className="relative ml-1 sm:ml-2 lg:ml-4 flex items-center shrink-0"
-            ref={moreMenuRef}
-          >
-            <button
-              onClick={() => setIsMoreOpen(!isMoreOpen)}
-              className={`flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-md transition-all duration-150 font-medium text-xs sm:text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] ${
-                isMoreOpen ? 'bg-[var(--color-bg-tertiary)]' : ''
-              }`}
-            >
-              More
-              <ChevronDown
-                size={14}
-                className={`transition-transform duration-200 ${isMoreOpen ? 'rotate-180' : ''}`}
-              />
-            </button>
 
-            {isMoreOpen && (
-              <div className="absolute top-full left-0 mt-1 w-48 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.1)] z-50 flex flex-col py-1 animate-slide-up origin-top-left">
-                <button
-                  onClick={() => {
-                    setIsMoreOpen(false);
-                    openModal();
-                  }}
-                  className="px-4 py-2.5 text-left text-sm font-medium hover:bg-[var(--color-bg-hover)] active:bg-[var(--color-bg-tertiary)] transition-colors text-[var(--color-text-primary)]"
-                >
-                  API Trading Keys
-                </button>
-                <button
-                  onClick={() => {
-                    setIsMoreOpen(false);
-                    openExportPhraseModal();
-                  }}
-                  className="px-4 py-2.5 text-left text-sm font-medium hover:bg-[var(--color-bg-hover)] active:bg-[var(--color-bg-tertiary)] transition-colors text-[var(--color-text-primary)]"
-                >
-                  Export Phrase
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       <div className="flex items-center gap-1.5 sm:gap-2 lg:gap-4 shrink-0 min-w-0">

@@ -1,6 +1,5 @@
 import { Wallet, getAddress, verifyTypedData } from 'ethers';
-
-import { ASTER_REST_URL } from '../../../perps/adapters/aster/constants';
+import { ASTER_REST_URL } from '../../perps/adapters/aster';
 import { destroyAESKey, generateAndStoreAESKey, retrieveAESKey } from './keyVaultIndexedDB';
 
 const BLOB_KEY = '_sx_aster_agentkey';
@@ -196,8 +195,22 @@ async function signTypedData(
   typedData: object
 ): Promise<string> {
   const isWalletConnect = !!provider?.session;
-  const payload = isWalletConnect ? typedData : JSON.stringify(typedData);
 
+  // Resolve the exact account address casing the wallet expects
+  let signerAddress = evmAddress;
+  try {
+    const accounts = await provider.request({ method: 'eth_accounts' });
+    if (Array.isArray(accounts) && accounts.length > 0) {
+      const match = accounts.find(
+        (a: string) => typeof a === 'string' && a.toLowerCase() === evmAddress.toLowerCase()
+      );
+      if (match) signerAddress = match;
+    }
+  } catch {
+    // Fall back to provided evmAddress
+  }
+
+  // Send push notification so user knows to open their wallet
   try {
     const token = localStorage.getItem('device_token');
     if (token) {
@@ -211,34 +224,87 @@ async function signTypedData(
     // ignore
   }
 
-  try {
-    return await provider.request({
-      method: 'eth_signTypedData_v4',
-      params: [evmAddress, payload],
-    });
-  } catch (err: any) {
-    if (err?.message === 'USER_REJECTED') {
-      throw new Error('Signature rejected by user');
+  // For WalletConnect sessions, check which signing methods the wallet actually approved.
+  // Trust Wallet and many mobile wallets only approve a subset of methods, and calling an
+  // unapproved method results in -32601 from the relay — even if it's listed in our requested
+  // namespaces. Checking up-front lets us skip directly to personal_sign for those wallets.
+  const getApprovedMethods = (): string[] => {
+    if (!isWalletConnect) return [];
+    try {
+      const namespaces = provider.session?.namespaces ?? provider.session?.peer?.namespaces ?? {};
+      const eip155 = namespaces?.eip155 ?? {};
+      return Array.isArray(eip155.methods) ? eip155.methods : [];
+    } catch {
+      return [];
     }
-    const isUnknownMethod =
-      err?.code === 4200 ||
-      err?.code === -32601 ||
-      /unknown method|not supported/i.test(err?.message ?? '');
-    if (!isUnknownMethod) throw err;
+  };
 
+  const approvedMethods = getApprovedMethods();
+  const isWCMethodAllowed = (method: string) =>
+    !isWalletConnect || approvedMethods.length === 0 || approvedMethods.includes(method);
+
+  const isUnknownMethodError = (e: any) =>
+    e?.code === 4200 ||
+    e?.code === -32601 ||
+    /unknown method|not supported|does not exist|is not available/i.test(e?.message ?? '');
+
+  const stringPayload = JSON.stringify(typedData);
+  // WalletConnect UniversalProvider expects an object; injected providers expect a JSON string
+  const payload = isWalletConnect ? typedData : stringPayload;
+
+  // --- Attempt 1: eth_signTypedData_v4 ---
+  if (isWCMethodAllowed('eth_signTypedData_v4')) {
+    try {
+      return await provider.request({
+        method: 'eth_signTypedData_v4',
+        params: [signerAddress, payload],
+      });
+    } catch (err: any) {
+      if (err?.message === 'USER_REJECTED') throw new Error('Signature rejected by user');
+      if (!isUnknownMethodError(err)) throw err;
+      console.warn('[aster] eth_signTypedData_v4 not supported, trying eth_signTypedData');
+    }
+  }
+
+  // --- Attempt 2: eth_signTypedData ---
+  if (isWCMethodAllowed('eth_signTypedData')) {
     try {
       return await provider.request({
         method: 'eth_signTypedData',
-        params: [evmAddress, payload],
+        params: [signerAddress, payload],
       });
-    } catch (fallbackErr: any) {
-      if (fallbackErr?.message === 'USER_REJECTED') {
-        throw new Error('Signature rejected by user');
-      }
-      throw fallbackErr;
+    } catch (err: any) {
+      if (err?.message === 'USER_REJECTED') throw new Error('Signature rejected by user');
+      if (!isUnknownMethodError(err)) throw err;
+      console.warn('[aster] eth_signTypedData not supported, trying personal_sign');
     }
   }
+
+  // --- Attempt 3: personal_sign (hash the EIP-712 payload ourselves) ---
+  if (isWCMethodAllowed('personal_sign')) {
+    const { TypedDataEncoder } = await import('ethers');
+    const { domain, types, message } = typedData as any;
+    const cleanTypes = { ...types };
+    delete cleanTypes['EIP712Domain'];
+    const hash = TypedDataEncoder.hash(domain, cleanTypes, message);
+    try {
+      return await provider.request({
+        method: 'personal_sign',
+        params: [hash, signerAddress],
+      });
+    } catch (err: any) {
+      if (err?.message === 'USER_REJECTED') throw new Error('Signature rejected by user');
+      if (!isUnknownMethodError(err)) throw err;
+      console.warn('[aster] personal_sign not supported');
+    }
+  }
+
+  throw new Error(
+    'Your wallet does not support any EIP-712 signing method (eth_signTypedData_v4, eth_signTypedData, personal_sign). ' +
+    'Please use a wallet that supports at least one of these methods.'
+  );
 }
+
 
 export async function deriveAsterAgentKey(
   evmAddress: string,
@@ -253,8 +319,12 @@ export async function deriveAsterAgentKey(
   let chainId = 56;
 
   try {
-    const hexChainId = await provider.request({ method: 'eth_chainId' });
-    chainId = parseInt(hexChainId, 16);
+    const rawChainId = await provider.request({ method: 'eth_chainId' });
+    if (typeof rawChainId === 'number') {
+      chainId = rawChainId;
+    } else if (typeof rawChainId === 'string') {
+      chainId = rawChainId.startsWith('0x') ? parseInt(rawChainId, 16) : parseInt(rawChainId, 10);
+    }
     console.log(`[aster] Dynamically fetched active chainId from wallet: ${chainId}`);
   } catch (err) {
     console.warn('[aster] Failed to fetch active eth_chainId, falling back to 56', err);
@@ -295,7 +365,7 @@ export async function deriveAsterAgentKey(
   if (getAddress(recovered) !== getAddress(evmAddress)) {
     throw new Error(
       `Local signature verification failed: expected signer ${evmAddress}, recovered ${recovered}. ` +
-        `The signature does not match (domain, types, message) — check that the wallet actually signed exactly this payload.`
+      `The signature does not match (domain, types, message) — check that the wallet actually signed exactly this payload.`
     );
   }
 

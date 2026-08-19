@@ -240,48 +240,6 @@ export const ConnectWalletButton: React.FC = () => {
                           )}
                         </button>
                       </div>
-                      {conn.dydxAddress && (
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span style={{ color: 'var(--color-text-muted)' }} className="text-xs">
-                            dYdX:
-                          </span>
-                          <span
-                            style={{ color: 'var(--color-brand-primary)' }}
-                            className="text-xs font-mono truncate"
-                          >
-                            {formatAddress(conn.dydxAddress)}
-                          </span>
-                          <button
-                            onClick={() => copyToClipboard(conn.dydxAddress!)}
-                            style={{ color: 'var(--color-text-muted)' }}
-                            className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] transition-colors flex-shrink-0 cursor-pointer"
-                            title="Copy dYdX"
-                          >
-                            {copiedAddress === conn.dydxAddress ? (
-                              <Check
-                                className="w-3 h-3"
-                                style={{ color: 'var(--color-success)' }}
-                              />
-                            ) : (
-                              <Copy className="w-3 h-3" />
-                            )}
-                          </button>
-                        </div>
-                      )}
-                      {/* {type === 'evm' && !conn.dydxAddress && (
-                        <span
-                          style={{
-                            background: 'var(--color-warning-bg)',
-                            color: 'var(--color-warning)',
-                            fontSize: '0.65rem',
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                          }}
-                          className="inline-block mt-0.5"
-                        >
-                          dYdX not derived
-                        </span>
-                      )} */}
                     </div>
 
                     <button

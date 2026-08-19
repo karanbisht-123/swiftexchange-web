@@ -7,7 +7,7 @@ import { FixedSizeList as List } from 'react-window';
 import { StellarCostBasisModal } from '../../../../components/StellarCostBasisModal';
 import { Tooltip } from '../../../../components/common/Tooltip';
 import { ExportProgressModal } from '../../../../pages/profile/components/ExportProgressModal';
-import { useIsMobile } from '../../../../perps/components/chart/hooks/useIsMobile';
+import { useIsMobile } from '../../../perps/components/chart/hooks/useIsMobile';
 import { fetchStellarPnl } from '../../../../service/apiService';
 import { exportStellarReport } from '../../../../utils/exportService';
 import * as ChainUrlHelpers from '../../../evm/utils/ChainUrlHelpers';
@@ -529,11 +529,10 @@ const StellarPortfolioUI: React.FC = () => {
                   setToDate('');
                 }}
                 disabled={loadingStellarPnl}
-                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all disabled:opacity-50 ${
-                  stellarTimeframe === tf.id
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all disabled:opacity-50 ${stellarTimeframe === tf.id
                     ? 'bg-brand text-white  shadow-sm'
                     : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
-                }`}
+                  }`}
               >
                 {tf.label}
               </button>
@@ -703,11 +702,10 @@ const StellarPortfolioUI: React.FC = () => {
                               </div>
                               <div className="w-[15%] truncate pr-2">
                                 <span
-                                  className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold ${
-                                    trade.type === 'BUY'
+                                  className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold ${trade.type === 'BUY'
                                       ? 'bg-emerald-500/10 text-emerald-500'
                                       : 'bg-rose-500/10 text-rose-500'
-                                  }`}
+                                    }`}
                                 >
                                   {trade.action}
                                 </span>
@@ -808,10 +806,10 @@ const StellarPortfolioUI: React.FC = () => {
                               >
                                 {pos.unrealized
                                   ? (pos.unrealized > 0 ? '+' : '') +
-                                    pos.unrealized.toLocaleString('en-US', {
-                                      style: 'currency',
-                                      currency: 'USD',
-                                    })
+                                  pos.unrealized.toLocaleString('en-US', {
+                                    style: 'currency',
+                                    currency: 'USD',
+                                  })
                                   : '-'}
                               </div>
                             </div>
@@ -890,10 +888,10 @@ const StellarPortfolioUI: React.FC = () => {
                               >
                                 {disp.pnl
                                   ? (disp.pnl > 0 ? '+' : '') +
-                                    disp.pnl.toLocaleString('en-US', {
-                                      style: 'currency',
-                                      currency: 'USD',
-                                    })
+                                  disp.pnl.toLocaleString('en-US', {
+                                    style: 'currency',
+                                    currency: 'USD',
+                                  })
                                   : '-'}
                               </div>
                             </div>
@@ -934,11 +932,10 @@ const StellarPortfolioUI: React.FC = () => {
               </span>
             </div>
             <span
-              className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                (stellarPnlData?.totalPnL || 0) >= 0
+              className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${(stellarPnlData?.totalPnL || 0) >= 0
                   ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
                   : 'bg-rose-500/10 text-rose-500 border-rose-500/20'
-              }`}
+                }`}
             >
               {(stellarPnlData?.totalPnL || 0) >= 0 ? '+' : ''}$
               {Math.abs(stellarPnlData?.totalPnL || 0).toLocaleString('en-US', {
@@ -954,9 +951,9 @@ const StellarPortfolioUI: React.FC = () => {
                 $
                 {(isViewingPublicAddress
                   ? stellarPnlData?.positions?.reduce(
-                      (sum: number, pos: any) => sum + (pos.currentValue || 0),
-                      0
-                    ) || 0
+                    (sum: number, pos: any) => sum + (pos.currentValue || 0),
+                    0
+                  ) || 0
                   : stellarTotal
                 ).toLocaleString('en-US', {
                   minimumFractionDigits: 2,
@@ -1124,10 +1121,10 @@ const StellarPortfolioUI: React.FC = () => {
           <span className="text-xs font-bold text-[var(--color-text-primary)]">
             {stellarPnlData?.firstTradeDate
               ? new Date(stellarPnlData.firstTradeDate).toLocaleDateString('en-GB', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                })
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+              })
               : 'N/A'}
           </span>
         </div>
@@ -1139,10 +1136,10 @@ const StellarPortfolioUI: React.FC = () => {
           <span className="text-xs font-bold text-[var(--color-text-primary)]">
             {stellarPnlData?.lastTradeDate
               ? new Date(stellarPnlData.lastTradeDate).toLocaleDateString('en-GB', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                })
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+              })
               : 'N/A'}
           </span>
         </div>
@@ -1168,10 +1165,10 @@ const StellarPortfolioUI: React.FC = () => {
   // Parse positions for PnL Distribution (Top 5 by absolute PnL impact)
   const topAssets = stellarPnlData?.positions
     ? [...stellarPnlData.positions]
-        .map(p => ({ ...p, totalAssetPnl: (p.realizedPnL || 0) + (p.unrealized || 0) }))
-        .sort((a: any, b: any) => Math.abs(b.totalAssetPnl) - Math.abs(a.totalAssetPnl))
+      .map(p => ({ ...p, totalAssetPnl: (p.realizedPnL || 0) + (p.unrealized || 0) }))
+      .sort((a: any, b: any) => Math.abs(b.totalAssetPnl) - Math.abs(a.totalAssetPnl))
     : // .slice(0, 5)
-      [];
+    [];
   const totalAbsPnl =
     topAssets.reduce((sum: number, p: any) => sum + Math.abs(p.totalAssetPnl), 0) || 1;
 
@@ -1278,21 +1275,20 @@ const StellarPortfolioUI: React.FC = () => {
               {metric.label}
             </span>
             <span
-              className={`text-sm font-bold ${
-                metric.isCurrency
+              className={`text-sm font-bold ${metric.isCurrency
                   ? Number(metric.value) > 0
                     ? 'text-emerald-500'
                     : Number(metric.value) < 0
                       ? 'text-rose-500'
                       : 'text-[var(--color-text-primary)]'
                   : 'text-[var(--color-text-primary)]'
-              }`}
+                }`}
             >
               {metric.isCurrency
                 ? Number(metric.value).toLocaleString('en-US', {
-                    style: 'currency',
-                    currency: 'USD',
-                  })
+                  style: 'currency',
+                  currency: 'USD',
+                })
                 : metric.value}
             </span>
           </div>

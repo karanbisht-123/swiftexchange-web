@@ -4,8 +4,6 @@ import { RouterProvider } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { NetworkMonitor } from './components/NetworkMonitor';
 import { initDynamicTokenLists } from './modules/evm/utils/Chainregistry';
-import { ApiTradingKeyModal } from './modules/walletconnect/components/ApiTradingKeyModal';
-import { ExportDydxSecretPhraseModal } from './modules/walletconnect/components/ExportDydxSecretPhraseModal';
 import { WalletListModal } from './modules/walletconnect/components/WalletListModal';
 import {
   initWalletListener,
@@ -72,8 +70,6 @@ const App = () => {
     <ErrorBoundary>
       <NetworkMonitor />
       <WalletListModal />
-      <ApiTradingKeyModal />
-      <ExportDydxSecretPhraseModal />
       <RouterProvider router={router} />
     </ErrorBoundary>
   );

@@ -116,8 +116,7 @@ export async function resolveEvmProvider(
 
 /**
  * Scans the EIP-5749 providers[] array with spoofer-aware flag checks.
- * MetaMask check explicitly excludes Trust, Rabby, Phantom which may spoof isMetaMask=true.
- */
+  */
 function findInProvidersArray(providers: any[], walletId: string): any | null {
   switch (walletId) {
     case 'metamask':

@@ -2,6 +2,7 @@ import { TypedDataEncoder, ethers } from 'ethers';
 
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { getChainById } from '../../../utils/Chainregistry';
+import { switchOrAddChain } from '../../../utils/evmChainUtils';
 import { AGGREGATOR_NATIVE_ADDRESS, LIMIT_ORDER_PROTOCOL } from '../constants/swap.constants';
 import { formatAmount } from '../utils/swapAmountUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
@@ -55,10 +56,7 @@ export async function execute1InchFusionSwap(
     const currentChainHex = await provider.request({ method: 'eth_chainId' });
     const currentChainId = parseInt(currentChainHex, 16);
     if (currentChainId !== Number(chainId)) {
-      await provider.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: `0x${Number(chainId).toString(16)}` }],
-      });
+      await switchOrAddChain(provider, chainId);
     }
   } catch (switchErr: any) {
     console.warn('[execute1InchFusionSwap] Chain switch failed, proceeding:', switchErr?.message);

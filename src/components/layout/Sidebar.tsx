@@ -150,7 +150,7 @@ const Sidebar: FC = () => {
       >
         <div className="h-16 py-1 flex flex-col items-center justify-center border-b border-color">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold">
-            <img src="/logo.avif" alt="swiftEx-logo" className="w-full h-full object-contain" />
+            <img src="/logo.png" alt="swiftEx-logo" className="w-full h-full object-contain" />
           </div>
           {activeItem === ROUTES.TRADING_PERPS && <h2 className="text-sm font-semibold">BETA</h2>}
         </div>

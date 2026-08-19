@@ -1,6 +1,4 @@
-import { purgeApiTradingKeys } from '../apiTradingKeyService';
-import { purge } from '../dydxKeyManager';
-import { sessionVault } from '../sessionVault';
+
 import { saveSession } from './sessionPersistence';
 import type { WalletServiceContext, WalletType } from './types';
 
@@ -55,11 +53,7 @@ export async function disconnect(ctx: WalletServiceContext, type: WalletType): P
   }
 
   for (const t of sharedTypes) {
-    if (t === 'evm') {
-      await purge();
-      ctx.derivationInProgress = false;
-    }
-
+    ctx.derivationInProgress = false;
     ctx.sessions.delete(t);
     ctx.lastPingAt.delete(t);
     ctx.modals.get(t)?.closeModal();
@@ -145,7 +139,4 @@ export async function clearAppData(): Promise<void> {
     console.error('[WalletService] Failed to clear IndexedDB:', error);
   }
 
-  purgeApiTradingKeys();
-  await purge();
-  sessionVault.clear();
 }

@@ -1,6 +1,6 @@
 import React from 'react';
-import { ExchangeLayout } from '../../perps/components/layout';
-import { useDynamicExchange } from '../../perps/hooks/useDynamicExchange';
+import { ExchangeLayout } from '../../modules/perps/components/layout';
+import { useDynamicExchange } from '../../modules/perps/hooks/useDynamicExchange';
 
 const PerpetualsTradingPage: React.FC = () => {
   useDynamicExchange();

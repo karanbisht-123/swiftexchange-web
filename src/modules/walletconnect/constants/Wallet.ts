@@ -16,7 +16,7 @@ export const EVM_WALLETS: WalletConfig[] = [
   {
     id: 'swiftex',
     name: 'SwiftEx Wallet',
-    icon: '/logo.avif',
+    icon: '/logo.png',
     type: WalletType.EVM,
   },
   {

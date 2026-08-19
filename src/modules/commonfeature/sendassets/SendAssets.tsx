@@ -313,8 +313,6 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
         amountRef.current?.focus();
       } else if (currentAsset?.type === 'stellar' && val.length === 56) {
         amountRef.current?.focus();
-      } else if (currentAsset?.type === 'dydx' && val.startsWith('dydx1') && val.length >= 43) {
-        amountRef.current?.focus();
       }
     },
     [setRecipientAddress, currentAsset]
@@ -497,9 +495,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   placeholder={
                     currentAsset?.type === 'stellar'
                       ? 'Stellar Address (G...)'
-                      : currentAsset?.type === 'dydx'
-                        ? 'dYdX Address (dydx1...)'
-                        : 'EVM Address (0x...)'
+                      : 'EVM Address (0x...)'
                   }
                   value={recipientAddress}
                   onChange={handleRecipientChange}
@@ -633,7 +629,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
             currentAsset={currentAsset}
             recipientAddress={recipientAddress}
             amount={amount}
-            senderAddress={senderAddress}
+            senderAddress={senderAddress || undefined}
             memo={memo}
             estimatedFees={estimatedFees}
             totalAmount={totalAmount}

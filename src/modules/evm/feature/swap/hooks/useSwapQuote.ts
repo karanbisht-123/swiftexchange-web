@@ -244,21 +244,6 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
         }
       };
 
-      // ── Allbridge (Stellar→EVM) commented out ──────────────────────────────
-      // const isFromStellar = isStellar(fromChainId);
-      // const tokens = await getSupportedTokens();
-      // const fromChainSym = ChainSymbol.SRB;
-      // const src = tokens.find(t => t.chainSymbol === fromChainSym && t.symbol.toUpperCase() === sellAssetSymbol.toUpperCase());
-      // const dst = tokens.find(t => t.chainSymbol === toChainConfig?.nativeCurrency.symbol && t.symbol.toUpperCase() === buyAssetSymbol.toUpperCase());
-      // const allbridgePromise = src && dst ? getStellarBridgeQuote({...}) : Promise.resolve({error:'Pair not supported by Allbridge'});
-      // ─────────────────────────────────────────────────────────────────────────
-
-      // ── Allbridge EVM→Stellar / EVM→EVM bridge commented out ─────────────
-      // const fromBridgeSupported = isBridgeSupported(sellAssetSymbol, fromChainId);
-      // const toBridgeSupported = isBridgeSupported(buyAssetSymbol, toChainId);
-      // const shouldUseBridge = isToStellar || (bothBridgeSupported && isBelow2Usd);
-      // const bdgPromise = getEvmBridgeQuote(fromChainId, toChainId, sellAmount, sellAssetSymbol, buyAssetSymbol);
-      // ─────────────────────────────────────────────────────────────────────────
 
       const isFromStellar = isStellar(fromChainId);
       const isToStellar = isStellar(toChainId);
