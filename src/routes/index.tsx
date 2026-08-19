@@ -8,6 +8,7 @@ import { GeolocationGuard } from '../modules/commonfeature/components/Geolocatio
 import { RESTRICTED_TRADING_LOCATIONS } from '../modules/commonfeature/constants/compliance';
 import { HomeRedirect } from './HomeRedirect';
 import ProtectedRoute from './ProtectedRoute';
+import { RouteErrorBoundary } from './RouteErrorBoundary';
 
 const AlchemyPayIntegration = lazy(
   () => import('../modules/alchemyPay/components/AlchemyPayIntegration')
@@ -32,6 +33,7 @@ const router = createBrowserRouter([
   {
     path: '/',
     element: <RootLayout />,
+    errorElement: <RouteErrorBoundary />,
     children: [
       {
         path: ROUTES.HOME,
