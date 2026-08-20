@@ -1,33 +1,34 @@
 import { lazy } from 'react';
 import { Navigate, createBrowserRouter } from 'react-router-dom';
 
-import Layout from '../components/layout/Layout';
-import RootLayout from '../components/layout/RootLayout';
-import { ROUTES } from '../constants/routes';
-import { GeolocationGuard } from '../modules/commonfeature/components/GeolocationGuard';
-import { RESTRICTED_TRADING_LOCATIONS } from '../modules/commonfeature/constants/compliance';
-import { HomeRedirect } from './HomeRedirect';
-import ProtectedRoute from './ProtectedRoute';
-import { RouteErrorBoundary } from './RouteErrorBoundary';
+import Layout from '@/components/layout/Layout';
+import RootLayout from '@/components/layout/RootLayout';
+import { ROUTES } from '@/constants/routes';
+import { GeolocationGuard } from '@/modules/commonfeature/components/GeolocationGuard';
+import { RESTRICTED_TRADING_LOCATIONS } from '@/modules/commonfeature/constants/compliance';
+
+import { HomeRedirect } from './components/HomeRedirect';
+import ProtectedRoute from './components/ProtectedRoute';
+import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 
 const AlchemyPayIntegration = lazy(
-  () => import('../modules/alchemyPay/components/AlchemyPayIntegration')
+  () => import('@/modules/alchemyPay/components/AlchemyPayIntegration')
 );
-const ReceiveAssets = lazy(() => import('../modules/commonfeature/receiveassets/ReceiveAssets'));
-const SendAssets = lazy(() => import('../modules/commonfeature/sendassets/SendAssets'));
-const PerpetualsTradingPage = lazy(() => import('../pages/perps'));
-const EvmTransactionHistory = lazy(() => import('../modules/evm/components/EvmTransactionHistory'));
-const SwapAssets = lazy(() => import('../modules/evm/feature/swap/components/SwapAssets'));
+const ReceiveAssets = lazy(() => import('@/modules/commonfeature/receiveassets/ReceiveAssets'));
+const SendAssets = lazy(() => import('@/modules/commonfeature/sendassets/SendAssets'));
+const PerpetualsTradingPage = lazy(() => import('@/pages/perps'));
+const EvmTransactionHistory = lazy(() => import('@/modules/evm/components/EvmTransactionHistory'));
+const SwapAssets = lazy(() => import('@/modules/evm/feature/swap/components/SwapAssets'));
 
-const CryptoMarket = lazy(() => import('../modules/market/CryptoMarket'));
+const CryptoMarket = lazy(() => import('@/modules/market/CryptoMarket'));
 const StellarTradescreen = lazy(
-  () => import('../modules/stellar/components/tradescreen/StellarTradescreen')
+  () => import('@/modules/stellar/components/tradescreen/StellarTradescreen')
 );
 const StellarPortfolioUI = lazy(
-  () => import('../modules/stellar/components/stellarassets/StellarPortfolioUI')
+  () => import('@/modules/stellar/components/stellarassets/StellarPortfolioUI')
 );
-const Dashboard = lazy(() => import('../pages/Dashboard'));
-const Profile = lazy(() => import('../pages/Profile'));
+const Dashboard = lazy(() => import('@/pages/dashboard'));
+const Profile = lazy(() => import('@/pages/profile'));
 
 const router = createBrowserRouter([
   {

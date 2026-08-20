@@ -1,6 +1,6 @@
 import { useRouteError } from 'react-router-dom';
 
-import { ErrorScreen } from '../components/ErrorBoundary';
+import { ErrorScreen } from '@/components/core/ErrorBoundary';
 
 export const RouteErrorBoundary = () => {
   const error = useRouteError();

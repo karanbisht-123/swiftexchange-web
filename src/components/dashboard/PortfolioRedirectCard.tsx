@@ -2,7 +2,7 @@ import { ArrowRight } from 'lucide-react';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { ROUTES } from '../constants/routes';
+import { ROUTES } from '@/constants/routes';
 
 export const PortfolioRedirectCard: React.FC = () => {
   const navigate = useNavigate();

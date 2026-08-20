@@ -1,7 +1,7 @@
 import type { FC, JSX } from 'react';
 import { Link } from 'react-router-dom';
 
-import { useAssetSelectorModal } from '../modules/commonfeature/components/useAssetSelectorModal';
+import { useAssetSelectorModal } from '@/modules/commonfeature/components/useAssetSelectorModal';
 
 interface Action {
   name: string;

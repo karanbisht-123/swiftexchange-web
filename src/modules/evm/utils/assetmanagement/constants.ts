@@ -22,8 +22,8 @@ export const RPC_URLS = {
     'https://polygon.drpc.org',
     'https://1rpc.io/matic',
     'https://polygon-mainnet.gateway.tatum.io/',
-    "https://polygon-mainnet.public.blastapi.io",
-    "https://1rpc.io/matic",
+    'https://polygon-mainnet.public.blastapi.io',
+    'https://1rpc.io/matic',
   ],
 
   OPT: [
@@ -89,22 +89,9 @@ export const RPC_URLS = {
     'https://polygon-amoy-pokt.nodies.app',
   ],
 
-  STR: [
-    'https://horizon.stellar.org',
-  ],
+  STR: ['https://horizon.stellar.org'],
 
-  STR_TESTNET: [
-    'https://horizon-testnet.stellar.org',
-  ],
-
-  DYDX: [
-    'https://dydx-rpc.publicnode.com',
-    'https://rpc.dydx.nodestake.top',
-    'https://dydx.drpc.org',
-    'https://dydx-mainnet.gateway.tatum.io/',
-    'https://dydx-pokt.nodies.app',
-    'https://dydx.publicnode.com',
-  ],
+  STR_TESTNET: ['https://horizon-testnet.stellar.org'],
 };
 export const EXPLORER_URLS = {
   ETH: 'https://etherscan.io',
@@ -122,7 +109,6 @@ export const EXPLORER_URLS = {
   DYDX: 'https://www.mintscan.io/dydx',
 };
 
-
 export const RPC = {
   ETHRPC: RPC_URLS.ETH[0],
   ARBRPC: RPC_URLS.ARB[0],
@@ -132,15 +118,16 @@ export const RPC = {
   BASERPC: RPC_URLS.BASE[0],
   BSCRPC: RPC_URLS.BNB[0],
   STRRPC: RPC_URLS.STR[0],
-  DYDXRPC: RPC_URLS.DYDX[0],
 };
 
-export const NATIVE_ADDRESS = "0X0000000000000000000000000000000000000000";
-export const AGGREGATOR_NATIVE_ADDRESS = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+export const NATIVE_ADDRESS = '0X0000000000000000000000000000000000000000';
+export const AGGREGATOR_NATIVE_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 
-export const RESOURCE_BASE_URL = 'https://raw.githubusercontent.com/sachin-swiftex/resources/refs/heads/master';
+export const RESOURCE_BASE_URL =
+  'https://raw.githubusercontent.com/sachin-swiftex/resources/refs/heads/master';
 export const ASSET_CDN_BASE = RESOURCE_BASE_URL;
 
 export const GET_LOGO_URL = (slug: string) => GET_TOKEN_LOGO_URL(slug, NATIVE_ADDRESS);
-export const GET_TOKEN_LOGO_URL = (slug: string, address: string) => `${ASSET_CDN_BASE}/${slug}/${address}.png`;
+export const GET_TOKEN_LOGO_URL = (slug: string, address: string) =>
+  `${ASSET_CDN_BASE}/${slug}/${address}.png`;
 export const GET_RESOURCES_LIST_URL = (filename: string) => `${RESOURCE_BASE_URL}/${filename}`;

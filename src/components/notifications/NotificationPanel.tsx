@@ -1,7 +1,7 @@
 import { Search, Settings, X } from 'lucide-react';
 import React, { useState } from 'react';
 
-import { type NotificationType, useNotificationStore } from '../store/notificationStore';
+import { type NotificationType, useNotificationStore } from '@/store/notificationStore';
 
 interface NotificationPanelProps {
   isOpen: boolean;
@@ -103,7 +103,10 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
             <button className="text-secondary transition-colors hover:text-primary cursor-pointer">
               <Settings size={18} />
             </button>
-            <button onClick={onClose} className="text-secondary transition-colors hover:text-primary cursor-pointer">
+            <button
+              onClick={onClose}
+              className="text-secondary transition-colors hover:text-primary cursor-pointer"
+            >
               <X size={20} />
             </button>
           </div>

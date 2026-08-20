@@ -1,7 +1,7 @@
 import { Navigate } from 'react-router-dom';
 
-import { ROUTES } from '../constants/routes';
-import { useWalletStore } from '../modules/walletconnect/store/walletConnectStore';
+import { ROUTES } from '@/constants/routes';
+import { useWalletStore } from '@/modules/walletconnect/store/walletConnectStore';
 
 export const HomeRedirect = () => {
   const connectedWallets = useWalletStore(s => s.connectedWallets);

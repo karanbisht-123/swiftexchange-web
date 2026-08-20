@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
 
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { NetworkMonitor } from './components/NetworkMonitor';
+import { ErrorBoundary } from '@/components/core/ErrorBoundary';
+import { NetworkMonitor } from '@/components/core/NetworkMonitor';
+
 import { initDynamicTokenLists } from './modules/evm/utils/Chainregistry';
 import { WalletListModal } from './modules/walletconnect/components/WalletListModal';
 import {

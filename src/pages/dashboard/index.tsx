@@ -1,6 +1,6 @@
-import { PortfolioRedirectCard } from '../components/PortfolioRedirectCard';
-import QuickActions from '../components/QuickActions';
-import WalletAssetsSection from '../modules/walletconnect/components/WalletAssetsSection';
+import { PortfolioRedirectCard } from '@/components/dashboard/PortfolioRedirectCard';
+import QuickActions from '@/components/dashboard/QuickActions';
+import WalletAssetsSection from '@/modules/walletconnect/components/WalletAssetsSection';
 
 const Dashboard = () => {
   return (

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 
-import { Notification } from './common/Notification';
+import { Notification } from '@/components/common/Notification';
 
 export const NetworkMonitor: React.FC = () => {
   const [latency, setLatency] = useState<number | null>(null);

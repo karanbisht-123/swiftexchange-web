@@ -1,23 +1,19 @@
 import { Activity, Globe, RefreshCw, User, Wallet } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { StellarCostBasisModal } from '../components/StellarCostBasisModal';
-import PageLayout from '../components/layout/PageLayout';
+import PageLayout from '@/components/layout/PageLayout';
+import { StellarCostBasisModal } from '@/components/modals/StellarCostBasisModal';
+import { useProfilePortfolio } from '@/modules/walletconnect/hooks/useProfilePortfolio';
+import { useWalletConnect, useWalletNetwork } from '@/modules/walletconnect/hooks/useWalletConnect';
+import { useWalletStore } from '@/modules/walletconnect/store/walletConnectStore';
+import { portfolioUtils } from '@/modules/walletconnect/utils/portfolioUtils';
+import { fetchStellarPnl } from '@/service/apiService';
+import { exportStellarReport } from '@/utils/exportService';
 
-import { useProfilePortfolio } from '../modules/walletconnect/hooks/useProfilePortfolio';
-import {
-  useWalletConnect,
-  useWalletNetwork,
-} from '../modules/walletconnect/hooks/useWalletConnect';
-import { useWalletStore } from '../modules/walletconnect/store/walletConnectStore';
-import { portfolioUtils } from '../modules/walletconnect/utils/portfolioUtils';
-import { fetchStellarPnl } from '../service/apiService';
-import { exportStellarReport } from '../utils/exportService';
-import { AssetsTableSection } from './profile/components/AssetsTableSection';
-
-import { ExportProgressModal } from './profile/components/ExportProgressModal';
-import { PortfolioCardsGrid } from './profile/components/PortfolioCardsGrid';
-import { StellarPerformanceCard } from './profile/components/StellarPerformanceCard';
+import { AssetsTableSection } from './components/AssetsTableSection';
+import { ExportProgressModal } from './components/ExportProgressModal';
+import { PortfolioCardsGrid } from './components/PortfolioCardsGrid';
+import { StellarPerformanceCard } from './components/StellarPerformanceCard';
 
 const isValidDevicePayload = (payload: any): boolean => {
   if (!payload || typeof payload !== 'object') return false;
@@ -60,8 +56,6 @@ const Profile: React.FC = () => {
     filteredAssets,
   } = useProfilePortfolio();
 
-
-
   const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
   const [fromDate, setFromDate] = useState<string | null>(null);
   const [toDate, setToDate] = useState<string | null>(null);
@@ -70,7 +64,6 @@ const Profile: React.FC = () => {
     setFromDate(null);
     setToDate(null);
   };
-
 
   // Export progress modal states
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -326,10 +319,6 @@ const Profile: React.FC = () => {
     isSwiftExUser,
   ]);
 
-
-
-
-
   const handleCopy = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
     setCopiedStates(prev => ({ ...prev, [key]: true }));
@@ -338,10 +327,7 @@ const Profile: React.FC = () => {
     }, 2000);
   };
 
-
-
   // Cost Basis is handled entirely in the exported Excel file — no in-app input needed.
-
 
   const cardPnL = useMemo(() => {
     const stellarPnL = stellarPnlData?.totalPnL || 0;
@@ -357,13 +343,7 @@ const Profile: React.FC = () => {
       evm: { change: 0, percent: 0 },
       stellar: { change: stellarPnL, percent: stellarPct },
     };
-  }, [
-    stellarPnlData?.totalPnL,
-    stellarTotal,
-    evmTotal,
-  ]);
-
-
+  }, [stellarPnlData?.totalPnL, stellarTotal, evmTotal]);
 
   const handleStartExport = useCallback(
     async (
@@ -381,120 +361,115 @@ const Profile: React.FC = () => {
       setExportError(null);
       const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-        // Stellar Export Flow
-        try {
-          if (!isSwiftExUser || !connectedWallets.stellar?.address) {
-            throw new Error('Stellar wallet is not connected.');
-          }
-
-          const periodLabel =
-            isCustom && selFromDate && selToDate
-              ? `${selFromDate} to ${selToDate}`
-              : selTimeframe === '1w'
-                ? 'Last 1 Week'
-                : selTimeframe === '1m'
-                  ? 'Last 1 Month'
-                  : selTimeframe === '2m'
-                    ? 'Last 2 Months'
-                    : 'Last 3 Months';
-
-          let fromStr = '';
-          let toStr = '';
-
-          if (isCustom && selFromDate && selToDate) {
-            fromStr = selFromDate;
-            toStr = selToDate;
-          } else {
-            const daysMap = { '1w': 7, '1m': 30, '2m': 60, '3m': 90 };
-            const days = daysMap[selTimeframe as '1w' | '1m' | '2m' | '3m'] ?? 30;
-            const cutoff = Date.now() - days * 86400000;
-            fromStr = new Date(cutoff).toISOString().slice(0, 10);
-            toStr = new Date().toISOString().slice(0, 10);
-          }
-
-          await delay(500);
-
-          // Step 2: Fetching Stellar ledger history
-          setExportStep(2);
-          const fullData = (await fetchStellarPnl(
-            connectedWallets.stellar.address,
-            fromStr,
-            toStr,
-            true
-          )) as any;
-          if (!fullData) {
-            throw new Error('No report data returned from server');
-          }
-          setStellarDetailedData(fullData);
-
-          await delay(500);
-
-          // Step 3: Generating Excel statement
-          setExportStep(3);
-          exportStellarReport({
-            address: connectedWallets.stellar.address,
-            period: periodLabel,
-            totalPnL: fullData.totalPnL || 0,
-            totalRealized: fullData.totalRealized || 0,
-            totalUnrealized: fullData.totalUnrealized || 0,
-            usdcSpent: fullData.usdcSpent || 0,
-            usdcReceived: fullData.usdcReceived || 0,
-            netUSDCFlow: fullData.netUSDCFlow || 0,
-            tradeCount: fullData.rawCount || fullData.tradeCount || 0,
-            collapsedCount: fullData.collapsedCount,
-            rawCount: fullData.rawCount,
-            skippedCount: fullData.skippedCount,
-            noPriceCount: fullData.noPriceCount,
-            positionCount: fullData.positionCount || 0,
-            disposalCount: fullData.disposalCount || 0,
-            winRate: fullData.winRate,
-            bestTrade: fullData.bestTrade,
-            worstTrade: fullData.worstTrade,
-            firstTradeDate: fullData.firstTradeDate,
-            lastTradeDate: fullData.lastTradeDate,
-            activeDays: fullData.activeDays,
-            mostTradedAsset: fullData.mostTradedAsset,
-            totalPortfolioValue: fullData.totalPortfolioValue,
-            largestPosition: fullData.largestPosition,
-            trades: fullData.trades,
-            positions: fullData.positions?.map((pos: any) => {
-              const config = stellarCostBasis[pos.asset];
-              const autoKey = `${pos.asset}::${pos.issuer || 'native'}`;
-              const autoVal = fullData.autoCostBasis?.[autoKey];
-
-              const openingAmount =
-                config?.openingAmount !== undefined && config?.openingAmount !== ''
-                  ? parseFloat(config.openingAmount)
-                  : (autoVal?.amount ?? null);
-
-              const openingCostPerUnit =
-                config?.costPerUnit !== undefined && config?.costPerUnit !== ''
-                  ? parseFloat(config.costPerUnit)
-                  : (autoVal?.price ?? null);
-
-              return {
-                ...pos,
-                openingAmount,
-                openingCostPerUnit,
-              };
-            }),
-          });
-
-          await delay(500);
-
-          // Step 4: Your statement is ready
-          setExportStep(4);
-        } catch (err: any) {
-          console.error('[Stellar Export] Failed to export report:', err);
-          setExportError(err?.message || 'Failed to export report');
+      // Stellar Export Flow
+      try {
+        if (!isSwiftExUser || !connectedWallets.stellar?.address) {
+          throw new Error('Stellar wallet is not connected.');
         }
+
+        const periodLabel =
+          isCustom && selFromDate && selToDate
+            ? `${selFromDate} to ${selToDate}`
+            : selTimeframe === '1w'
+              ? 'Last 1 Week'
+              : selTimeframe === '1m'
+                ? 'Last 1 Month'
+                : selTimeframe === '2m'
+                  ? 'Last 2 Months'
+                  : 'Last 3 Months';
+
+        let fromStr = '';
+        let toStr = '';
+
+        if (isCustom && selFromDate && selToDate) {
+          fromStr = selFromDate;
+          toStr = selToDate;
+        } else {
+          const daysMap = { '1w': 7, '1m': 30, '2m': 60, '3m': 90 };
+          const days = daysMap[selTimeframe as '1w' | '1m' | '2m' | '3m'] ?? 30;
+          const cutoff = Date.now() - days * 86400000;
+          fromStr = new Date(cutoff).toISOString().slice(0, 10);
+          toStr = new Date().toISOString().slice(0, 10);
+        }
+
+        await delay(500);
+
+        // Step 2: Fetching Stellar ledger history
+        setExportStep(2);
+        const fullData = (await fetchStellarPnl(
+          connectedWallets.stellar.address,
+          fromStr,
+          toStr,
+          true
+        )) as any;
+        if (!fullData) {
+          throw new Error('No report data returned from server');
+        }
+        setStellarDetailedData(fullData);
+
+        await delay(500);
+
+        // Step 3: Generating Excel statement
+        setExportStep(3);
+        exportStellarReport({
+          address: connectedWallets.stellar.address,
+          period: periodLabel,
+          totalPnL: fullData.totalPnL || 0,
+          totalRealized: fullData.totalRealized || 0,
+          totalUnrealized: fullData.totalUnrealized || 0,
+          usdcSpent: fullData.usdcSpent || 0,
+          usdcReceived: fullData.usdcReceived || 0,
+          netUSDCFlow: fullData.netUSDCFlow || 0,
+          tradeCount: fullData.rawCount || fullData.tradeCount || 0,
+          collapsedCount: fullData.collapsedCount,
+          rawCount: fullData.rawCount,
+          skippedCount: fullData.skippedCount,
+          noPriceCount: fullData.noPriceCount,
+          positionCount: fullData.positionCount || 0,
+          disposalCount: fullData.disposalCount || 0,
+          winRate: fullData.winRate,
+          bestTrade: fullData.bestTrade,
+          worstTrade: fullData.worstTrade,
+          firstTradeDate: fullData.firstTradeDate,
+          lastTradeDate: fullData.lastTradeDate,
+          activeDays: fullData.activeDays,
+          mostTradedAsset: fullData.mostTradedAsset,
+          totalPortfolioValue: fullData.totalPortfolioValue,
+          largestPosition: fullData.largestPosition,
+          trades: fullData.trades,
+          positions: fullData.positions?.map((pos: any) => {
+            const config = stellarCostBasis[pos.asset];
+            const autoKey = `${pos.asset}::${pos.issuer || 'native'}`;
+            const autoVal = fullData.autoCostBasis?.[autoKey];
+
+            const openingAmount =
+              config?.openingAmount !== undefined && config?.openingAmount !== ''
+                ? parseFloat(config.openingAmount)
+                : (autoVal?.amount ?? null);
+
+            const openingCostPerUnit =
+              config?.costPerUnit !== undefined && config?.costPerUnit !== ''
+                ? parseFloat(config.costPerUnit)
+                : (autoVal?.price ?? null);
+
+            return {
+              ...pos,
+              openingAmount,
+              openingCostPerUnit,
+            };
+          }),
+        });
+
+        await delay(500);
+
+        // Step 4: Your statement is ready
+        setExportStep(4);
+      } catch (err: any) {
+        console.error('[Stellar Export] Failed to export report:', err);
+        setExportError(err?.message || 'Failed to export report');
+      }
     },
-    [
-      exportType,
-      isSwiftExUser,
-      connectedWallets.stellar?.address,
-      stellarCostBasis,
-    ]
+    [exportType, isSwiftExUser, connectedWallets.stellar?.address, stellarCostBasis]
   );
 
   const handleSyncBalances = async () => {
@@ -672,8 +647,6 @@ const Profile: React.FC = () => {
         </div>
       </div>
 
-
-
       {/* ========== PORTFOLIO CARDS ========== */}
       <div className="space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -734,7 +707,6 @@ const Profile: React.FC = () => {
                         Stellar: {((stellarTotal / grandTotal) * 100).toFixed(0)}%
                       </span>
                     )}
-
                   </div>
                 </div>
                 <div className="w-full h-1.5 rounded-full bg-(--color-bg-tertiary) flex overflow-hidden">
@@ -750,7 +722,6 @@ const Profile: React.FC = () => {
                       className="h-full bg-gradient-to-r from-purple-600 to-purple-400 transition-all duration-500"
                     />
                   )}
-
                 </div>
               </div>
             )}
@@ -774,7 +745,8 @@ const Profile: React.FC = () => {
             {/* ========== PERFORMANCE SECTIONS (Stellar) ========== */}
             {(activeTab === 'stellar' ||
               (activeTab === 'total' &&
-                (connectWithSwiftEx && connectedWallets.stellar?.address))) && (
+                connectWithSwiftEx &&
+                connectedWallets.stellar?.address)) && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-2">
                 {(activeTab === 'stellar' ||
                   (activeTab === 'total' &&
@@ -816,8 +788,6 @@ const Profile: React.FC = () => {
                 )}
               </div>
             )}
-
-
 
             {/* ========== ASSET TABLE ========== */}
             <AssetsTableSection

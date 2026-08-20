@@ -1,4 +1,6 @@
+import { sendCustomNotification } from '@/service/notificationService';
 import { Wallet, getAddress, verifyTypedData } from 'ethers';
+
 import { ASTER_REST_URL } from '../../perps/adapters/aster';
 import { destroyAESKey, generateAndStoreAESKey, retrieveAESKey } from './keyVaultIndexedDB';
 
@@ -214,7 +216,6 @@ async function signTypedData(
   try {
     const token = localStorage.getItem('device_token');
     if (token) {
-      const { sendCustomNotification } = await import('../../../service/notificationService');
       sendCustomNotification(token, {
         title: 'Signature Request',
         body: 'Please open your wallet to sign the Aster onboarding message.',
@@ -301,10 +302,9 @@ async function signTypedData(
 
   throw new Error(
     'Your wallet does not support any EIP-712 signing method (eth_signTypedData_v4, eth_signTypedData, personal_sign). ' +
-    'Please use a wallet that supports at least one of these methods.'
+      'Please use a wallet that supports at least one of these methods.'
   );
 }
-
 
 export async function deriveAsterAgentKey(
   evmAddress: string,
@@ -365,7 +365,7 @@ export async function deriveAsterAgentKey(
   if (getAddress(recovered) !== getAddress(evmAddress)) {
     throw new Error(
       `Local signature verification failed: expected signer ${evmAddress}, recovered ${recovered}. ` +
-      `The signature does not match (domain, types, message) — check that the wallet actually signed exactly this payload.`
+        `The signature does not match (domain, types, message) — check that the wallet actually signed exactly this payload.`
     );
   }
 

@@ -1,7 +1,7 @@
 import { CheckCircle2, X, XCircle } from 'lucide-react';
 import React from 'react';
 
-import { useNotificationStore } from '../store/notificationStore';
+import { useNotificationStore } from '@/store/notificationStore';
 
 const typeConfig: Record<string, { icon: React.ReactNode; color: string }> = {
   EVM_SWAP: {

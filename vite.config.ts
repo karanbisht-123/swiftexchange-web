@@ -2,6 +2,7 @@
 import react from '@vitejs/plugin-react';
 
 import tailwindcss from '@tailwindcss/vite';
+import path from 'path';
 import { defineConfig } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import removeConsole from 'vite-plugin-remove-console';
@@ -10,7 +11,11 @@ export default defineConfig(({ command }) => ({
   define: {
     ...(process.env.VITEST ? {} : { global: 'globalThis' }),
   },
-
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
   server: {
     port: 8081,
     strictPort: true,
@@ -33,13 +38,6 @@ export default defineConfig(({ command }) => ({
   ].filter(Boolean),
 
   optimizeDeps: {
-    // include: [
-    //   '@dydxprotocol/v4-client-js',
-    //   '@skip-go/client',
-    //   '@cosmjs/stargate',
-    //   '@cosmjs/amino',
-    //   '@cosmjs/proto-signing',
-    // ],
     exclude: ['buffer', 'process', 'vm-browserify', 'node-stdlib-browser'],
     esbuildOptions: {
       target: 'esnext',
@@ -60,13 +58,28 @@ export default defineConfig(({ command }) => ({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('@dydxprotocol')) return 'vendor-dydx';
-          if (id.includes('@stellar') || id.includes('@allbridge')) {
-            return 'vendor-bridge-stellar';
+          if (
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-dom/') ||
+            id.includes('node_modules/react-router-dom/')
+          ) {
+            return 'vendor-react';
           }
-          if (id.includes('@cosmjs')) return 'vendor-cosmjs';
-          if (id.includes('@skip-go')) return 'vendor-skip';
-          if (id.includes('node_modules')) return 'vendor';
+          if (id.includes('node_modules/ethers/') || id.includes('node_modules/bignumber.js/')) {
+            return 'vendor-ethers';
+          }
+          if (id.includes('node_modules/@stellar/')) {
+            return 'vendor-stellar';
+          }
+          if (id.includes('node_modules/lightweight-charts')) {
+            return 'vendor-charts';
+          }
+          if (id.includes('node_modules/@walletconnect/')) {
+            return 'vendor-walletconnect';
+          }
+          if (id.includes('node_modules/lucide-react/')) {
+            return 'vendor-icons';
+          }
         },
       },
       onwarn(warning, warn) {
@@ -91,7 +104,7 @@ export default defineConfig(({ command }) => ({
     server: {
       deps: {
         inline: ['html-encoding-sniffer', '@exodus/bytes'],
-        external: [/@dydxprotocol/, /@cosmjs/, /protobufjs/],
+        external: [],
       },
     },
     coverage: {

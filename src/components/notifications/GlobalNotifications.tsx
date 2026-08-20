@@ -1,10 +1,11 @@
 import React from 'react';
 
-import { EvmTransactionModal } from '../modules/evm/components/EvmTransactionModal';
-import { TransactionMonitor } from '../modules/evm/components/TransactionMonitor';
-import StellarTransactionModal from '../modules/stellar/components/modals/StellarTransactionModal';
-import { useNotificationStore } from '../store/notificationStore';
-import { useTransactionModalStore } from '../store/transactionModalStore';
+import { EvmTransactionModal } from '@/modules/evm/components/EvmTransactionModal';
+import { TransactionMonitor } from '@/modules/evm/components/TransactionMonitor';
+import StellarTransactionModal from '@/modules/stellar/components/modals/StellarTransactionModal';
+import { useNotificationStore } from '@/store/notificationStore';
+import { useTransactionModalStore } from '@/store/transactionModalStore';
+
 import { NotificationPanel } from './NotificationPanel';
 import { ToastContainer } from './ToastContainer';
 

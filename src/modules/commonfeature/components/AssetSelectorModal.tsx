@@ -11,7 +11,7 @@ import {
 } from '../../evm/feature/swap/services/oneClickApi';
 import { getTokensForChain } from '../../evm/service/tokenListService';
 import { CHAIN_REGISTRY, getChainById } from '../../evm/utils/Chainregistry';
-import { getDydxConfig, getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
+import { getEVMChains, getStellarConfig } from '../../walletconnect/config/chains';
 import { useWalletAssets } from '../../walletconnect/hooks/useWalletAssets';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
@@ -111,12 +111,6 @@ const AssetSelectorModal: FC = () => {
         name: 'Stellar',
         logo: getStellarConfig(currentNetwork).logoUrl,
         ...getChainById(STELLAR_CHAIN_ID),
-      } as any,
-      {
-        id: DYDX_CHAIN_ID,
-        name: 'dYdX',
-        logo: getDydxConfig(currentNetwork).logoUrl,
-        ...getChainById(DYDX_CHAIN_ID),
       } as any,
     ];
 
@@ -232,7 +226,6 @@ const AssetSelectorModal: FC = () => {
             activeChainId === STELLAR_CHAIN_ID || pairedChainId === STELLAR_CHAIN_ID;
 
           if (isStellarInvolved && !showAllStellarAssets) {
-
             // Get tokens supported by NEAR Intents for this chain
             const intentsSupportedSymbols = nearTokens
               .filter(nt => {
@@ -244,9 +237,7 @@ const AssetSelectorModal: FC = () => {
               })
               .map(nt => nt.symbol.toUpperCase());
 
-            const combinedSupportedSymbols = Array.from(
-              new Set([...intentsSupportedSymbols])
-            );
+            const combinedSupportedSymbols = Array.from(new Set([...intentsSupportedSymbols]));
 
             validTokens = registryTokens.filter(t =>
               combinedSupportedSymbols.includes(t.symbol.toUpperCase())

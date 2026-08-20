@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 
+import { getRealTimeFundingRate } from '../../adapters/aster/api/funding';
 //import { exchangeManager, useExchangeManager, type ExchangeName } from '../../core/ExchangeManager';
 import { useExchangeManager } from '../../core/ExchangeManager';
 import { useMarketStore } from '../../core/stores/marketStore';
@@ -52,7 +53,7 @@ export const ExchangeTopBar: React.FC = () => {
   const fetchFundingInfo = React.useCallback(async () => {
     try {
       if (currentExchange !== 'aster') return;
-      const { getRealTimeFundingRate } = await import('../../adapters/aster/api/funding');
+
       const asterSymbol = symbol.replace('-', '');
       const info = await getRealTimeFundingRate(asterSymbol);
       if (info) {
