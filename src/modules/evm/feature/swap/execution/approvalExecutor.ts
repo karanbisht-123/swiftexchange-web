@@ -1,7 +1,8 @@
 import { ethers } from 'ethers';
-import { LIMIT_ORDER_PROTOCOL, NATIVE_ADDRESS } from '../constants/swap.constants';
+
 import { getEVMNetworkConfig } from '../../../utils/evmUtils';
 import { rpcManager } from '../../../utils/rpcProvider';
+import { LIMIT_ORDER_PROTOCOL, NATIVE_ADDRESS } from '../constants/swap.constants';
 
 const ERC20_ABI = [
   'function allowance(address owner, address spender) view returns (uint256)',
@@ -77,11 +78,9 @@ export async function sendApprovalTx(
   }
 
   const feeData = await ethersProvider.getFeeData();
-  let gasParams: Partial<ethers.TransactionRequest>;
-
   const rawGasPrice = feeData.gasPrice ?? feeData.maxFeePerGas;
   if (!rawGasPrice) throw new Error('Could not determine gas price for approval');
-  gasParams = {
+  const gasParams: Partial<ethers.TransactionRequest> = {
     gasPrice: (rawGasPrice * 120n) / 100n,
   };
 

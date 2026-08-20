@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { WalletType } from '../../../../walletconnect/constants/Wallet';
+
 import { useNotificationStore } from '../../../../../store/notificationStore';
 import { useSwapStore } from '../../../../../store/swapStore';
 import { useTransactionModalStore } from '../../../../../store/transactionModalStore';
+import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { usePortfolioStore } from '../../../../walletconnect/store/portfolioStore';
 import { storeSwapOrder } from '../../../service/evmTransactionStatusService';
 import { getChainById } from '../../../utils/Chainregistry';
 import { getEVMNetworkConfig, simulateEVMTransaction } from '../../../utils/evmUtils';
-
+import type { UnifiedQuote } from '../types/swap.types';
 import { isStellar } from '../utils/swapAssetUtils';
-import { parseSwapError, parseWalletError } from '../utils/swapErrorHandler';
+import { parseSwapError } from '../utils/swapErrorHandler';
 import { getCalculatedBuyAmount } from '../utils/swapQuoteUtils';
 
 export interface UseSwapExecutionParams {
@@ -31,14 +32,12 @@ export interface UseSwapExecutionParams {
   fromChainConfig: any;
 
   // quote data
-  activeQuote: any;
-  swapQuote: any;
-  fusionQuote: any;
+  currentQuote: UnifiedQuote;
+  setCurrentQuote: (q: UnifiedQuote) => void;
 
   // services
   ammService: any;
   getProvider: (type: WalletType) => any;
-  fetchFusionQuote: (sellAsset: any, buyAsset: any, amount: string) => Promise<any>;
   performSwap: (
     quote: any,
     sellAsset: any,
@@ -57,7 +56,6 @@ export interface UseSwapExecutionParams {
     quote: any,
     onBeforeSign: () => void
   ) => Promise<string>;
-
 
   // state triggers
   handleReset: () => void;
@@ -83,12 +81,10 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     evmAddress,
     userSlippageTolerance,
     fromChainConfig,
-    activeQuote,
-    swapQuote,
-    fusionQuote,
+    currentQuote,
+    setCurrentQuote,
     ammService,
     getProvider,
-    fetchFusionQuote,
     performSwap,
     performFusionSwap,
 
@@ -102,7 +98,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
   const navigate = useNavigate();
 
   const [isFusionLoading, setIsFusionLoading] = useState(false);
-  const [fusionStatus, setFusionStatus] = useState<'idle' | 'approving' | 'signing'>('idle');
   const [isWaitingForWallet, setIsWaitingForWallet] = useState(false);
   const [showFusionScreen, setShowFusionScreen] = useState(false);
 
@@ -152,7 +147,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
   const resetLoadingState = useCallback(() => {
     setBridgeTxStatus('idle');
     setIsFusionLoading(false);
-    setFusionStatus('idle');
     setShowFusionScreen(false);
     setIsWaitingForWallet(false);
     setExecutionApprovalRequired(null);
@@ -164,7 +158,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
   const setSwapProgressStatus = useCallback(
     (status: 'approving' | 'signing') => {
       setBridgeTxStatus(status === 'signing' ? 'signing' : 'preparing');
-      setFusionStatus(status);
       setExecutionCurrentStep(status);
       if (useSwapStore.getState().executionApprovalRequired === null) {
         setExecutionApprovalRequired(status === 'approving');
@@ -174,7 +167,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
   );
 
   const executeStellarSwap = async (checkAborted: () => void) => {
-    if (!activeQuote.data || !ammService || !stellarAddress) {
+    if (!currentQuote.data || !ammService || !stellarAddress) {
       setBridgeTxStatus('idle');
       return;
     }
@@ -182,7 +175,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       setExecutionApprovalRequired(false);
       setExecutionCurrentStep('preparing');
       setBridgeTxStatus('preparing');
-      const tx = await ammService.buildSwapTransaction(stellarAddress, activeQuote.data, {
+      const tx = await ammService.buildSwapTransaction(stellarAddress, currentQuote.data, {
         slippageTolerance: userSlippageTolerance,
       });
       checkAborted();
@@ -192,12 +185,10 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       const computedOutAmount = getCalculatedBuyAmount({
         actionType,
         isGasless,
-        fusionQuote,
         showFusionScreen,
         selectedBuyAsset,
-        activeQuoteSource: activeQuote.source,
-        activeQuoteData: activeQuote.data,
-        swapQuote,
+        activeQuoteSource: currentQuote.source,
+        activeQuoteData: currentQuote.data,
         isSameAssetSelected: false,
         feePayType,
       });
@@ -249,7 +240,12 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
   };
 
   const executeEvmSwap = async (checkAborted: () => void) => {
-    if (!swapQuote || !selectedSellAsset || !selectedBuyAsset) {
+    if (
+      currentQuote.source !== 'EVM_SWAP' ||
+      !currentQuote.data ||
+      !selectedSellAsset ||
+      !selectedBuyAsset
+    ) {
       setBridgeTxStatus('idle');
       return;
     }
@@ -260,7 +256,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         setIsWaitingForWallet(true);
       };
       const hash = await performSwap(
-        swapQuote,
+        currentQuote.data,
         selectedSellAsset as any,
         selectedBuyAsset as any,
         sellAmount,
@@ -271,12 +267,10 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       const computedOutAmount = getCalculatedBuyAmount({
         actionType,
         isGasless,
-        fusionQuote,
         showFusionScreen,
         selectedBuyAsset,
-        activeQuoteSource: activeQuote.source,
-        activeQuoteData: activeQuote.data,
-        swapQuote,
+        activeQuoteSource: currentQuote.source,
+        activeQuoteData: currentQuote.data,
         isSameAssetSelected: false,
         feePayType,
       });
@@ -307,7 +301,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         return;
       }
       console.error('Swap execution failed:', err);
-      const errMsg = parseWalletError(err);
+      const errMsg = parseSwapError(err);
       setBridgeErrorMsg(errMsg);
       setBridgeTxStatus('error');
       openModal({
@@ -321,8 +315,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       setIsWaitingForWallet(false);
     }
   };
-
-
 
   const executeEvmNearIntentBridge = async (checkAborted: () => void) => {
     if (!executeNearIntentDeposit) {
@@ -386,7 +378,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         slippageTolerance: userSlippageTolerance * 100,
         originAsset: nearSellAsset.assetId,
         depositType: 'ORIGIN_CHAIN',
-        destinationAsset: nearBuyAsset?.assetId || (activeQuote.data?.destinationAsset ?? ''),
+        destinationAsset: nearBuyAsset?.assetId || (currentQuote.data?.destinationAsset ?? ''),
         amount: safeParseUnits(sellAmount, nearSellAsset.decimals),
         recipient,
         recipientType: 'DESTINATION_CHAIN' as const,
@@ -425,7 +417,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           amountIn: sellAmount,
           amountOut: computedOutAmount,
           txType: 'Bridge',
-        }).catch(() => { });
+        }).catch(() => {});
       }
 
       handleReset();
@@ -454,7 +446,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         return;
       }
       console.error('NEAR Intents swap failed:', err);
-      const errMsg = parseWalletError(err);
+      const errMsg = parseSwapError(err);
       setBridgeErrorMsg(errMsg);
       setBridgeTxStatus('error');
       openModal({
@@ -489,11 +481,41 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         }
         setIsFusionLoading(true);
         try {
-          await fetchFusionQuote(selectedSellAsset as any, selectedBuyAsset as any, sellAmount);
+          const { get1InchFusionQuote } = await import('../services/fusionOrderService');
+
+          const { AGGREGATOR_NATIVE_ADDRESS } = await import('../constants/swap.constants');
+
+          const normalizedTokenIn = (selectedSellAsset as any).isNative
+            ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
+            : (selectedSellAsset as any).address;
+          const normalizedTokenOut = (selectedBuyAsset as any).isNative
+            ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
+            : (selectedBuyAsset as any).address;
+
+          const fQuote = await get1InchFusionQuote(
+            fromChainId,
+            {
+              tokenIn: normalizedTokenIn,
+              tokenOut: normalizedTokenOut,
+              amount: sellAmount,
+              walletAddress: evmAddress || '0x0000000000000000000000000000000000000000',
+              decimals: (selectedSellAsset as any).decimals,
+            },
+            toChainId,
+            abortCtrl.signal
+          );
+
+          setCurrentQuote({
+            source: 'FUSION_PLUS',
+            data: fQuote,
+            error: null,
+            loading: false,
+          });
+
           setShowFusionScreen(true);
           setBridgeTxStatus('idle');
         } catch (err) {
-          setBridgeErrorMsg(parseWalletError(err));
+          setBridgeErrorMsg(parseSwapError(err));
           resetLoadingState();
         } finally {
           setIsFusionLoading(false);
@@ -565,7 +587,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           setBridgeTxStatus('idle');
           return;
         }
-        if (!activeQuote.data) {
+        if (!currentQuote.data) {
           setBridgeTxStatus('idle');
           return;
         }
@@ -577,8 +599,8 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           }
           setBridgeTxStatus('preparing');
           try {
-            const currentQuote = activeQuote.data;
-            const preset = currentQuote.recommended_preset || 'fast';
+            const quoteData = currentQuote.data;
+            const preset = quoteData.recommended_preset || 'fast';
             const hash = await performFusionSwap(
               selectedSellAsset as any,
               selectedBuyAsset as any,
@@ -595,12 +617,10 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
             const computedOutAmount = getCalculatedBuyAmount({
               actionType,
               isGasless,
-              fusionQuote,
               showFusionScreen,
               selectedBuyAsset,
-              activeQuoteSource: activeQuote.source,
-              activeQuoteData: activeQuote.data,
-              swapQuote,
+              activeQuoteSource: currentQuote.source,
+              activeQuoteData: currentQuote.data,
               isSameAssetSelected: false,
               feePayType,
             });
@@ -631,7 +651,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
               return;
             }
             console.error('Fusion Plus cross-chain swap failed:', err);
-            const errMsg = parseWalletError(err);
+            const errMsg = parseSwapError(err);
             setBridgeErrorMsg(errMsg);
             setBridgeTxStatus('error');
             openModal({
@@ -640,16 +660,21 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
               error: errMsg,
               isStellar: false,
             });
-            showToast({ type: 'EVM_SWAP', title: 'Bridge Failed', message: errMsg, dontSave: true });
+            showToast({
+              type: 'EVM_SWAP',
+              title: 'Bridge Failed',
+              message: errMsg,
+              dontSave: true,
+            });
           } finally {
             setIsWaitingForWallet(false);
           }
         };
 
         try {
-          if (activeQuote.source === 'near_intent' && activeQuote.data) {
+          if (currentQuote.source === 'NEAR_INTENT' && currentQuote.data) {
             await executeEvmNearIntentBridge(checkAborted);
-          } else if (activeQuote.source === 'fusion_plus' && activeQuote.data) {
+          } else if (currentQuote.source === 'FUSION_PLUS' && currentQuote.data) {
             await executeEvmFusionPlusBridge(checkAborted);
           }
         } catch (err: any) {
@@ -658,7 +683,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
             return;
           }
           console.error('Bridge failed:', err);
-          const errMsg = parseWalletError(err);
+          const errMsg = parseSwapError(err);
           setBridgeErrorMsg(errMsg);
           setBridgeTxStatus('error');
           openModal({
@@ -697,12 +722,10 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     actionType,
     stellarAddress,
     evmAddress,
-    activeQuote,
-    swapQuote,
-    fusionQuote,
+    currentQuote,
+    setCurrentQuote,
     ammService,
     getProvider,
-    fetchFusionQuote,
     performSwap,
     performFusionSwap,
 
@@ -716,8 +739,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
   return {
     isFusionLoading,
     setIsFusionLoading,
-    fusionStatus,
-    setFusionStatus,
     isWaitingForWallet,
     setIsWaitingForWallet,
     showFusionScreen,

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import { ethers } from 'ethers';
+
 import { notifyWalletSignRequest } from '../../../../../utils/walletConnectUtils';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { usePortfolioStore } from '../../../../walletconnect/store/portfolioStore';
@@ -16,17 +18,12 @@ import { getChainById, isEvmChain } from '../../../utils/Chainregistry';
 import { getEVMNetworkConfig } from '../../../utils/evmUtils';
 import { simulateEVMTransaction } from '../../../utils/evmUtils';
 import { rpcManager } from '../../../utils/rpcProvider';
-import { AGGREGATOR_NATIVE_ADDRESS } from '../constants/swap.constants';
 import { executeSwap } from '../execution/evmSwapExecutor';
 import { execute1InchFusionSwap } from '../execution/fusionSwapExecutor';
-import { getSwapQuote, prepareSwapTransaction } from '../services/evmSwapService';
-import {
-  build1InchFusionOrder,
-  get1InchFusionQuote,
-  submit1InchFusionOrder,
-} from '../services/fusionOrderService';
-import type { FusionQuote, SwapQuote, SwapQuoteRequest } from '../types/swap.types';
-import { formatAmount, toPlainString } from '../utils/swapAmountUtils';
+import { prepareSwapTransaction } from '../services/evmSwapService';
+import { build1InchFusionOrder, submit1InchFusionOrder } from '../services/fusionOrderService';
+import type { FusionQuote, SwapQuote } from '../types/swap.types';
+import { toPlainString } from '../utils/swapAmountUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
 
 export { toPlainString };
@@ -38,7 +35,6 @@ interface UseEvmSwapProps {
 }
 
 interface UseEvmSwapState {
-  quote: SwapQuote | null;
   txHash: string | null;
   assets: TokenInfo[];
   loading: boolean;
@@ -46,7 +42,6 @@ interface UseEvmSwapState {
   isFetchingAssets: boolean;
   quoteLoading: boolean;
   isGasless: boolean;
-  fusionQuote: FusionQuote | null;
   userSlippageTolerance: number;
   recommendedSlippage: string | null;
 }
@@ -54,21 +49,9 @@ interface UseEvmSwapState {
 interface UseEvmSwapActions {
   fetchTokenList: () => void;
   updateTokenBalances: (sellToken?: TokenInfo) => Promise<void>;
-  fetchQuote: (
-    request: SwapQuoteRequest,
-    sellAsset: TokenInfo,
-    buyAsset: TokenInfo
-  ) => Promise<SwapQuote>;
-
-  fetchFusionQuote: (
-    sellAsset: TokenInfo,
-    buyAsset: TokenInfo,
-    amount: string,
-    decimals?: number
-  ) => Promise<FusionQuote>;
 
   performSwap: (
-    quote: SwapQuote,
+    quote: any,
     sellAsset: TokenInfo,
     buyAsset: TokenInfo,
     sellAmount: string,
@@ -83,7 +66,7 @@ interface UseEvmSwapActions {
     sellAmount: string,
     preset?: string,
     onProgress?: (step: 'approving' | 'signing') => void,
-    currentFusionQuote?: FusionQuote | null,
+    currentFusionQuote?: any,
     onBeforeSign?: () => void
   ) => Promise<string>;
 
@@ -93,19 +76,12 @@ interface UseEvmSwapActions {
   reset: () => void;
 }
 
-const isNativeAddress = (address: string | undefined | null): boolean => {
-  if (!address) return true;
-  const lowAddress = address.toLowerCase();
-  return lowAddress === 'native' || lowAddress === '0x0000000000000000000000000000000000000000';
-};
-
 export const useEvmSwap = ({
   chainId,
   senderAddress,
   getProvider,
 }: UseEvmSwapProps): UseEvmSwapState & UseEvmSwapActions => {
   const [state, setState] = useState<UseEvmSwapState>({
-    quote: null,
     txHash: null,
     assets: [],
     loading: false,
@@ -113,7 +89,6 @@ export const useEvmSwap = ({
     isFetchingAssets: false,
     quoteLoading: false,
     isGasless: false,
-    fusionQuote: null,
     userSlippageTolerance: 1.0,
     recommendedSlippage: null,
   });
@@ -122,12 +97,16 @@ export const useEvmSwap = ({
   const quoteAbortController = useRef<AbortController | null>(null);
   const latestQuoteRequestId = useRef<number>(0);
   const isMounted = useRef<boolean>(true);
+  const balanceUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     isMounted.current = true;
     return () => {
       isMounted.current = false;
       quoteAbortController.current?.abort();
+      if (balanceUpdateTimeoutRef.current) {
+        clearTimeout(balanceUpdateTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -298,155 +277,6 @@ export const useEvmSwap = ({
     [chainId, senderAddress, getProvider]
   );
 
-  const fetchQuote = useCallback(
-    async (
-      request: SwapQuoteRequest,
-      sellAsset: TokenInfo,
-      buyAsset: TokenInfo
-    ): Promise<SwapQuote> => {
-      quoteAbortController.current?.abort();
-      quoteAbortController.current = new AbortController();
-      const signal = quoteAbortController.current.signal;
-      const requestId = ++latestQuoteRequestId.current;
-
-      updateState({ quoteLoading: true, error: null });
-
-      try {
-        if (!request.amount || Number.parseFloat(request.amount) <= 0) {
-          throw new Error('Invalid swap amount');
-        }
-        if (!sellAsset || !buyAsset) {
-          throw new Error('Invalid assets selected');
-        }
-        const bothNative = !!sellAsset.isNative && !!buyAsset.isNative;
-        const addrA = (sellAsset.address || '').toLowerCase();
-        const addrB = (buyAsset.address || '').toLowerCase();
-        if (sellAsset.chainId === buyAsset.chainId && (bothNative || (addrA && addrA === addrB))) {
-          throw new Error('Cannot swap same token');
-        }
-
-        const isNativeSell =
-          !!sellAsset.isNative ||
-          isNativeAddress(request.tokenIn?.address) ||
-          isNativeAddress(sellAsset.address);
-        const isNativeBuy =
-          !!buyAsset.isNative ||
-          isNativeAddress(request.tokenOut?.address) ||
-          isNativeAddress(buyAsset.address);
-        const normalizedSellAddress = isNativeSell
-          ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
-          : sellAsset.address;
-        const normalizedBuyAddress = isNativeBuy
-          ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
-          : buyAsset.address;
-
-        if (!isNativeSell && !ethers.isAddress(normalizedSellAddress || ''))
-          throw new Error(`Invalid sell token address: ${sellAsset.address}`);
-        if (!isNativeBuy && !ethers.isAddress(normalizedBuyAddress || ''))
-          throw new Error(`Invalid buy token address: ${buyAsset.address}`);
-
-        const adjustedRequest: SwapQuoteRequest = {
-          ...request,
-          recipient: senderAddress || '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
-          slippage: state.userSlippageTolerance.toString(),
-          tokenIn: {
-            ...sellAsset,
-            address: normalizedSellAddress,
-            balance: sellAsset.balance || '0',
-            logoUri: sellAsset.logoURI || null,
-            chainId,
-          },
-          tokenOut: {
-            ...buyAsset,
-            address: normalizedBuyAddress,
-            balance: buyAsset.balance || '0',
-            logoUri: buyAsset.logoURI || null,
-            chainId: buyAsset.chainId || chainId,
-          },
-        };
-
-        const quoteResponse = await getSwapQuote(chainId, adjustedRequest, signal);
-
-        if (requestId !== latestQuoteRequestId.current) {
-          throw new Error('Quote request superseded');
-        }
-
-        const enrichedQuote = {
-          ...quoteResponse,
-          inputToken: sellAsset.symbol,
-          outputToken: buyAsset.symbol,
-        };
-
-        if (!signal.aborted) {
-          updateState({
-            quote: enrichedQuote,
-            quoteLoading: false,
-          });
-        }
-        return enrichedQuote;
-      } catch (err: any) {
-        if (err.name === 'AbortError' || signal.aborted) {
-          throw new Error('Quote request cancelled');
-        }
-        if (err.message === 'Quote request superseded') {
-          throw err;
-        }
-
-        const errorMsg = parseSwapError(err);
-        updateState({ error: errorMsg, quoteLoading: false, quote: null });
-        throw new Error(errorMsg);
-      }
-    },
-    [chainId, senderAddress, updateState, state.userSlippageTolerance]
-  );
-
-  const fetchFusionQuote = useCallback(
-    async (sellAsset: TokenInfo, buyAsset: TokenInfo, amount: string): Promise<FusionQuote> => {
-      quoteAbortController.current?.abort();
-      quoteAbortController.current = new AbortController();
-      const fusionSignal = quoteAbortController.current.signal;
-      const myRequestId = ++latestQuoteRequestId.current;
-
-      updateState({ quoteLoading: true, error: null });
-
-      try {
-        const normalizedTokenIn = isNativeAddress(sellAsset.address)
-          ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
-          : sellAsset.address;
-        const normalizedTokenOut = isNativeAddress(buyAsset.address)
-          ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
-          : buyAsset.address;
-
-        const fusionQuoteData = await get1InchFusionQuote(
-          chainId,
-          {
-            tokenIn: normalizedTokenIn,
-            tokenOut: normalizedTokenOut,
-            amount: formatAmount(amount, sellAsset.decimals),
-            walletAddress: senderAddress || '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
-          },
-          buyAsset.chainId,
-          fusionSignal
-        );
-
-        if (myRequestId !== latestQuoteRequestId.current || fusionSignal.aborted) {
-          throw new Error('Quote request superseded');
-        }
-
-        updateState({ fusionQuote: fusionQuoteData, quoteLoading: false, error: null });
-        return fusionQuoteData;
-      } catch (err: any) {
-        if (err.name === 'AbortError' || fusionSignal.aborted) {
-          throw new Error('Quote request cancelled');
-        }
-        const errorMsg = parseSwapError(err);
-        updateState({ error: errorMsg, quoteLoading: false, fusionQuote: null });
-        throw new Error(errorMsg);
-      }
-    },
-    [chainId, senderAddress, updateState]
-  );
-
   const performSwap = useCallback(
     async (
       quote: SwapQuote,
@@ -495,10 +325,7 @@ export const useEvmSwap = ({
             );
           },
           swapHash => {
-            if (
-              quote.provider === 'ONEINCH' ||
-              quote.provider === 'UNISWAP'
-            ) {
+            if (quote.provider === 'ONEINCH' || quote.provider === 'UNISWAP') {
               storeSwapOrder({
                 txHash: swapHash,
                 walletAddress: senderAddress,
@@ -536,7 +363,7 @@ export const useEvmSwap = ({
           updateState({ txHash: hash, loading: false });
         }
 
-        setTimeout(() => {
+        balanceUpdateTimeoutRef.current = setTimeout(() => {
           if (isMounted.current) {
             updateTokenBalances(sellAsset);
           }
@@ -565,7 +392,7 @@ export const useEvmSwap = ({
       currentFusionQuote?: FusionQuote | null,
       onBeforeSign?: () => void
     ): Promise<string> => {
-      const fQuote = currentFusionQuote ?? state.fusionQuote;
+      const fQuote = currentFusionQuote;
       const swapId = Date.now().toString();
       activeSwapId.current = swapId;
       updateState({ loading: true, error: null, txHash: null });
@@ -603,9 +430,9 @@ export const useEvmSwap = ({
               amountOut:
                 fQuote.toTokenAmount || fQuote.dstTokenAmount
                   ? ethers.formatUnits(
-                    fQuote.toTokenAmount || fQuote.dstTokenAmount || '0',
-                    buyAsset.decimals || 18
-                  )
+                      fQuote.toTokenAmount || fQuote.dstTokenAmount || '0',
+                      buyAsset.decimals || 18
+                    )
                   : '0',
               txType: 'Token Approval',
             } as any).catch(backendErr =>
@@ -633,9 +460,9 @@ export const useEvmSwap = ({
             amountOut:
               fQuote.toTokenAmount || fQuote.dstTokenAmount
                 ? ethers.formatUnits(
-                  fQuote.toTokenAmount || fQuote.dstTokenAmount || '0',
-                  buyAsset.decimals || 18
-                )
+                    fQuote.toTokenAmount || fQuote.dstTokenAmount || '0',
+                    buyAsset.decimals || 18
+                  )
                 : '0',
             txType: 'Swap',
           } as any);
@@ -648,7 +475,7 @@ export const useEvmSwap = ({
           updateState({ txHash: hash, loading: false });
         }
 
-        setTimeout(() => {
+        balanceUpdateTimeoutRef.current = setTimeout(() => {
           if (isMounted.current) {
             updateTokenBalances(sellAsset);
           }
@@ -664,7 +491,7 @@ export const useEvmSwap = ({
         throw new Error(errorMsg);
       }
     },
-    [chainId, senderAddress, getProvider, updateTokenBalances, updateState, state.fusionQuote]
+    [chainId, senderAddress, getProvider, updateTokenBalances, updateState]
   );
 
   const reset = useCallback(() => {
@@ -673,12 +500,7 @@ export const useEvmSwap = ({
     quoteAbortController.current?.abort();
 
     updateState({
-      quote: null,
-      txHash: null,
-      error: null,
-      loading: false,
       quoteLoading: false,
-      fusionQuote: null,
     });
   }, [updateState]);
 
@@ -707,8 +529,6 @@ export const useEvmSwap = ({
     ...state,
     fetchTokenList,
     updateTokenBalances,
-    fetchQuote,
-    fetchFusionQuote,
     performSwap,
     performFusionSwap,
     setGasless,

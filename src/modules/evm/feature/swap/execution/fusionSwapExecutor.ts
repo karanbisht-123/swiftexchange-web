@@ -59,7 +59,8 @@ export async function execute1InchFusionSwap(
       await switchOrAddChain(provider, chainId);
     }
   } catch (switchErr: any) {
-    console.warn('[execute1InchFusionSwap] Chain switch failed, proceeding:', switchErr?.message);
+    console.error('[execute1InchFusionSwap] Chain switch failed:', switchErr?.message);
+    throw new Error(`Chain switch failed: ${switchErr?.message || 'User rejected'}`);
   }
 
   const currentAllowance = sellAsset.isNative

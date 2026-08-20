@@ -143,7 +143,7 @@ export const matchNearIntentToken = (
       if (isTargetStellar !== isTokenStellar) return false;
       if (!isTargetStellar && chainId !== undefined) {
         const tChainId = getEvmChainId(t);
-        if (tChainId && String(tChainId) !== String(chainId)) return false;
+        if (String(tChainId) !== String(chainId)) return false;
       }
       if (t.contractAddress && t.contractAddress.toLowerCase() === addrLower) return true;
       if (t.assetId && t.assetId.toLowerCase().includes(addrLower)) return true;
@@ -159,7 +159,7 @@ export const matchNearIntentToken = (
       if (isTargetStellar !== isTokenStellar) return false;
       if (!isTargetStellar && chainId !== undefined) {
         const tChainId = getEvmChainId(t);
-        if (tChainId && String(tChainId) !== String(chainId)) return false;
+        if (String(tChainId) !== String(chainId)) return false;
       }
 
       const s2 = (t.symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');

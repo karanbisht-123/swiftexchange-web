@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 
-import { isSameAsset as checkSameAsset, isStellar } from '../utils/swapAssetUtils';
+import type { UnifiedAsset, UnifiedQuote } from '../types/swap.types';
+import { isSameAsset as checkSameAsset } from '../utils/swapAssetUtils';
 import {
   getMinimumReceived as checkMinimumReceived,
   getButtonLabel,
@@ -17,16 +18,15 @@ import {
 
 export interface UseSwapValidationParams {
   sellAmount: string;
-  selectedSellAsset: any;
-  selectedBuyAsset: any;
+  selectedSellAsset: UnifiedAsset | null;
+  selectedBuyAsset: UnifiedAsset | null;
   actionType: 'SWAP' | 'BRIDGE';
   feePayType: 'native' | 'stablecoin';
   fromChainId: number | string;
   toChainId: number | string;
   stellarAssets: any[];
   swapAssets: any[];
-  activeQuote: any;
-  swapQuote: any;
+  currentQuote: UnifiedQuote;
   isGasless: boolean;
   bridgeTxStatus: string;
   bridgeErrorMsg: string | null;
@@ -37,7 +37,6 @@ export interface UseSwapValidationParams {
   isFetchingStellarAssets: boolean;
   userSlippageTolerance: number;
   showFusionScreen: boolean;
-  fusionQuote: any;
   missingWallets?: string[];
 }
 
@@ -52,8 +51,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     toChainId,
     stellarAssets,
     swapAssets,
-    activeQuote,
-    swapQuote,
+    currentQuote,
     isGasless,
     bridgeTxStatus,
     bridgeErrorMsg,
@@ -64,7 +62,6 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     isFetchingStellarAssets,
     userSlippageTolerance,
     showFusionScreen,
-    fusionQuote,
     missingWallets,
   } = params;
 
@@ -85,15 +82,15 @@ export function useSwapValidation(params: UseSwapValidationParams) {
   }, [actionType, fromChainId, toChainId, selectedSellAsset, selectedBuyAsset]);
 
   const isAmountLessThanFee = useMemo(() => {
-    if (actionType !== 'BRIDGE' || !sellAmount || !activeQuote.data) return false;
-    const feeAmount = activeQuote.data.fee?.stablecoin?.amount || '0';
+    if (actionType !== 'BRIDGE' || !sellAmount || !currentQuote.data) return false;
+    const feeAmount = (currentQuote.data as any).fee?.stablecoin?.amount || '0';
     return checkAmountLessThanFee(sellAmount, feeAmount, feePayType);
-  }, [actionType, sellAmount, activeQuote.data, feePayType]);
+  }, [actionType, sellAmount, currentQuote.data, feePayType]);
 
   const hasInsufficientStellarGas = useMemo(() => {
     if (isWalletMissing) return false;
     // Only check gas if a quote has fetched and we aren't quote loading
-    const hasQuote = !!activeQuote.data;
+    const hasQuote = !!currentQuote.data;
     if (isQuoteLoading || isFetchingStellarAssets || !hasQuote) {
       return false;
     }
@@ -104,7 +101,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       sellAmount,
       actionType,
       feePayType,
-      activeQuoteData: activeQuote.data,
+      activeQuoteData: currentQuote.data,
     });
   }, [
     fromChainId,
@@ -113,7 +110,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     sellAmount,
     actionType,
     feePayType,
-    activeQuote.data,
+    currentQuote.data,
     isQuoteLoading,
     isFetchingStellarAssets,
     isWalletMissing,
@@ -122,22 +119,25 @@ export function useSwapValidation(params: UseSwapValidationParams) {
   const hasInsufficientEvmGas = useMemo(() => {
     if (isWalletMissing) return false;
     // Only check gas if a quote has fetched (either swap or bridge) and we aren't quote loading
-    const hasQuote =
-      actionType === 'SWAP' ? (isGasless ? !!fusionQuote : !!swapQuote) : !!activeQuote.data;
+    const hasQuote = !!currentQuote.data;
 
     if (isQuoteLoading || isFetchingSwapAssets || !hasQuote) {
       return false;
     }
+
+    const swapQuoteNetworkFee =
+      currentQuote.source === 'EVM_SWAP' ? (currentQuote.data as any)?.networkFee : undefined;
+
     return checkInsufficientEvmGas({
       fromChainId,
       swapAssets,
-      selectedSellAsset,
+      selectedSellAsset: selectedSellAsset as any,
       sellAmount,
       actionType,
       feePayType,
-      activeQuoteSource: activeQuote.source,
-      activeQuoteData: activeQuote.data,
-      swapQuoteNetworkFee: swapQuote?.networkFee,
+      activeQuoteSource: currentQuote.source,
+      activeQuoteData: currentQuote.data,
+      swapQuoteNetworkFee,
       isGasless,
     });
   }, [
@@ -147,14 +147,11 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     sellAmount,
     actionType,
     feePayType,
-    activeQuote.source,
-    activeQuote.data,
-    swapQuote?.networkFee,
+    currentQuote.source,
+    currentQuote.data,
     isGasless,
     isQuoteLoading,
     isFetchingSwapAssets,
-    fusionQuote,
-    swapQuote,
     isWalletMissing,
   ]);
 
@@ -168,7 +165,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       bridgeTxStatus,
       bridgeErrorMsg,
       swapError,
-      activeQuoteError: activeQuote.error,
+      activeQuoteError: currentQuote.error,
       isInsufficientBalance,
       isAmountLessThanFee,
       hasInsufficientStellarGas,
@@ -176,7 +173,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       isSameAssetSelected,
       actionType,
       crossChainWarning,
-      activeQuoteData: activeQuote.data,
+      activeQuoteData: currentQuote.data,
       feePayType,
       nativeSymbol,
     });
@@ -184,7 +181,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     bridgeTxStatus,
     bridgeErrorMsg,
     swapError,
-    activeQuote.error,
+    currentQuote.error,
     isInsufficientBalance,
     isAmountLessThanFee,
     hasInsufficientStellarGas,
@@ -192,7 +189,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     isSameAssetSelected,
     actionType,
     crossChainWarning,
-    activeQuote.data,
+    currentQuote.data,
     feePayType,
     nativeSymbol,
   ]);
@@ -253,7 +250,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       bridgeErrorMsg ||
       isSameAssetSelected ||
       (actionType === 'BRIDGE' && crossChainWarning) ||
-      activeQuote.error
+      currentQuote.error
     );
   }, [
     isWalletMissing,
@@ -271,7 +268,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     isSameAssetSelected,
     actionType,
     crossChainWarning,
-    activeQuote.error,
+    currentQuote.error,
   ]);
 
   const isLoadingExecution = useMemo(() => {
@@ -282,24 +279,20 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     return getCalculatedBuyAmount({
       actionType,
       isGasless,
-      fusionQuote,
       showFusionScreen,
       selectedBuyAsset,
-      activeQuoteSource: activeQuote.source,
-      activeQuoteData: activeQuote.data,
-      swapQuote,
+      activeQuoteSource: currentQuote.source,
+      activeQuoteData: currentQuote.data,
       isSameAssetSelected,
       feePayType,
     });
   }, [
     actionType,
     isGasless,
-    fusionQuote,
     showFusionScreen,
     selectedBuyAsset,
-    activeQuote.source,
-    activeQuote.data,
-    swapQuote,
+    currentQuote.source,
+    currentQuote.data,
     isSameAssetSelected,
     feePayType,
   ]);
@@ -311,22 +304,20 @@ export function useSwapValidation(params: UseSwapValidationParams) {
   const minimumReceived = useMemo(() => {
     return checkMinimumReceived({
       actionType,
-      activeQuoteSource: activeQuote.source,
-      activeQuoteData: activeQuote.data,
+      activeQuoteSource: currentQuote.source,
+      activeQuoteData: currentQuote.data,
       feePayType,
       fromChainId,
-      swapQuote,
       selectedBuyAsset,
       userSlippageTolerance,
       calculatedBuyAmount,
     });
   }, [
     actionType,
-    activeQuote.source,
-    activeQuote.data,
+    currentQuote.source,
+    currentQuote.data,
     feePayType,
     fromChainId,
-    swapQuote,
     selectedBuyAsset,
     userSlippageTolerance,
     calculatedBuyAmount,
@@ -345,11 +336,9 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       hasInsufficientStellarGas ||
       hasInsufficientEvmGas ||
       isLoadingExecution ||
-      (actionType === 'SWAP' && isStellar(fromChainId) && !activeQuote.data) ||
-      (actionType === 'SWAP' && !isStellar(fromChainId) && !swapQuote && !isGasless) ||
-      (actionType === 'BRIDGE' && !activeQuote.data && !activeQuote.loading) ||
+      !currentQuote.data ||
       isFetchingSwapAssets ||
-      activeQuote.loading ||
+      currentQuote.loading ||
       isQuoteLoading ||
       isSameAssetSelected
     );
@@ -361,12 +350,8 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     hasInsufficientStellarGas,
     hasInsufficientEvmGas,
     isLoadingExecution,
-    actionType,
-    fromChainId,
-    activeQuote.data,
-    activeQuote.loading,
-    swapQuote,
-    isGasless,
+    currentQuote.data,
+    currentQuote.loading,
     isFetchingSwapAssets,
     isQuoteLoading,
     isSameAssetSelected,

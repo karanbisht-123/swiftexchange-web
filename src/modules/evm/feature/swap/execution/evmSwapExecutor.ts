@@ -49,7 +49,8 @@ export async function executeSwap(
       await switchOrAddChain(rawProvider, chainId);
     }
   } catch (switchErr: any) {
-    console.warn('[executeSwap] Chain switch failed, proceeding anyway:', switchErr?.message);
+    console.error('[executeSwap] Chain switch failed:', switchErr?.message);
+    throw new Error(`Chain switch failed: ${switchErr?.message || 'User rejected'}`);
   }
 
   // 1. Get transaction payloads from API
@@ -121,7 +122,8 @@ export async function executeSwap(
         const estimatedGas = await provider.estimateGas(txParams);
         txParams.gasLimit = (estimatedGas * 120n) / 100n;
       } catch (err: any) {
-        console.warn('[executeSwap] Gas estimation failed, letting wallet handle:', err.message);
+        console.error('[executeSwap] Gas estimation failed:', err.message);
+        throw new Error(`Transaction simulation failed: ${err.message || 'Unknown error'}`);
       }
     }
 
