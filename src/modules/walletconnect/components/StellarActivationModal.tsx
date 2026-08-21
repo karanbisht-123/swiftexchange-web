@@ -207,7 +207,8 @@ export const StellarActivationModal: React.FC<StellarActivationModalProps> = ({
               }`}
             >
               <QrCode size={13} />
-              <span>Receive XLM</span>
+              <span className="hidden sm:inline">Receive XLM</span>
+              <span className="sm:hidden">Receive</span>
             </button>
             <button
               onClick={() => setActiveTab('buy')}
@@ -218,7 +219,8 @@ export const StellarActivationModal: React.FC<StellarActivationModalProps> = ({
               }`}
             >
               <CreditCard size={13} />
-              <span>Buy XLM</span>
+              <span className="hidden sm:inline">Buy XLM</span>
+              <span className="sm:hidden">Buy</span>
             </button>
           </div>
 

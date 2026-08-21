@@ -258,6 +258,7 @@ export interface ButtonLabelParams {
   selectedBuyAsset: UnifiedAsset | null;
   nativeSymbol: string;
   missingWallets?: string[];
+  isStellarAccountActive?: boolean | null;
 }
 
 export interface ErrorParams {

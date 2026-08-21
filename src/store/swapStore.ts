@@ -31,7 +31,13 @@ export interface SwapState {
   bridgePendingSignSessionId: string | null;
 
   executionApprovalRequired: boolean | null;
-  executionCurrentStep: 'preparing' | 'approving' | 'signing';
+  executionCurrentStep:
+    | 'preparing'
+    | 'approving'
+    | 'signing'
+    | 'activating'
+    | 'polling_activation'
+    | 'setting_trustline';
 
   setFromChainId: (id: number | string) => void;
   setToChainId: (id: number | string) => void;
@@ -53,7 +59,15 @@ export interface SwapState {
   clearPendingTx: () => void;
 
   setExecutionApprovalRequired: (val: boolean | null) => void;
-  setExecutionCurrentStep: (step: 'preparing' | 'approving' | 'signing') => void;
+  setExecutionCurrentStep: (
+    step:
+      | 'preparing'
+      | 'approving'
+      | 'signing'
+      | 'activating'
+      | 'polling_activation'
+      | 'setting_trustline'
+  ) => void;
 
   setBridgePendingSignPhase: (
     phase: SwapState['bridgePendingSignPhase'],

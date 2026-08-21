@@ -41,6 +41,7 @@ export interface UseSwapQuoteParams {
   isSameAssetSelected: boolean;
   evmAddress?: string;
   stellarAddress?: string;
+  isStellarAccountActive?: boolean | null;
 }
 
 export function useSwapQuote(params: UseSwapQuoteParams) {
@@ -66,6 +67,7 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
     isSameAssetSelected,
     evmAddress,
     stellarAddress,
+    isStellarAccountActive,
   } = params;
 
   const [currentQuote, setCurrentQuote] = useState<UnifiedQuote>({
@@ -96,8 +98,37 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
   }, []);
 
   const fetchUnifiedQuote = useCallback(async () => {
+    if (bridgeTxStatus && bridgeTxStatus !== 'idle') {
+      return; // Do NOT fetch quotes or reset the swap while an execution (like trustline setup) is in progress!
+    }
+
     if (!sellAmount || parseFloat(sellAmount) <= 0 || isChainSwitching || showFusionScreen) {
       setCurrentQuote({ source: null, data: null, error: null, loading: false });
+      return;
+    }
+
+    if (
+      isStellar(toChainId) &&
+      isStellarAccountActive === false &&
+      buyAssetSymbol.toUpperCase() !== 'XLM'
+    ) {
+      setCurrentQuote({
+        source: null,
+        data: null,
+        error: 'Account activation required',
+        loading: false,
+      });
+      return;
+    }
+
+    if (
+      isStellar(toChainId) &&
+      isStellarAccountActive !== false &&
+      selectedBuyAsset &&
+      !selectedBuyAsset.isNative &&
+      !selectedBuyAsset.hasTrustline
+    ) {
+      setCurrentQuote({ source: null, data: null, error: 'Trustline required', loading: false });
       return;
     }
 
@@ -353,6 +384,7 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
     setCrossChainWarning,
     setBridgeErrorMsg,
     resetSwap,
+    isStellarAccountActive,
   ]);
 
   const isQuoteLoading = !!(currentQuote.loading || swapQuoteLoading || isRefreshing);

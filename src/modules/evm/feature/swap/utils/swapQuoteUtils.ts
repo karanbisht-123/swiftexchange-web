@@ -136,6 +136,7 @@ export function getButtonLabel(params: ButtonLabelParams): string {
     selectedBuyAsset,
     nativeSymbol,
     missingWallets,
+    isStellarAccountActive,
   } = params;
 
   if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
@@ -164,11 +165,21 @@ export function getButtonLabel(params: ButtonLabelParams): string {
 
   if (
     isStellar(toChainId) &&
+    isStellarAccountActive === false &&
+    selectedBuyAsset &&
+    selectedBuyAsset.symbol.toUpperCase() !== 'XLM'
+  ) {
+    return 'ACTIVATE ACCOUNT';
+  }
+
+  if (
+    isStellar(toChainId) &&
+    isStellarAccountActive !== false &&
     selectedBuyAsset &&
     !selectedBuyAsset.isNative &&
     !selectedBuyAsset.hasTrustline
   ) {
-    return 'ADD TRUSTLINE & SWAP';
+    return 'ADD TRUSTLINE';
   }
 
   if (errorMessage) {

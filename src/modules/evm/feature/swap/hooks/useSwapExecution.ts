@@ -6,6 +6,7 @@ import { useSwapStore } from '../../../../../store/swapStore';
 import { useTransactionModalStore } from '../../../../../store/transactionModalStore';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { usePortfolioStore } from '../../../../walletconnect/store/portfolioStore';
+import { useWalletStore } from '../../../../walletconnect/store/walletConnectStore';
 import { storeSwapOrder } from '../../../service/evmTransactionStatusService';
 import { getChainById } from '../../../utils/Chainregistry';
 import { getEVMNetworkConfig, simulateEVMTransaction } from '../../../utils/evmUtils';
@@ -30,6 +31,7 @@ export interface UseSwapExecutionParams {
   currentNetwork: 'mainnet' | 'testnet';
   userSlippageTolerance: number;
   fromChainConfig: any;
+  isStellarAccountActive?: boolean | null;
 
   // quote data
   currentQuote: UnifiedQuote;
@@ -93,6 +95,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     resetInputs,
     setSellAmount,
     executeNearIntentDeposit,
+    isStellarAccountActive,
   } = params;
 
   const navigate = useNavigate();
@@ -108,6 +111,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
 
   const isSubmittingRef = useRef(false);
   const swapAbortRef = useRef<AbortController | null>(null);
+  const activationPollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const { showToast } = useNotificationStore();
   const { openModal } = useTransactionModalStore();
@@ -141,6 +145,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
   useEffect(() => {
     return () => {
       swapAbortRef.current?.abort();
+      if (activationPollingRef.current) clearInterval(activationPollingRef.current);
     };
   }, []);
 
@@ -153,6 +158,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     setExecutionCurrentStep('preparing');
     resetSwap();
     isSubmittingRef.current = false;
+    if (activationPollingRef.current) clearInterval(activationPollingRef.current);
   }, [resetSwap, setBridgeTxStatus, setExecutionApprovalRequired, setExecutionCurrentStep]);
 
   const setSwapProgressStatus = useCallback(
@@ -566,7 +572,235 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         }
       }
 
+      // --- NEW ACTIVATION & TRUSTLINE LOGIC ---
+      const isActivating =
+        isStellar(toChainId) &&
+        isStellarAccountActive === false &&
+        buyAssetSymbol.toUpperCase() !== 'XLM';
+
+      const isSettingTrustline =
+        isStellar(toChainId) &&
+        isStellarAccountActive !== false &&
+        selectedBuyAsset &&
+        !(selectedBuyAsset as any).isNative &&
+        !(selectedBuyAsset as any).hasTrustline;
+
+      if (isActivating) {
+        // Perform Activation Step
+        setExecutionCurrentStep('activating');
+        setBridgeTxStatus('preparing');
+
+        try {
+          const {
+            getNearIntentQuote,
+            fetchNearIntentTokens,
+            matchNearIntentToken,
+            pollNearIntentStatus,
+          } = await import('../services/oneClickApi');
+          const nearTokens = await fetchNearIntentTokens();
+
+          const nearSellAsset = matchNearIntentToken(
+            nearTokens,
+            sellAssetSymbol,
+            (selectedSellAsset as any)?.address,
+            fromChainId
+          );
+
+          const xlmToken = nearTokens.find(
+            t =>
+              t.blockchain.toLowerCase() === 'stellar' &&
+              (t.symbol.toUpperCase() === 'XLM' ||
+                !t.contractAddress ||
+                t.contractAddress === 'native')
+          );
+
+          if (!nearSellAsset || !xlmToken)
+            throw new Error('Could not resolve assets for activation.');
+
+          const activationQuoteRes = await getNearIntentQuote({
+            dry: false,
+            swapType: 'EXACT_OUTPUT',
+            slippageTolerance: userSlippageTolerance * 100,
+            originAsset: nearSellAsset.assetId,
+            depositType: 'ORIGIN_CHAIN',
+            destinationAsset: xlmToken.assetId,
+            amount: '2', // 2 XLM for reserve
+            recipient: stellarAddress,
+            recipientType: 'DESTINATION_CHAIN',
+            refundTo: evmAddress,
+            refundType: 'ORIGIN_CHAIN',
+            deadline: new Date(Date.now() + 1200000).toISOString(),
+          });
+
+          const activationQuote = activationQuoteRes.quote;
+          if (!activationQuote?.depositAddress) throw new Error('Failed to get activation quote.');
+
+          checkAborted();
+          setExecutionCurrentStep('signing'); // Prompt EVM tx for activation
+          setIsWaitingForWallet(true);
+
+          const activationHash = await executeNearIntentDeposit!(
+            nearSellAsset,
+            activationQuote.amountIn,
+            activationQuote
+          );
+          if (!activationHash) throw new Error('Activation deposit failed.');
+
+          setIsWaitingForWallet(false);
+          setExecutionCurrentStep('polling_activation');
+
+          // Poll for activation
+          await new Promise<void>((resolve, reject) => {
+            let attempts = 0;
+            activationPollingRef.current = setInterval(async () => {
+              attempts++;
+              try {
+                const statusRes = await pollNearIntentStatus(
+                  activationHash,
+                  activationQuote.depositAddress,
+                  activationQuote.depositMemo
+                );
+                if (statusRes.status === 'completed') {
+                  if (activationPollingRef.current) clearInterval(activationPollingRef.current);
+                  resolve();
+                } else if (statusRes.status === 'failed' || statusRes.status === 'refunded') {
+                  if (activationPollingRef.current) clearInterval(activationPollingRef.current);
+                  reject(new Error('Activation deposit failed or refunded.'));
+                }
+              } catch (e) {
+                console.warn('Polling error', e);
+              }
+
+              if (attempts > 120) {
+                if (activationPollingRef.current) clearInterval(activationPollingRef.current);
+                reject(new Error('Activation timed out.'));
+              }
+            }, 5000);
+          });
+
+          checkAborted();
+
+          // Setup trustline
+          setExecutionCurrentStep('setting_trustline');
+          setIsWaitingForWallet(true);
+          const { buildTrustlineTransaction, signAndSubmitTrustline } =
+            await import('../../../../stellar/utils/assetUtils/assetUtils');
+          const { getStellarConfig } = await import('../../../../walletconnect/config/chains');
+          const { Horizon } = await import('@stellar/stellar-sdk');
+
+          const currentNetwork = useWalletStore.getState().network;
+          const stellarConfig = getStellarConfig(currentNetwork);
+          const server = new Horizon.Server(stellarConfig.horizonUrl);
+          const stellarProvider = getProvider(WalletType.STELLAR);
+          const buyAssetIssuer =
+            (selectedBuyAsset as any)?.issuer || (selectedBuyAsset as any)?.address;
+
+          const xdr = await buildTrustlineTransaction({
+            server,
+            stellarAddress,
+            assetCode: buyAssetSymbol,
+            assetIssuer: buyAssetIssuer,
+            currentNetwork,
+          });
+
+          const networkPassphrase = stellarConfig.networkPassphrase || '';
+          const trustlineResult = await signAndSubmitTrustline(
+            xdr,
+            stellarConfig.network === 'PUBLIC' ? 'mainnet' : 'testnet',
+            networkPassphrase,
+            stellarProvider
+          );
+
+          if (!trustlineResult.success)
+            throw new Error(trustlineResult.error || 'Failed to set up trustline.');
+          setIsWaitingForWallet(false);
+
+          // Activation & Trustline complete!
+          handleReset();
+          showToast({
+            type: 'STELLAR',
+            title: 'Setup Complete',
+            message: `Account activated and trustline created for ${buyAssetSymbol}. You can now execute your swap!`,
+          });
+          openModal({
+            status: 'success',
+            type: 'Swap',
+            hash: trustlineResult.transactionHash,
+            isStellar: true,
+          });
+          return; // STOP execution here, don't execute the main swap.
+        } catch (err: any) {
+          setIsWaitingForWallet(false);
+          if (activationPollingRef.current) clearInterval(activationPollingRef.current);
+          if ((err as any)?.name === 'AbortError') throw err;
+          throw new Error(`Activation failed: ${err.message}`);
+        }
+      }
+
+      if (isSettingTrustline) {
+        // Perform Trustline Setup Only
+        setExecutionCurrentStep('setting_trustline');
+        setBridgeTxStatus('preparing');
+        setIsWaitingForWallet(true);
+        try {
+          const { buildTrustlineTransaction, signAndSubmitTrustline } =
+            await import('../../../../stellar/utils/assetUtils/assetUtils');
+          const { getStellarConfig } = await import('../../../../walletconnect/config/chains');
+          const { Horizon } = await import('@stellar/stellar-sdk');
+
+          const currentNetwork = useWalletStore.getState().network;
+          const stellarConfig = getStellarConfig(currentNetwork);
+          const server = new Horizon.Server(stellarConfig.horizonUrl);
+          const stellarProvider = getProvider(WalletType.STELLAR);
+          const buyAssetIssuer =
+            (selectedBuyAsset as any)?.issuer || (selectedBuyAsset as any)?.address;
+
+          const xdr = await buildTrustlineTransaction({
+            server,
+            stellarAddress,
+            assetCode: buyAssetSymbol,
+            assetIssuer: buyAssetIssuer,
+            currentNetwork,
+          });
+
+          const networkPassphrase = stellarConfig.networkPassphrase || '';
+          const trustlineResult = await signAndSubmitTrustline(
+            xdr,
+            stellarConfig.network === 'PUBLIC' ? 'mainnet' : 'testnet',
+            networkPassphrase,
+            stellarProvider
+          );
+
+          if (!trustlineResult.success)
+            throw new Error(trustlineResult.error || 'Failed to set up trustline.');
+          setIsWaitingForWallet(false);
+
+          handleReset();
+          showToast({
+            type: 'STELLAR',
+            title: 'Trustline Added',
+            message: `Trustline created for ${buyAssetSymbol}. You can now execute your swap!`,
+          });
+          openModal({
+            status: 'success',
+            type: 'Swap',
+            hash: trustlineResult.transactionHash,
+            isStellar: true,
+          });
+          return; // STOP execution here, don't execute the main swap.
+        } catch (err: any) {
+          setIsWaitingForWallet(false);
+          if ((err as any)?.name === 'AbortError') throw err;
+          throw new Error(`Trustline setup failed: ${err.message}`);
+        }
+      }
+      // --- END ACTIVATION LOGIC ---
+
       if (actionType === 'SWAP') {
+        if (!currentQuote.data) {
+          setBridgeTxStatus('idle');
+          return;
+        }
         if (isStellar(fromChainId)) {
           await executeStellarSwap(checkAborted);
         } else {
@@ -590,93 +824,13 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           return;
         }
 
-        const executeEvmFusionPlusBridge = async (checkAborted: () => void) => {
-          if (!evmAddress) {
-            setBridgeTxStatus('idle');
-            return;
-          }
-          setBridgeTxStatus('preparing');
-          try {
-            const quoteData = currentQuote.data;
-            const preset = quoteData.recommended_preset || 'fast';
-            // Pass currentQuote.data (the raw FusionQuote) — it contains quoteId and presets
-            const hash = await performFusionSwap(
-              selectedSellAsset as any,
-              selectedBuyAsset as any,
-              sellAmount,
-              preset,
-              setSwapProgressStatus,
-              currentQuote.data,
-              () => {
-                checkAborted();
-                setBridgeTxStatus('signing');
-                setIsWaitingForWallet(true);
-              }
-            );
-            const computedOutAmount = getCalculatedBuyAmount({
-              actionType,
-              isGasless,
-              showFusionScreen,
-              selectedBuyAsset,
-              activeQuoteSource: currentQuote.source,
-              activeQuoteData: currentQuote.data,
-              isSameAssetSelected: false,
-              feePayType,
-            });
-            const wasTracked = hash ? trackDydxIntent(hash, computedOutAmount) : false;
-            handleReset();
-            showToast({
-              type: 'EVM_SWAP',
-              title: 'Bridge Order Submitted',
-              message: `Cross-chain swap for ${sellAmount} ${sellAssetSymbol} → ${buyAssetSymbol} submitted successfully.`,
-            });
-            openModal({
-              status: 'success',
-              type: 'Bridge',
-              hash,
-              explorerUrl:
-                fromChainConfig?.blockExplorerUrl && hash
-                  ? `${fromChainConfig.blockExplorerUrl}/tx/${hash}`
-                  : undefined,
-              networkName: fromChainConfig?.name,
-              isStellar: false,
-            });
-            if (wasTracked) {
-              navigate(`/transactions?tab=recent&hash=${hash}`);
-            }
-          } catch (err) {
-            if ((err as any)?.name === 'AbortError') {
-              resetLoadingState();
-              return;
-            }
-            console.error('Fusion Plus cross-chain swap failed:', err);
-            const errMsg = parseSwapError(err);
-            // Removed early return for user cancellation as per user request to show the rejection modal
-
-            setBridgeErrorMsg(errMsg);
-            setBridgeTxStatus('error');
-            openModal({
-              status: 'error',
-              type: 'Bridge',
-              error: errMsg,
-              isStellar: false,
-            });
-            showToast({
-              type: 'EVM_SWAP',
-              title: 'Bridge Failed',
-              message: errMsg,
-              dontSave: true,
-            });
-          } finally {
-            setIsWaitingForWallet(false);
-          }
-        };
-
         try {
           if (currentQuote.source === 'NEAR_INTENT' && currentQuote.data) {
             await executeEvmNearIntentBridge(checkAborted);
           } else if (currentQuote.source === 'FUSION_PLUS' && currentQuote.data) {
-            await executeEvmFusionPlusBridge(checkAborted);
+            setShowFusionScreen(true);
+            setBridgeTxStatus('idle');
+            return;
           }
         } catch (err: any) {
           if ((err as any)?.name === 'AbortError') {
@@ -708,9 +862,27 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       resetSwap();
       setBridgeTxStatus('preparing');
       await executeSwapFlow();
-    } catch (err) {
-      if ((err as any)?.name !== 'AbortError') throw err;
-      resetLoadingState();
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        resetLoadingState();
+        return;
+      }
+      console.error('Execution failed:', err);
+      const errMsg = parseSwapError(err);
+      setBridgeErrorMsg(errMsg);
+      setBridgeTxStatus('error');
+      openModal({
+        status: 'error',
+        type: actionType === 'SWAP' ? 'Swap' : 'Bridge',
+        error: errMsg,
+        isStellar: isStellar(fromChainId),
+      });
+      showToast({
+        type: actionType === 'SWAP' ? 'EVM_SWAP' : 'BRIDGE',
+        title: 'Transaction Failed',
+        message: errMsg,
+        dontSave: true,
+      });
     } finally {
       isSubmittingRef.current = false;
     }

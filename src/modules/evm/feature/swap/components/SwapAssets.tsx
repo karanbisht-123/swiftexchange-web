@@ -16,6 +16,7 @@ import { AmmSwapService } from '../../../../stellar/service/ammSwapService';
 import { StellarActivationBanner } from '../../../../walletconnect/components/StellarActivationBanner';
 import { getStellarConfig } from '../../../../walletconnect/config/chains';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
+import { useStellarAccountStatus } from '../../../../walletconnect/hooks/useStellarAccountStatus';
 import { useWalletConnect } from '../../../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../../../walletconnect/store/walletConnectStore';
 import { portfolioUtils } from '../../../../walletconnect/utils/portfolioUtils';
@@ -143,6 +144,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     isConnected,
     getProvider,
   });
+
+  const { isActive: isStellarAccountActive } = useStellarAccountStatus(stellarAddress);
 
   const bridgeTxStatus = useSwapStore(s => s.pendingTxStatus);
   const bridgeErrorMsg = useSwapStore(s => s.pendingTxErrorMsg);
@@ -367,6 +370,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     isSameAssetSelected,
     evmAddress,
     stellarAddress,
+    isStellarAccountActive,
   });
 
   const { executeDeposit: executeNearIntentDeposit } = useNearIntentCrossChain({
@@ -449,6 +453,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     resetInputs,
     setSellAmount,
     executeNearIntentDeposit,
+    isStellarAccountActive,
   });
 
   const {
@@ -482,6 +487,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     userSlippageTolerance,
     showFusionScreen,
     missingWallets,
+    isStellarAccountActive,
   });
 
   useEffect(() => {
@@ -526,7 +532,11 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   ]);
 
   useEffect(() => {
-    if ((isStellar(fromChainId) || isStellar(toChainId)) && ammService) {
+    if (
+      (isStellar(fromChainId) || isStellar(toChainId)) &&
+      ammService &&
+      bridgeTxStatus === 'idle'
+    ) {
       const fetchStellar = async () => {
         setIsFetchingStellarAssets(true);
         try {
@@ -584,7 +594,16 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
       };
       fetchStellar();
     }
-  }, [fromChainId, toChainId, stellarAddress, ammService, sellAssetSymbol, actionType]);
+  }, [
+    fromChainId,
+    toChainId,
+    stellarAddress,
+    ammService,
+    sellAssetSymbol,
+    actionType,
+    isStellarAccountActive,
+    bridgeTxStatus,
+  ]);
 
   const initializedChainsRef = useRef<{ from: any; to: any }>({ from: null, to: null });
 
@@ -687,15 +706,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   ]);
 
   useEffect(() => {
-    if (bridgeErrorMsg) {
-      setBridgeErrorMsg(null);
-      setBridgeTxStatus('idle');
-    }
-    resetSwap();
     if (!sellAmount || parseFloat(sellAmount) <= 0) {
       resetQuotes();
     }
-  }, [sellAmount, resetQuotes, setBridgeErrorMsg, setBridgeTxStatus, bridgeErrorMsg, resetSwap]);
+  }, [sellAmount, resetQuotes]);
 
   useEffect(() => {
     setBridgeErrorMsg(null);
@@ -734,16 +748,8 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     if (swapError || bridgeErrorMsg || bridgeTxStatus === 'error') {
       setIsWaitingForWallet(false);
       isSubmittingRef.current = false;
-      resetSwap();
     }
-  }, [
-    swapError,
-    bridgeErrorMsg,
-    bridgeTxStatus,
-    resetSwap,
-    setIsWaitingForWallet,
-    isSubmittingRef,
-  ]);
+  }, [swapError, bridgeErrorMsg, bridgeTxStatus, setIsWaitingForWallet, isSubmittingRef]);
 
   const handleMaxAmount = useCallback(() => {
     if (!selectedSellAsset || selectedSellAsset.balance === undefined) return;
@@ -1023,6 +1029,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           currentStep={executionCurrentStep}
           status={bridgeTxStatus === 'error' ? 'error' : 'pending'}
           errorMsg={bridgeErrorMsg}
+          isStellarAccountActive={isStellarAccountActive}
         />
       ) : (
         <div className="mx-auto lg:px-2 sm:px-0 w-full max-w-full overflow-hidden space-y-4">
@@ -1737,21 +1744,38 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 </div>
               )}
 
-            {currentQuote.error && !isLoadingExecution && (
-              <div className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 mb-3">
-                <div className="mt-0.5 text-red-500">
-                  <AlertCircle size={16} />
+            {currentQuote.error &&
+              !isLoadingExecution &&
+              (currentQuote.error === 'Trustline required' ||
+              currentQuote.error === 'Account activation required' ? (
+                <div className="flex items-start gap-3 rounded-xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 mb-3">
+                  <div className="mt-0.5 text-blue-500">
+                    <AlertCircle size={16} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">
+                      Action Required
+                    </p>
+                    <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-200/80">
+                      {currentQuote.error}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-red-700 dark:text-red-300">
-                    Quote Error
-                  </p>
-                  <p className="mt-1 text-xs text-red-700/80 dark:text-red-200/80">
-                    {currentQuote.error}
-                  </p>
+              ) : (
+                <div className="flex items-start gap-3 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 mb-3">
+                  <div className="mt-0.5 text-red-500">
+                    <AlertCircle size={16} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-red-700 dark:text-red-300">
+                      Quote Error
+                    </p>
+                    <p className="mt-1 text-xs text-red-700/80 dark:text-red-200/80">
+                      {currentQuote.error}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
+              ))}
 
             <ActionGuard
               title="Connect Wallet"

@@ -38,6 +38,7 @@ export interface UseSwapValidationParams {
   userSlippageTolerance: number;
   showFusionScreen: boolean;
   missingWallets?: string[];
+  isStellarAccountActive?: boolean | null;
 }
 
 export function useSwapValidation(params: UseSwapValidationParams) {
@@ -63,6 +64,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     userSlippageTolerance,
     showFusionScreen,
     missingWallets,
+    isStellarAccountActive,
   } = params;
 
   const isWalletMissing = !!(missingWallets && missingWallets.length > 0);
@@ -208,6 +210,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       selectedBuyAsset,
       nativeSymbol,
       missingWallets,
+      isStellarAccountActive,
     });
   }, [
     isFetchingSwapAssets,
@@ -224,6 +227,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     selectedBuyAsset,
     nativeSymbol,
     missingWallets,
+    isStellarAccountActive,
   ]);
 
   const isErrorState = useMemo(() => {
@@ -247,7 +251,9 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       bridgeErrorMsg ||
       isSameAssetSelected ||
       (actionType === 'BRIDGE' && crossChainWarning) ||
-      currentQuote.error
+      (currentQuote.error &&
+        currentQuote.error !== 'Trustline required' &&
+        currentQuote.error !== 'Account activation required')
     );
   }, [
     isWalletMissing,
@@ -321,6 +327,10 @@ export function useSwapValidation(params: UseSwapValidationParams) {
   ]);
 
   const isSwapDisabled = useMemo(() => {
+    if (buttonLabel === 'ACTIVATE ACCOUNT' || buttonLabel === 'ADD TRUSTLINE') {
+      return false;
+    }
+
     if (isWalletMissing) {
       return isSameAssetSelected || isLoadingExecution;
     }
@@ -340,6 +350,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       isSameAssetSelected
     );
   }, [
+    buttonLabel,
     isWalletMissing,
     sellAmount,
     isInsufficientBalance,
