@@ -89,7 +89,6 @@ export function useSwapValidation(params: UseSwapValidationParams) {
 
   const hasInsufficientStellarGas = useMemo(() => {
     if (isWalletMissing) return false;
-    // Only check gas if a quote has fetched and we aren't quote loading
     const hasQuote = !!currentQuote.data;
     if (isQuoteLoading || isFetchingStellarAssets || !hasQuote) {
       return false;
@@ -118,7 +117,6 @@ export function useSwapValidation(params: UseSwapValidationParams) {
 
   const hasInsufficientEvmGas = useMemo(() => {
     if (isWalletMissing) return false;
-    // Only check gas if a quote has fetched (either swap or bridge) and we aren't quote loading
     const hasQuote = !!currentQuote.data;
 
     if (isQuoteLoading || isFetchingSwapAssets || !hasQuote) {
@@ -229,7 +227,6 @@ export function useSwapValidation(params: UseSwapValidationParams) {
   ]);
 
   const isErrorState = useMemo(() => {
-    // Do not show error state (red button/warnings) if amount is not entered, if disconnected, or if we are actively fetching quotes
     if (
       isWalletMissing ||
       !sellAmount ||
@@ -272,7 +269,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
   ]);
 
   const isLoadingExecution = useMemo(() => {
-    return ['preparing', 'signing', 'error'].includes(bridgeTxStatus);
+    return ['preparing', 'signing'].includes(bridgeTxStatus);
   }, [bridgeTxStatus]);
 
   const calculatedBuyAmount = useMemo(() => {

@@ -23,12 +23,9 @@ export interface Asset {
 }
 
 export interface ProviderStatus {
-  /** fresh = up-to-date, stale = last refresh failed but old data still shown, error = no data at all */
   status: 'idle' | 'loading' | 'success' | 'stale' | 'error';
   lastUpdated: number;
-  /** Timestamp of the last SUCCESSFUL fetch for this provider (used by the UI "last synced X ago" label) */
   lastSuccess?: number;
-  /** Set when status transitions to 'stale' — the moment the refresh failure was detected */
   staleSince?: number;
   error?: string;
 }

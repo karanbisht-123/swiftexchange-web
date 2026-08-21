@@ -172,6 +172,9 @@ export function getButtonLabel(params: ButtonLabelParams): string {
   }
 
   if (errorMessage) {
+    // Never show raw wallet error codes or overly long messages on the button
+    const isRawCode = /^USER_REJECTED$|^ACTION_REJECTED$|^4001$/.test(errorMessage.trim());
+    if (isRawCode) return 'SWAP FAILED';
     return errorMessage.length > 45 ? 'SWAP FAILED' : errorMessage.toUpperCase();
   }
 

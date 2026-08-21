@@ -687,12 +687,15 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   ]);
 
   useEffect(() => {
-    if (!sellAmount || parseFloat(sellAmount) <= 0) {
-      resetQuotes();
+    if (bridgeErrorMsg) {
       setBridgeErrorMsg(null);
       setBridgeTxStatus('idle');
     }
-  }, [sellAmount, resetQuotes, setBridgeErrorMsg, setBridgeTxStatus]);
+    resetSwap();
+    if (!sellAmount || parseFloat(sellAmount) <= 0) {
+      resetQuotes();
+    }
+  }, [sellAmount, resetQuotes, setBridgeErrorMsg, setBridgeTxStatus, bridgeErrorMsg, resetSwap]);
 
   useEffect(() => {
     setBridgeErrorMsg(null);
@@ -709,13 +712,18 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
     if (swapError || bridgeErrorMsg) {
+      // User-rejection errors clear faster so the button recovers immediately
+      const isUserCancel = /user cancelled|user rejected|user denied|ACTION_REJECTED/i.test(
+        swapError || bridgeErrorMsg || ''
+      );
+      const delay = isUserCancel ? 1500 : 5000;
       timeoutId = setTimeout(() => {
         if (swapError) resetSwap();
         if (bridgeErrorMsg) {
           setBridgeErrorMsg(null);
           setBridgeTxStatus('idle');
         }
-      }, 5000);
+      }, delay);
     }
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
@@ -948,14 +956,13 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const signingWallet = isStellar(fromChainId)
     ? connectedWallets[WalletType.STELLAR]
     : connectedWallets[WalletType.EVM];
-
-  const executionLoadingLabel =
-    bridgeTxStatus === 'signing' ? 'CHECK WALLET...' : 'BUILDING ORDER...';
+  const executionLoadingLabel = (() => {
+    if (bridgeTxStatus === 'signing') return 'CHECK WALLET...';
+    if (executionCurrentStep === 'approving') return 'APPROVING TOKEN...';
+    return 'BUILDING ORDER...';
+  })();
 
   // Normalize display for native-address tokens on ETH L2 chains
-  // e.g. on Arbitrum the API may return symbol="ARB" for address=0x000...000
-  // but the actual gas token is ETH. We correct the display without
-  // touching the underlying asset data (swap logic still uses the original).
   const normalizedSellDisplay = selectedSellAsset
     ? normalizeTokenForDisplay(
         {
@@ -1204,12 +1211,10 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           {/* Swap Middle Button */}
           <div className="flex justify-center -my-4 lg:-my-5 relative z-10">
             <div className="relative flex items-center justify-center w-12 h-12 md:w-14 md:h-14">
-              {/* Outer Border Countdown / Loading Progress Ring */}
               <div
                 className={`absolute inset-0 w-full h-full select-none pointer-events-none ${isQuoteLoading ? 'animate-spin' : ''}`}
               >
                 <svg className="w-full h-full transform -rotate-90" viewBox="0 0 56 56">
-                  {/* Background Ring */}
                   <circle
                     cx="28"
                     cy="28"
@@ -1218,7 +1223,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     strokeWidth="2.5"
                     fill="transparent"
                   />
-                  {/* Active Progress Ring */}
                   <circle
                     cx="28"
                     cy="28"
@@ -1248,8 +1252,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
               </button>
             </div>
           </div>
-
-          {/* Receive Card */}
           <div className="bg-tertiary rounded-2xl  p-4 py-6 lg:p-6 shadow-sm relative overflow-hidden flex flex-col border border-divider/50 w-full max-w-full">
             <div className="flex justify-between items-center mb-4 sm:mb-6">
               <label className="text-xs font-black uppercase tracking-[0.15em] text-muted opacity-90">
@@ -1387,8 +1389,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                       </button>
                     </div>
                   )}
-
-                  {/* Provider row */}
                   {currentQuote.data && (
                     <div className="flex items-center justify-between py-2 border-b border-white/5">
                       <span className="text-[10px] font-black uppercase tracking-widest text-muted">
@@ -1396,7 +1396,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                       </span>
 
                       <div className="flex items-center gap-1.5">
-                        {/* Fusion Plus (1inch) */}
                         {currentQuote.source === 'FUSION_PLUS' && (
                           <img
                             src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0x111111111117dC0aa78b770fA6A738034120C302/logo.png"
@@ -1404,8 +1403,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                             alt="1inch Fusion+"
                           />
                         )}
-
-                        {/* NEAR Intents */}
                         {currentQuote.source === 'NEAR_INTENT' && (
                           <div className="w-4 h-4 rounded-full bg-white flex items-center justify-center p-0.5">
                             <img
@@ -1415,8 +1412,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                             />
                           </div>
                         )}
-
-                        {/* Uniswap */}
                         {currentQuote.data?.provider === 'UNISWAP' && (
                           <img
                             src="https://cryptologos.cc/logos/uniswap-uni-logo.png"
@@ -1435,8 +1430,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                       </div>
                     </div>
                   )}
-
-                  {/* Rate row */}
                   <div className="flex items-center justify-between py-2 border-b border-white/5">
                     <span className="text-[10px] font-black uppercase tracking-widest text-muted">
                       Rate
@@ -1446,8 +1439,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                       {buyAssetSymbol}
                     </span>
                   </div>
-
-                  {/* SWAP specific rows */}
                   {actionType === 'SWAP' && (
                     <>
                       <div className="flex items-center justify-between py-2 border-b border-white/5">
@@ -1520,8 +1511,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                         )}
                     </>
                   )}
-
-                  {/* BRIDGE specific rows */}
                   {actionType === 'BRIDGE' && (
                     <>
                       {currentQuote.source === 'FUSION_PLUS' &&
@@ -1707,7 +1696,6 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                       )}
                     </>
                   )}
-                  {/* Min received */}
                   <div className="flex items-center justify-between py-2">
                     <span className="text-[10px] font-black uppercase tracking-widest text-muted">
                       Min. Received
@@ -1817,7 +1805,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                 sellAmount,
                 preset,
                 setSwapProgressStatus,
-                undefined,
+                currentQuote.data,
                 () => setBridgeTxStatus('signing')
               );
               handleReset();

@@ -501,6 +501,8 @@ export const useEvmSwap = ({
 
     updateState({
       quoteLoading: false,
+      error: null,
+      txHash: null,
     });
   }, [updateState]);
 

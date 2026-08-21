@@ -2,7 +2,7 @@ import { TypedDataEncoder, ethers } from 'ethers';
 
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { getChainById } from '../../../utils/Chainregistry';
-import { switchOrAddChain } from '../../../utils/evmChainUtils';
+import { parseRawChainId, switchOrAddChain } from '../../../utils/evmChainUtils';
 import { AGGREGATOR_NATIVE_ADDRESS, LIMIT_ORDER_PROTOCOL } from '../constants/swap.constants';
 import { formatAmount } from '../utils/swapAmountUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
@@ -15,6 +15,33 @@ export interface ExecuteFusionSwapDependencies {
   build1InchFusionOrder: (params: any) => Promise<any>;
   submit1InchFusionOrder: (payload: any, isCrossChain: boolean, isNative: boolean) => Promise<any>;
   getProvider: (type: WalletType) => any;
+}
+function isUnsupportedMethodError(e: any): boolean {
+  if (e instanceof TypeError) return true;
+  const code = e?.code ?? e?.error?.code ?? e?.info?.error?.code;
+  const msg = (e?.message ?? e?.info?.error?.message ?? '').toLowerCase();
+
+  if (code === 4200 || code === -32601) return true;
+  if (
+    code === -32603 &&
+    (msg.includes('method') ||
+      msg.includes('supported') ||
+      msg.includes('does not exist') ||
+      msg.includes('not found') ||
+      msg.includes('cannot read') ||
+      msg.includes('undefined'))
+  ) {
+    return true;
+  }
+  return (
+    msg.includes('unknown method') ||
+    msg.includes('not supported') ||
+    msg.includes('unsupported method') ||
+    msg.includes('method does not exist') ||
+    msg.includes('does not exist') ||
+    msg.includes('cannot read properties of undefined') ||
+    msg.includes('is not a function')
+  );
 }
 
 export async function execute1InchFusionSwap(
@@ -52,17 +79,32 @@ export async function execute1InchFusionSwap(
     return lowAddress === 'native' || lowAddress === '0x0000000000000000000000000000000000000000';
   };
 
+  // Ensure the wallet is on the correct chain
   try {
-    const currentChainHex = await provider.request({ method: 'eth_chainId' });
-    const currentChainId = parseInt(currentChainHex, 16);
-    if (currentChainId !== Number(chainId)) {
+    const rawChainId = await provider.request({ method: 'eth_chainId' });
+    const currentChainId = parseRawChainId(rawChainId);
+    const targetChainId = Number(chainId);
+
+    if (currentChainId !== targetChainId) {
+      console.log(
+        `[FusionExecutor] Chain mismatch — current: ${currentChainId}, target: ${targetChainId}. Switching…`
+      );
       await switchOrAddChain(provider, chainId);
+      await new Promise(r => setTimeout(r, 300));
     }
   } catch (switchErr: any) {
-    console.error('[execute1InchFusionSwap] Chain switch failed:', switchErr?.message);
-    throw new Error(`Chain switch failed: ${switchErr?.message || 'User rejected'}`);
+    console.error('[FusionExecutor] Chain switch failed:', switchErr?.message);
+    const isUserReject =
+      /user rejected|user cancelled|user denied|4001/i.test(switchErr?.message ?? '') ||
+      switchErr?.code === 4001;
+    throw new Error(
+      isUserReject
+        ? 'User rejected the chain switch'
+        : `Chain switch failed: ${switchErr?.message || 'Unknown error'}`
+    );
   }
 
+  //Check / grant allowance
   const currentAllowance = sellAsset.isNative
     ? amountBN
     : await readAllowance(
@@ -74,8 +116,8 @@ export async function execute1InchFusionSwap(
       );
   const requiresApproval = currentAllowance < amountBN;
 
-  if (onProgress) {
-    onProgress(requiresApproval ? 'approving' : 'signing');
+  if (requiresApproval && onProgress) {
+    onProgress('approving');
   }
 
   const allowance = await ensureFusionAllowance(
@@ -86,12 +128,11 @@ export async function execute1InchFusionSwap(
     chainId,
     onBeforeWalletSign
   );
-  if (allowance.approvalTxHash) {
-    if (onApprovalTxHash) onApprovalTxHash(allowance.approvalTxHash);
+  if (allowance.approvalTxHash && onApprovalTxHash) {
+    onApprovalTxHash(allowance.approvalTxHash);
   }
 
-  if (onProgress) onProgress('signing');
-
+  //Pre-flight simulation
   const simResult = await deps.simulateSwapTransaction({
     networkKey: chainId,
     from: senderAddress,
@@ -104,6 +145,7 @@ export async function execute1InchFusionSwap(
     throw new Error(`Simulation Alert: ${errorDetails}`);
   }
 
+  //Build the Fusion order
   const normalizedTokenIn =
     sellAsset.isNative || isNativeAddress(sellAsset.address)
       ? AGGREGATOR_NATIVE_ADDRESS.toLowerCase()
@@ -115,7 +157,6 @@ export async function execute1InchFusionSwap(
 
   const secretCount =
     quote.presets?.[preset]?.secretsCount || quote.presets?.[preset]?.secretCount || 1;
-
   const isSourceNative = sellAsset.isNative || isNativeAddress(sellAsset.address);
 
   const fusionOrder = await deps.build1InchFusionOrder({
@@ -140,33 +181,36 @@ export async function execute1InchFusionSwap(
   });
 
   const { typedData, extension, orderHash } = fusionOrder;
-  console.log('[execute1InchFusionSwap] buildFusionOrder response:', {
-    fusionOrder,
+  console.log('[FusionExecutor] buildFusionOrder response:', {
+    hasTransaction: !!fusionOrder.transaction,
+    hasTypedData: !!typedData,
+    hasOrderHash: !!orderHash,
     sellAssetAddress: sellAsset.address,
     buyAssetAddress: buyAsset.address,
-    normalizedTokenIn,
-    normalizedTokenOut,
   });
 
   if (!orderHash) throw new Error('No orderHash received from build order');
 
+  // Sign or broadcast
   let submitPayload: any;
 
   if (fusionOrder.transaction) {
-    console.log('[execute1InchFusionSwap] Native order returned a transaction. Broadcasting...');
+    console.log('[FusionExecutor] Native order — broadcasting transaction…');
+
     const ethersProvider = new ethers.BrowserProvider(provider);
-    const signer = await ethersProvider.getSigner();
+    const signer = await ethersProvider.getSigner(senderAddress);
 
     const txParams = {
-      from: senderAddress,
+      // `from` omitted — signer is already bound to senderAddress via getSigner(senderAddress)
       to: fusionOrder.transaction.to,
       data: fusionOrder.transaction.data,
       value: BigInt(fusionOrder.transaction.value || 0),
     };
 
+    if (onProgress) onProgress('signing');
     onBeforeWalletSign?.();
     const txResponse = await signer.sendTransaction(txParams);
-    console.log('[execute1InchFusionSwap] Native fusion tx broadcast:', txResponse.hash);
+    console.log('[FusionExecutor] Native fusion tx broadcast:', txResponse.hash);
 
     submitPayload = {
       orderHash: fusionOrder.orderHash,
@@ -174,108 +218,101 @@ export async function execute1InchFusionSwap(
       srcChain: chainSymbol,
     };
   } else {
-    if (!typedData) throw new Error('No typed data received for signing');
+    if (!typedData) throw new Error('No typed data received from build order');
     if (!extension) throw new Error('No extension data received from build order');
 
-    console.log('[execute1InchFusionSwap] Requesting signature for typedData:', typedData);
+    console.log('[FusionExecutor] Requesting EIP-712 signature…');
+    if (onProgress) onProgress('signing');
     onBeforeWalletSign?.();
-    const isUnknownMethodError = (e: any) => {
-      const msg = (e?.message ?? '').toLowerCase();
-      return (
-        e?.code === 4200 ||
-        e?.code === -32601 ||
-        msg.includes('unknown method') ||
-        msg.includes('not supported') ||
-        msg.includes('unsupported method') ||
-        msg.includes('does not exist')
-      );
-    };
+    let signature: string | undefined;
 
-    let signature: string;
     try {
       signature = await provider.request({
         method: 'eth_signTypedData_v4',
         params: [senderAddress, JSON.stringify(typedData)],
       });
     } catch (err1: any) {
-      if (!isUnknownMethodError(err1)) throw err1;
+      if (!isUnsupportedMethodError(err1)) {
+        throw err1;
+      }
+      console.warn('[FusionExecutor] eth_signTypedData_v4 not supported, trying v3…');
       try {
         signature = await provider.request({
           method: 'eth_signTypedData',
           params: [senderAddress, JSON.stringify(typedData)],
         });
       } catch (err2: any) {
-        if (!isUnknownMethodError(err2)) throw err2;
+        if (!isUnsupportedMethodError(err2)) throw err2;
+        console.warn(
+          '[FusionExecutor] eth_signTypedData not supported, falling back to personal_sign…'
+        );
         const { domain, types, message } = typedData as any;
         const cleanTypes = { ...types };
         delete cleanTypes['EIP712Domain'];
         const hash = TypedDataEncoder.hash(domain, cleanTypes, message);
-        const personalSig = await provider.request({
+        signature = await provider.request({
           method: 'personal_sign',
           params: [hash, senderAddress],
         });
-        signature = personalSig;
       }
     }
-    if (!signature) throw new Error('Signature cancelled or failed');
-    console.log('[execute1InchFusionSwap] Signature generated:', signature);
+
+    if (!signature) throw new Error('Signature cancelled or empty — please try again');
+    console.log('[FusionExecutor] Signature obtained ✓');
 
     const orderMessage = typedData.message;
-    submitPayload = {
-      chain: chainSymbol,
-      order: {
-        maker: orderMessage.maker,
-        makerAsset: orderMessage.makerAsset,
-        takerAsset: orderMessage.takerAsset,
-        makerTraits: orderMessage.makerTraits,
-        salt: orderMessage.salt,
-        makingAmount: orderMessage.makingAmount,
-        takingAmount: orderMessage.takingAmount,
-        receiver: orderMessage.receiver || senderAddress,
-      },
-      quoteId: quote.quoteId,
-      extension,
-      signature,
-      permit: '',
-      orderHash,
+    const orderFields = {
+      maker: orderMessage.maker,
+      makerAsset: orderMessage.makerAsset,
+      takerAsset: orderMessage.takerAsset,
+      makerTraits: orderMessage.makerTraits,
+      salt: orderMessage.salt,
+      makingAmount: orderMessage.makingAmount,
+      takingAmount: orderMessage.takingAmount,
+      receiver: orderMessage.receiver || senderAddress,
     };
 
     if (isCrossChain) {
+      const destChainInfo = getChainById(toChainId);
+      const destRawSymbol =
+        (destChainInfo?.symbol || destChainInfo?.nativeCurrency.symbol)?.toUpperCase() || 'ETH';
       submitPayload = {
         chain: chainSymbol,
-        toChain: (() => {
-          const chainInfo = getChainById(toChainId);
-          const symbol =
-            (chainInfo?.symbol || chainInfo?.nativeCurrency.symbol)?.toUpperCase() || 'ETH';
-          return symbol === 'BNB' ? 'BSC' : symbol;
-        })(),
-        order: {
-          maker: orderMessage.maker,
-          makerAsset: orderMessage.makerAsset,
-          takerAsset: orderMessage.takerAsset,
-          makerTraits: orderMessage.makerTraits,
-          salt: orderMessage.salt,
-          makingAmount: orderMessage.makingAmount,
-          takingAmount: orderMessage.takingAmount,
-          receiver: orderMessage.receiver || senderAddress,
-        },
+        toChain: destRawSymbol === 'BNB' ? 'BSC' : destRawSymbol,
+        order: orderFields,
         signature,
         extension,
         quoteId: quote.quoteId,
         orderHash,
       };
+    } else {
+      submitPayload = {
+        chain: chainSymbol,
+        order: orderFields,
+        quoteId: quote.quoteId,
+        extension,
+        signature,
+        permit: '',
+        orderHash,
+      };
     }
   }
 
-  console.log('[execute1InchFusionSwap] Submitting order payload:', submitPayload);
+  console.log('[FusionExecutor] Submitting order…', {
+    isCrossChain,
+    isSourceNative,
+    orderHash,
+  });
 
-  const MAX_RETRIES = 4;
+  // Submit with retry
+  const MAX_RETRIES = 1;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       await deps.submit1InchFusionOrder(submitPayload, isCrossChain, isSourceNative);
+      console.log(`[FusionExecutor] Order submitted successfully on attempt ${attempt}`);
       break;
     } catch (err: any) {
-      const msg = err.message?.toLowerCase() ?? '';
+      const msg = (err.message ?? '').toLowerCase();
       const isTransient =
         msg.includes('allowance') ||
         msg.includes('permit') ||
@@ -284,12 +321,11 @@ export async function execute1InchFusionSwap(
 
       if (isTransient && attempt < MAX_RETRIES) {
         console.warn(
-          `[execute1InchFusionSwap] Submission failed, retrying (${attempt}/${MAX_RETRIES})`
+          `[FusionExecutor] Submission failed (transient), retrying ${attempt}/${MAX_RETRIES}…`
         );
         await new Promise(r => setTimeout(r, 4000));
         continue;
       }
-      console.log(err, 'fusion error');
       throw new Error(parseSwapError(err));
     }
   }

@@ -56,7 +56,10 @@ export async function sendApprovalTx(
   onBeforeWalletSign?: () => void
 ): Promise<string> {
   const ethersProvider = new ethers.BrowserProvider(provider);
-  const signer = await ethersProvider.getSigner();
+  // Use getSigner(walletAddress) so the signer is explicitly bound to the
+  // correct account — avoids -32000 "unknown account" when the extension's
+  // provider validates `from` against its active keyring session.
+  const signer = await ethersProvider.getSigner(walletAddress);
 
   const iface = new ethers.Interface(ERC20_ABI);
   const data = iface.encodeFunctionData('approve', [spender, amount]);
@@ -86,7 +89,9 @@ export async function sendApprovalTx(
 
   onBeforeWalletSign?.();
   const tx = await signer.sendTransaction({
-    from: walletAddress,
+    // `from` is intentionally omitted — the signer already knows its address
+    // (set via getSigner(walletAddress)). Including it explicitly can cause
+    // -32000 "unknown account" in the extension wallet's provider.
     to: tokenAddress,
     data,
     value: 0n,

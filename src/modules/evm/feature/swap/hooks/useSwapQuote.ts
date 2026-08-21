@@ -104,6 +104,7 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
     const requestId = ++latestRequestId.current;
     setCrossChainWarning(null);
     setBridgeErrorMsg(null);
+    resetSwap();
 
     if (actionType === 'SWAP') {
       if (isStellar(fromChainId) && ammService) {
@@ -351,6 +352,7 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
     stellarAddress,
     setCrossChainWarning,
     setBridgeErrorMsg,
+    resetSwap,
   ]);
 
   const isQuoteLoading = !!(currentQuote.loading || swapQuoteLoading || isRefreshing);

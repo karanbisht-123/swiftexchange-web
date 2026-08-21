@@ -83,7 +83,6 @@ export function extractCleanMessage(rawMsg: string): string {
 }
 
 function isNoisy(str: string): boolean {
-  // If it's a huge hex string (bytecode/signature), it's noise
   const LONG_HEX_PATTERN = /\b0x[0-9a-fA-F]{65,}\b/;
   if (LONG_HEX_PATTERN.test(str)) return true;
 
@@ -91,6 +90,10 @@ function isNoisy(str: string): boolean {
 }
 
 export function translateErrorMessage(message: string): string {
+  if (/^USER_REJECTED$|^ACTION_REJECTED$|^4001$/.test(message.trim())) {
+    return 'User cancelled the transaction';
+  }
+
   const processedMessage = message
     .replace(/^could not coalesce error/i, '')
     .replace(/^\s*\(/, '')
@@ -254,6 +257,15 @@ export function translateErrorMessage(message: string): string {
     return 'User cancelled the transaction';
   }
 
+  if (
+    lower.includes('cannot read properties') ||
+    lower.includes('is not a function') ||
+    lower.includes('is not defined') ||
+    lower.includes('typeerror')
+  ) {
+    return 'Wallet provider error. Please reconnect your wallet and try again.';
+  }
+
   if (processedMessage.length > 150) {
     if (lower.includes('balance') || lower.includes('underfunded')) {
       return 'Transaction failed due to insufficient balance or reserve requirements.';
@@ -295,8 +307,6 @@ export function parseWalletError(error: unknown): string {
 
   const hasNestedRpcError =
     /processing response error|jsonrpc|error=|execution reverted|gas price/i.test(rawMsg);
-
-  // Handle user rejection explicitly first, BUT ignore if it's a WalletConnect 4001 bug hiding a real RPC error
   if (
     !hasNestedRpcError &&
     (errCode === 4001 ||
@@ -310,7 +320,6 @@ export function parseWalletError(error: unknown): string {
   const message = extractCleanMessage(rawMsg);
 
   if (message.length > 0 && message !== '[object Object]') {
-    // If the message is specifically about WalletConnect, let's ensure it's clean and return it
     if (/walletconnect|wallet-connect|connector/i.test(message)) {
       const cleanWc = message
         .replace(/^walletconnect:?/i, '')
@@ -323,8 +332,6 @@ export function parseWalletError(error: unknown): string {
     if (translated) {
       return translated;
     }
-
-    // If no translation found but we have a clean, non-noisy message, return it!
     if (!isNoisy(message)) {
       return message;
     }

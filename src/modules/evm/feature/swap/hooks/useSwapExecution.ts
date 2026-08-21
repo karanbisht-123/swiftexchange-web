@@ -321,15 +321,10 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       setBridgeTxStatus('idle');
       return;
     }
-
     setExecutionApprovalRequired(false);
     setExecutionCurrentStep('preparing');
-    checkAborted();
-
-    setExecutionCurrentStep('signing');
-    setBridgeTxStatus('signing');
+    setBridgeTxStatus('preparing');
     setPendingTxFromChainId(fromChainId);
-    setIsWaitingForWallet(true);
 
     try {
       const {
@@ -395,6 +390,9 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       }
 
       checkAborted();
+      setExecutionCurrentStep('signing');
+      setBridgeTxStatus('signing');
+      setIsWaitingForWallet(true);
 
       const hash = await executeNearIntentDeposit(nearSellAsset, sellAmount, liveQuote);
       checkAborted();
@@ -601,13 +599,14 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           try {
             const quoteData = currentQuote.data;
             const preset = quoteData.recommended_preset || 'fast';
+            // Pass currentQuote.data (the raw FusionQuote) — it contains quoteId and presets
             const hash = await performFusionSwap(
               selectedSellAsset as any,
               selectedBuyAsset as any,
               sellAmount,
               preset,
               setSwapProgressStatus,
-              currentQuote,
+              currentQuote.data,
               () => {
                 checkAborted();
                 setBridgeTxStatus('signing');
@@ -652,6 +651,8 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
             }
             console.error('Fusion Plus cross-chain swap failed:', err);
             const errMsg = parseSwapError(err);
+            // Removed early return for user cancellation as per user request to show the rejection modal
+
             setBridgeErrorMsg(errMsg);
             setBridgeTxStatus('error');
             openModal({
@@ -704,6 +705,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
 
     try {
       setBridgeErrorMsg(null);
+      resetSwap();
       setBridgeTxStatus('preparing');
       await executeSwapFlow();
     } catch (err) {

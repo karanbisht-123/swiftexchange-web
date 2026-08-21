@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
+
 import * as StellarSDK from '@stellar/stellar-sdk';
 import { ethers } from 'ethers';
+
 import { notifyWalletSignRequest } from '../../../../../utils/walletConnectUtils';
 import { StellarSequenceTracker } from '../../../../stellar/utils/StellarSequenceTracker';
 import { signAndSubmitTransaction } from '../../../../stellar/utils/transactionService';
@@ -217,7 +219,9 @@ export const useNearIntentCrossChain = ({
           }
 
           const web3Provider = new ethers.BrowserProvider(provider);
-          const signer = await web3Provider.getSigner();
+          // Use getSigner(evmAddress) to bind the signer to the specific account,
+          // preventing -32000 "unknown account" from the extension's provider.
+          const signer = await web3Provider.getSigner(evmAddress);
 
           notifyWalletSignRequest(WalletType.EVM);
 
@@ -242,6 +246,9 @@ export const useNearIntentCrossChain = ({
           const fromAddr = (await signer.getAddress()).toLowerCase();
           const amountInWei = BigInt(safeParseUnits(amount, sellAsset.decimals || 18));
 
+          // `fromAddr` is obtained from the signer which is already bound to evmAddress,
+          // so it will always match the active keyring account. `from` is required for
+          // raw eth_sendTransaction (EIP-1193) so the extension knows which account to sign.
           const txParams: any = {
             from: fromAddr,
           };
