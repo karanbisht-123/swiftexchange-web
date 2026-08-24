@@ -1,4 +1,12 @@
-import { AlertCircle, ArrowRight, ArrowUpDown, ChevronDown, RefreshCw, Zap } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowRight,
+  ArrowUpDown,
+  ChevronDown,
+  RefreshCw,
+  Settings,
+  Zap,
+} from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -41,6 +49,7 @@ import { calculateMaxSwapAmount, toPlainString } from '../utils/swapAmountUtils'
 import { isSameAsset, isStellar, matchesAddress } from '../utils/swapAssetUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
 import FusionQuoteScreen from './FusionQuoteScreen';
+import SlippageSettingsModal from './SlippageSettingsModal';
 import { SwapExecutionScreen } from './SwapExecutionScreen';
 
 interface SwapAssetsProps {
@@ -54,7 +63,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const evmWallet = connectedWallets[WalletType.EVM];
   const stellarWallet = connectedWallets[WalletType.STELLAR];
-  const isConnected = !!evmWallet;
+  const isConnected = !!evmWallet || !!stellarWallet;
   const evmAddress = evmWallet?.address || '';
   const stellarAddress = stellarWallet?.address || '';
   const currentChainId = evmWallet?.chainId || null;
@@ -78,6 +87,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     isGasless,
     setIsGasless,
     userSlippageTolerance,
+    setUserSlippageTolerance,
     feePayType,
     setFeePayType,
     resetInputs,
@@ -86,6 +96,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [crossChainWarning, setCrossChainWarning] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const [ammService, setAmmService] = useState<AmmSwapService | null>(null);
   const [stellarAssets, setStellarAssets] = useState<any[]>([]);
@@ -377,6 +388,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     evmAddress,
     stellarAddress,
     getProvider,
+    currentNetwork,
   });
 
   const toggleRoute = useCallback(() => {
@@ -1446,78 +1458,92 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                       {buyAssetSymbol}
                     </span>
                   </div>
-                  {actionType === 'SWAP' && (
-                    <>
-                      <div className="flex items-center justify-between py-2 border-b border-white/5">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-muted">
-                          Max Slippage
-                        </span>
-                        <span
-                          className={`text-[11px] font-black ${isGasless && showFusionScreen ? 'text-green-500' : 'text-primary'}`}
-                        >
-                          {isGasless && showFusionScreen ? 'None' : `${userSlippageTolerance}%`}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between py-2 border-b border-white/5">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-muted">
-                          Network Fee
-                        </span>
-                        {isGasless && showFusionScreen ? (
-                          <div className="flex items-center gap-2">
-                            {currentQuote.data?.networkFee && currentQuote.data.networkFee > 0 && (
-                              <span className="text-[11px] font-black text-muted line-through opacity-60">
-                                ~{currentQuote.data.networkFee.toFixed(6)}{' '}
-                                {fromChainConfig?.nativeCurrency.symbol}
-                              </span>
-                            )}
-                            <span className="text-[11px] font-black text-green-500">Free</span>
-                          </div>
-                        ) : isStellar(fromChainId) ? (
-                          <span className="text-[11px] font-black text-primary">~0.00001 XLM</span>
-                        ) : (
-                          <span className="text-[11px] font-black text-primary">
-                            {currentQuote.data?.networkFee && currentQuote.data.networkFee > 0
-                              ? `~${currentQuote.data.networkFee.toFixed(6)} ${fromChainConfig?.nativeCurrency.symbol}`
-                              : '—'}
-                          </span>
-                        )}
-                      </div>
-
-                      {!isStellar(fromChainId) && (
+                  {(actionType === 'SWAP' || currentQuote.source === 'FUSION_PLUS') &&
+                    !isStellar(fromChainId) && (
+                      <>
                         <div className="flex items-center justify-between py-2 border-b border-white/5">
                           <span className="text-[10px] font-black uppercase tracking-widest text-muted">
-                            Gasless Swap
+                            Max Slippage
                           </span>
                           <button
-                            onClick={() => setIsGasless(!isGasless)}
-                            className={`relative w-8 h-4 rounded-full transition-colors ${isGasless ? 'bg-green-500' : 'bg-white/10'}`}
+                            onClick={() => setIsSettingsOpen(true)}
+                            className="flex items-center gap-1.5 group"
+                            title="Open swap settings"
                           >
-                            <div
-                              className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${isGasless ? 'translate-x-4' : 'translate-x-0'}`}
+                            <span
+                              className={`text-[11px] font-black ${isGasless && showFusionScreen ? 'text-green-500' : 'text-primary'}`}
+                            >
+                              {isGasless && showFusionScreen ? 'None' : `${userSlippageTolerance}%`}
+                            </span>
+                            <Settings
+                              size={11}
+                              className="text-muted group-hover:text-brand transition-colors"
                             />
                           </button>
                         </div>
-                      )}
 
-                      {isStellar(fromChainId) &&
-                        currentQuote.source === 'STELLAR_SWAP' &&
-                        currentQuote.data && (
+                        {actionType === 'SWAP' && (
                           <>
                             <div className="flex items-center justify-between py-2 border-b border-white/5">
                               <span className="text-[10px] font-black uppercase tracking-widest text-muted">
-                                Price Impact
+                                Network Fee
                               </span>
-                              <span
-                                className={`text-[11px] font-black ${currentQuote.data.priceImpact > 2 ? 'text-red-500' : 'text-green-500'}`}
+                              {isGasless && showFusionScreen ? (
+                                <div className="flex items-center gap-2">
+                                  {currentQuote.data?.networkFee &&
+                                    currentQuote.data.networkFee > 0 && (
+                                      <span className="text-[11px] font-black text-muted line-through opacity-60">
+                                        ~{currentQuote.data.networkFee.toFixed(6)}{' '}
+                                        {fromChainConfig?.nativeCurrency.symbol}
+                                      </span>
+                                    )}
+                                  <span className="text-[11px] font-black text-green-500">
+                                    Free
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="text-[11px] font-black text-primary">
+                                  {currentQuote.data?.networkFee && currentQuote.data.networkFee > 0
+                                    ? `~${currentQuote.data.networkFee.toFixed(6)} ${fromChainConfig?.nativeCurrency.symbol}`
+                                    : '—'}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center justify-between py-2 border-b border-white/5">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">
+                                Gasless Swap
+                              </span>
+                              <button
+                                onClick={() => setIsGasless(!isGasless)}
+                                className={`relative w-8 h-4 rounded-full transition-colors ${isGasless ? 'bg-green-500' : 'bg-white/10'}`}
                               >
-                                {currentQuote.data.priceImpact.toFixed(2)}%
-                              </span>
+                                <div
+                                  className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${isGasless ? 'translate-x-4' : 'translate-x-0'}`}
+                                />
+                              </button>
                             </div>
                           </>
                         )}
-                    </>
-                  )}
+
+                        {isStellar(fromChainId) &&
+                          currentQuote.source === 'STELLAR_SWAP' &&
+                          currentQuote.data && (
+                            <>
+                              <div className="flex items-center justify-between py-2 border-b border-white/5">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-muted">
+                                  Price Impact
+                                </span>
+                                <span
+                                  className={`text-[11px] font-black ${currentQuote.data.priceImpact > 2 ? 'text-red-500' : 'text-green-500'}`}
+                                >
+                                  {currentQuote.data.priceImpact.toFixed(2)}%
+                                </span>
+                              </div>
+                            </>
+                          )}
+                      </>
+                    )}
                   {actionType === 'BRIDGE' && (
                     <>
                       {currentQuote.source === 'FUSION_PLUS' &&
@@ -1874,6 +1900,12 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           }}
         />
       )}
+      <SlippageSettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        userSlippageTolerance={userSlippageTolerance}
+        setUserSlippageTolerance={setUserSlippageTolerance}
+      />
     </PageLayout>
   );
 };

@@ -1,5 +1,6 @@
-import { TypedDataEncoder, ethers } from 'ethers';
+import { ethers } from 'ethers';
 
+import { useSwapStore } from '../../../../../store/swapStore';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { getChainById } from '../../../utils/Chainregistry';
 import { parseRawChainId, switchOrAddChain } from '../../../utils/evmChainUtils';
@@ -60,8 +61,13 @@ export async function execute1InchFusionSwap(
   const provider = deps.getProvider(WalletType.EVM);
   if (!provider) throw new Error('EVM wallet not connected');
 
-  if (quote.deadline && Math.floor(Date.now() / 1000) > Number(quote.deadline)) {
-    throw new Error('Fusion quote has expired — please refresh and try again');
+  const presetData = quote.presets?.[preset];
+  if (presetData) {
+    const auctionEndInSeconds = presetData.startAuctionIn + presetData.auctionDuration;
+    const expiresAt = Date.now() + auctionEndInSeconds * 1000;
+    if (expiresAt < Date.now() + 60_000) {
+      throw new Error('Fusion quote auction window is too short — please refresh and try again');
+    }
   }
 
   const toChainId = buyAsset.chainId || chainId;
@@ -86,9 +92,6 @@ export async function execute1InchFusionSwap(
     const targetChainId = Number(chainId);
 
     if (currentChainId !== targetChainId) {
-      console.log(
-        `[FusionExecutor] Chain mismatch — current: ${currentChainId}, target: ${targetChainId}. Switching…`
-      );
       await switchOrAddChain(provider, chainId);
       await new Promise(r => setTimeout(r, 300));
     }
@@ -120,13 +123,15 @@ export async function execute1InchFusionSwap(
     onProgress('approving');
   }
 
+  const { useUnlimitedApproval } = useSwapStore.getState();
   const allowance = await ensureFusionAllowance(
     sellAsset.address,
     senderAddress,
     amountBN,
     provider,
     chainId,
-    onBeforeWalletSign
+    onBeforeWalletSign,
+    useUnlimitedApproval
   );
   if (allowance.approvalTxHash && onApprovalTxHash) {
     onApprovalTxHash(allowance.approvalTxHash);
@@ -181,13 +186,6 @@ export async function execute1InchFusionSwap(
   });
 
   const { typedData, extension, orderHash } = fusionOrder;
-  console.log('[FusionExecutor] buildFusionOrder response:', {
-    hasTransaction: !!fusionOrder.transaction,
-    hasTypedData: !!typedData,
-    hasOrderHash: !!orderHash,
-    sellAssetAddress: sellAsset.address,
-    buyAssetAddress: buyAsset.address,
-  });
 
   if (!orderHash) throw new Error('No orderHash received from build order');
 
@@ -195,8 +193,6 @@ export async function execute1InchFusionSwap(
   let submitPayload: any;
 
   if (fusionOrder.transaction) {
-    console.log('[FusionExecutor] Native order — broadcasting transaction…');
-
     const ethersProvider = new ethers.BrowserProvider(provider);
     const signer = await ethersProvider.getSigner(senderAddress);
 
@@ -210,7 +206,6 @@ export async function execute1InchFusionSwap(
     if (onProgress) onProgress('signing');
     onBeforeWalletSign?.();
     const txResponse = await signer.sendTransaction(txParams);
-    console.log('[FusionExecutor] Native fusion tx broadcast:', txResponse.hash);
 
     submitPayload = {
       orderHash: fusionOrder.orderHash,
@@ -221,7 +216,6 @@ export async function execute1InchFusionSwap(
     if (!typedData) throw new Error('No typed data received from build order');
     if (!extension) throw new Error('No extension data received from build order');
 
-    console.log('[FusionExecutor] Requesting EIP-712 signature…');
     if (onProgress) onProgress('signing');
     onBeforeWalletSign?.();
     let signature: string | undefined;
@@ -243,22 +237,14 @@ export async function execute1InchFusionSwap(
         });
       } catch (err2: any) {
         if (!isUnsupportedMethodError(err2)) throw err2;
-        console.warn(
-          '[FusionExecutor] eth_signTypedData not supported, falling back to personal_sign…'
+        throw new Error(
+          'Your wallet does not support EIP-712 message signing (eth_signTypedData). ' +
+            'Please use a wallet that supports this feature (e.g., MetaMask, Rabby).'
         );
-        const { domain, types, message } = typedData as any;
-        const cleanTypes = { ...types };
-        delete cleanTypes['EIP712Domain'];
-        const hash = TypedDataEncoder.hash(domain, cleanTypes, message);
-        signature = await provider.request({
-          method: 'personal_sign',
-          params: [hash, senderAddress],
-        });
       }
     }
 
     if (!signature) throw new Error('Signature cancelled or empty — please try again');
-    console.log('[FusionExecutor] Signature obtained ✓');
 
     const orderMessage = typedData.message;
     const orderFields = {
@@ -298,18 +284,12 @@ export async function execute1InchFusionSwap(
     }
   }
 
-  console.log('[FusionExecutor] Submitting order…', {
-    isCrossChain,
-    isSourceNative,
-    orderHash,
-  });
-
   // Submit with retry
   const MAX_RETRIES = 1;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       await deps.submit1InchFusionOrder(submitPayload, isCrossChain, isSourceNative);
-      console.log(`[FusionExecutor] Order submitted successfully on attempt ${attempt}`);
+
       break;
     } catch (err: any) {
       const msg = (err.message ?? '').toLowerCase();

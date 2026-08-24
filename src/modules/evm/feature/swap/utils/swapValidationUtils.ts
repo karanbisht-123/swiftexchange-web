@@ -3,15 +3,23 @@ import { ethers } from 'ethers';
 import type { EvmGasCheckParams, StellarGasCheckParams } from '../types/swap.types';
 import { getGasBuffer } from './swapAmountUtils';
 import { isStellar } from './swapAssetUtils';
+import { getBridgeNativeFee } from './swapFeeUtils';
 
 export function isInsufficientBalance(
   sellAmount: string,
-  assetBalance: string | undefined
+  assetBalance: string | undefined,
+  decimals: number = 18
 ): boolean {
   if (!sellAmount || !assetBalance) return false;
-  const requiredBalance = parseFloat(sellAmount);
-  const currentBalance = parseFloat(assetBalance || '0');
-  return requiredBalance > currentBalance;
+  try {
+    const required = ethers.parseUnits(sellAmount, decimals);
+    const current = ethers.parseUnits(assetBalance, decimals);
+    return required > current;
+  } catch {
+    const requiredBalance = parseFloat(sellAmount);
+    const currentBalance = parseFloat(assetBalance || '0');
+    return requiredBalance > currentBalance;
+  }
 }
 
 export function isAmountLessThanFee(
@@ -62,9 +70,7 @@ export function isInsufficientStellarGas(params: StellarGasCheckParams): boolean
   }
 
   // For bridge with native fee payment, add the bridge protocol fee on top
-  if (actionType === 'BRIDGE' && feePayType === 'native' && activeQuoteData?.fee?.native) {
-    requiredGasFee += parseFloat(activeQuoteData.fee.native.amount);
-  }
+  requiredGasFee += getBridgeNativeFee(actionType, feePayType, activeQuoteData);
 
   if (sellAssetSymbol === 'XLM') {
     const sellAmt = parseFloat(sellAmount || '0');
@@ -98,7 +104,7 @@ export function isInsufficientEvmGas(params: EvmGasCheckParams): boolean {
   const decimals = nativeAsset.decimals || 18;
 
   // For gasless swap (like 1inch Fusion / Fusion Plus), network gas is 0 unless paying native bridge fee
-  const isGaslessSwap = isGasless || activeQuoteSource === 'fusion_plus';
+  const isGaslessSwap = isGasless || activeQuoteSource === 'FUSION_PLUS';
   let requiredGas = 0;
 
   if (!isGaslessSwap) {
@@ -106,10 +112,7 @@ export function isInsufficientEvmGas(params: EvmGasCheckParams): boolean {
     requiredGas = parseFloat(ethers.formatUnits(gasBufferBN, decimals));
   }
 
-  // Use dynamic bridge quote fee if paying native
-  if (actionType === 'BRIDGE' && feePayType === 'native' && activeQuoteData?.fee?.native) {
-    requiredGas += parseFloat(activeQuoteData.fee.native.amount);
-  }
+  requiredGas += getBridgeNativeFee(actionType, feePayType, activeQuoteData);
 
   if (isGaslessSwap && requiredGas === 0) {
     return false;

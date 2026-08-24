@@ -1,9 +1,24 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Zap, X, ArrowDown, ShieldCheck, Clock, TrendingDown, Layers, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
-; import { type FusionQuote } from '../types/swap.types';
-import TransactionButton from '../../../../commonfeature/components/TransactionButton';
+import {
+  AlertCircle,
+  ArrowDown,
+  CheckCircle2,
+  Clock,
+  ExternalLink,
+  Layers,
+  ShieldCheck,
+  TrendingDown,
+  X,
+  Zap,
+} from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+
 import { ethers } from 'ethers';
+
+import TransactionButton from '../../../../commonfeature/components/TransactionButton';
 import { getExplorerUrl } from '../../../../evm/utils/Chainregistry';
+import { type FusionQuote } from '../types/swap.types';
+
+import { type FusionQuote } from '../types/swap.types';
 
 interface FusionQuoteScreenProps {
   quote: FusionQuote;
@@ -51,7 +66,9 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
   const fusionRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [refreshCountdown, setRefreshCountdown] = useState(30);
 
-  useEffect(() => { requestAnimationFrame(() => setIsVisible(true)); }, []);
+  useEffect(() => {
+    requestAnimationFrame(() => setIsVisible(true));
+  }, []);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);
@@ -65,7 +82,9 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
   }, [onBack]);
 
   useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose(); };
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleClose();
+    };
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
   }, [handleClose]);
@@ -105,46 +124,70 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
   const sellDecimals = sellAsset?.decimals ?? 6;
   const buyDecimals = buyAsset?.decimals ?? 6;
 
-
-  const sellAmount = formatTokenAmount(quote.fromTokenAmount || quote.srcTokenAmount || '0', sellDecimals);
-
+  const sellAmount = formatTokenAmount(
+    quote.fromTokenAmount || quote.srcTokenAmount || '0',
+    sellDecimals
+  );
 
   const receiveAmount = formatTokenAmount(presetData.auctionStartAmount, buyDecimals);
-
 
   const minReceiveAmount = formatTokenAmount(presetData.auctionEndAmount, buyDecimals);
 
   const receiveValueUsd = (() => {
     try {
-      const toTokenPriceStr = (quote.prices?.usd as any)?.dstToken || (quote.prices?.usd as any)?.toToken || buyAsset?.price || buyAsset?.priceUSD;
+      const toTokenPriceStr =
+        (quote.prices?.usd as any)?.dstToken ||
+        (quote.prices?.usd as any)?.toToken ||
+        buyAsset?.price ||
+        buyAsset?.priceUSD;
       if (toTokenPriceStr) {
         const toTokenPrice = parseFloat(toTokenPriceStr);
         const value = parseFloat(ethers.formatUnits(presetData.auctionStartAmount, buyDecimals));
-        return (value * toTokenPrice);
+        return value * toTokenPrice;
       }
-    } catch (e) { 
+    } catch (e) {
       console.debug(e);
     }
     return null;
   })();
 
-
   const feeTokenInfo = (() => {
     const addr = quote.feeToken?.toLowerCase();
     const usdPrices = quote.prices?.usd as any;
     if (!addr) {
-      return { symbol: buyAsset?.symbol || 'ETH', decimals: buyAsset?.decimals || 18, price: usdPrices?.dstToken || usdPrices?.toToken || buyAsset?.price || buyAsset?.priceUSD };
+      return {
+        symbol: buyAsset?.symbol || 'ETH',
+        decimals: buyAsset?.decimals || 18,
+        price: usdPrices?.dstToken || usdPrices?.toToken || buyAsset?.price || buyAsset?.priceUSD,
+      };
     }
     if (sellAsset?.address?.toLowerCase() === addr) {
-      return { symbol: sellAsset?.symbol, decimals: sellAsset?.decimals || 18, price: usdPrices?.srcToken || usdPrices?.fromToken || sellAsset?.price || sellAsset?.priceUSD };
+      return {
+        symbol: sellAsset?.symbol,
+        decimals: sellAsset?.decimals || 18,
+        price:
+          usdPrices?.srcToken || usdPrices?.fromToken || sellAsset?.price || sellAsset?.priceUSD,
+      };
     }
     if (buyAsset?.address?.toLowerCase() === addr) {
-      return { symbol: buyAsset?.symbol, decimals: buyAsset?.decimals || 18, price: usdPrices?.dstToken || usdPrices?.toToken || buyAsset?.price || buyAsset?.priceUSD };
+      return {
+        symbol: buyAsset?.symbol,
+        decimals: buyAsset?.decimals || 18,
+        price: usdPrices?.dstToken || usdPrices?.toToken || buyAsset?.price || buyAsset?.priceUSD,
+      };
     }
     if (addr === '0xd6df932a45c0f255f85145f286ea0b292b21c90b') {
-      return { symbol: 'ARB', decimals: 18, price: usdPrices?.fromToken || usdPrices?.srcToken || 0.90 };
+      return {
+        symbol: 'ARB',
+        decimals: 18,
+        price: usdPrices?.fromToken || usdPrices?.srcToken || 0,
+      };
     }
-    return { symbol: buyAsset?.symbol || 'ETH', decimals: buyAsset?.decimals || 18, price: usdPrices?.dstToken || usdPrices?.toToken || buyAsset?.price || buyAsset?.priceUSD };
+    return {
+      symbol: buyAsset?.symbol || 'ETH',
+      decimals: buyAsset?.decimals || 18,
+      price: usdPrices?.dstToken || usdPrices?.toToken || buyAsset?.price || buyAsset?.priceUSD,
+    };
   })();
 
   const feeRaw = (presetData as any).tokenFee || (presetData as any).costInDstToken || '0';
@@ -154,13 +197,13 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
 
   const feeFormatted = feeValue >= 0.0001 ? feeValue.toFixed(4) : feeValue.toFixed(6);
 
-  const feeUsd = feeTokenPrice > 0 ? (feeValue * feeTokenPrice) : 0;
-  const feeUsdFormatted = feeUsd > 0
-    ? ` (~$${feeUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })})`
-    : '';
+  const feeUsd = feeTokenPrice > 0 ? feeValue * feeTokenPrice : 0;
+  const feeUsdFormatted =
+    feeUsd > 0
+      ? ` (~$${feeUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })})`
+      : '';
 
   const formattedFeeDisplay = `${feeFormatted} ${feeTokenInfo.symbol}${feeUsdFormatted}`;
-
 
   const totalTime = presetData.startAuctionIn + presetData.auctionDuration;
 
@@ -186,8 +229,13 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
     {
       label: 'Price impact',
       value: (
-        <span className={`font-bold text-sm ${((quote as any).priceImpactPercent ?? parseFloat((quote as any).priceImpact || '0')) > 2 ? 'text-orange-400' : 'text-primary'}`}>
-          {((quote as any).priceImpactPercent ?? parseFloat((quote as any).priceImpact || '0')).toFixed(2)}%
+        <span
+          className={`font-bold text-sm ${((quote as any).priceImpactPercent ?? parseFloat((quote as any).priceImpact || '0')) > 2 ? 'text-orange-400' : 'text-primary'}`}
+        >
+          {(
+            (quote as any).priceImpactPercent ?? parseFloat((quote as any).priceImpact || '0')
+          ).toFixed(2)}
+          %
         </span>
       ),
     },
@@ -208,16 +256,18 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
   ];
 
   const mobileStyle: React.CSSProperties = {
-    left: 0, right: 0, bottom: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     transform: isVisible ? 'translateY(0)' : 'translateY(100%)',
   };
 
   const desktopStyle: React.CSSProperties = {
-    left: '50%', top: '50%', width: '440px',
+    left: '50%',
+    top: '50%',
+    width: '440px',
     opacity: isVisible ? 1 : 0,
-    transform: isVisible
-      ? 'translate(-50%, -50%) scale(1)'
-      : 'translate(-50%, -50%) scale(0.96)',
+    transform: isVisible ? 'translate(-50%, -50%) scale(1)' : 'translate(-50%, -50%) scale(0.96)',
   };
 
   // Render
@@ -243,7 +293,9 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
                 <Zap size={16} className="text-brand" />
               </div>
               <div>
-                <span className="text-base font-bold text-primary tracking-tight">Swap Execution</span>
+                <span className="text-base font-bold text-primary tracking-tight">
+                  Swap Execution
+                </span>
                 <span className="ml-2 text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md bg-brand/10 text-brand">
                   {preset}
                 </span>
@@ -275,7 +327,9 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
                   <CheckCircle2 size={44} className="text-green-400" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-black text-primary mb-1.5 uppercase tracking-tight">Order Placed</h3>
+                  <h3 className="text-xl font-black text-primary mb-1.5 uppercase tracking-tight">
+                    Order Placed
+                  </h3>
                   <p className="text-sm text-muted leading-relaxed px-6">
                     Your gasless swap order has been submitted to the network.
                   </p>
@@ -290,13 +344,17 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
                   }}
                 >
                   <div className="flex flex-col items-start min-w-0">
-                    <span className="text-[10px] font-black text-muted uppercase tracking-widest mb-1">Order Hash</span>
+                    <span className="text-[10px] font-black text-muted uppercase tracking-widest mb-1">
+                      Order Hash
+                    </span>
                     <span className="text-xs font-mono text-primary truncate w-52">{txHash}</span>
                   </div>
-                  <ExternalLink size={15} className="text-muted group-hover:text-brand transition-colors flex-shrink-0" />
+                  <ExternalLink
+                    size={15}
+                    className="text-muted group-hover:text-brand transition-colors flex-shrink-0"
+                  />
                 </div>
               </div>
-
             ) : (
               <>
                 <div className="space-y-1">
@@ -331,7 +389,11 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
                         <p className="text-sm text-brand/60 font-semibold">{buyAsset?.symbol}</p>
                         {receiveValueUsd !== null && (
                           <p className="text-xs text-brand/50 font-bold">
-                            ~${receiveValueUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            ~$
+                            {receiveValueUsd.toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
                           </p>
                         )}
                       </div>
@@ -349,15 +411,18 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
                   {detailRows.map((row, i) => (
                     <div
                       key={i}
-                      className={`flex items-center justify-between px-4 py-3 bg-tertiary/20 hover:bg-tertiary/40 transition-colors ${i !== detailRows.length - 1 ? 'border-b border-color' : ''
-                        }`}
+                      className={`flex items-center justify-between px-4 py-3 bg-tertiary/20 hover:bg-tertiary/40 transition-colors ${
+                        i !== detailRows.length - 1 ? 'border-b border-color' : ''
+                      }`}
                     >
                       <div className="flex items-center gap-2">
                         {row.icon && <span className="opacity-60">{row.icon}</span>}
                         <span className="text-sm text-muted">{row.label}</span>
                       </div>
                       {typeof row.value === 'string' ? (
-                        <span className="text-sm font-semibold text-primary truncate ml-2 min-w-0">{row.value}</span>
+                        <span className="text-sm font-semibold text-primary truncate ml-2 min-w-0">
+                          {row.value}
+                        </span>
                       ) : (
                         row.value
                       )}
@@ -407,7 +472,6 @@ const FusionQuoteScreen: React.FC<FusionQuoteScreenProps> = ({
                 </>
               )}
             </div>
-
           </div>
         </div>
       </div>

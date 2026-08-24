@@ -79,6 +79,7 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
   const [timeLeft, setTimeToNextRefresh] = useState(30);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const latestRequestId = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const getUsdValue = useCallback((amount: string, asset: any): number | null => {
     if (!amount || !asset) return null;
@@ -131,6 +132,15 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
       setCurrentQuote({ source: null, data: null, error: 'Trustline required', loading: false });
       return;
     }
+
+    if (!selectedSellAsset || !selectedBuyAsset) {
+      return;
+    }
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
 
     const requestId = ++latestRequestId.current;
     setCrossChainWarning(null);
@@ -201,7 +211,11 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
             slippage: userSlippageTolerance ? userSlippageTolerance.toString() : '1',
           };
           setCurrentQuote(prev => ({ ...prev, source: 'EVM_SWAP', loading: true }));
-          const sq = await getSwapQuote(fromChainId, quoteRequest);
+          const sq = await getSwapQuote(
+            fromChainId,
+            quoteRequest,
+            abortControllerRef.current.signal
+          );
           if (requestId !== latestRequestId.current) return;
           setCurrentQuote({ source: 'EVM_SWAP', data: sq, error: null, loading: false });
         } catch (err: any) {

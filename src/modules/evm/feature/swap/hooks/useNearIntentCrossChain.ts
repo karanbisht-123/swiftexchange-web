@@ -25,15 +25,17 @@ import {
 export { getEvmChainId };
 
 export interface UseNearIntentCrossChainProps {
-  evmAddress: string;
-  stellarAddress: string;
+  evmAddress?: string;
+  stellarAddress?: string;
   getProvider: (type: WalletType) => any;
+  currentNetwork: 'mainnet' | 'testnet';
 }
 
 export const useNearIntentCrossChain = ({
   evmAddress,
   stellarAddress,
   getProvider,
+  currentNetwork,
 }: UseNearIntentCrossChainProps) => {
   const [tokens, setTokens] = useState<NearIntentToken[]>([]);
   const [isFetchingTokens, setIsFetchingTokens] = useState(false);
@@ -82,7 +84,7 @@ export const useNearIntentCrossChain = ({
         const recipient = isStellarDest ? stellarAddress : evmAddress;
         const refundTo = isStellarOrigin ? stellarAddress : evmAddress;
 
-        if (!recipient) {
+        if (!recipient || !refundTo) {
           setError(
             isStellarDest
               ? 'Connect your Stellar wallet to receive XLM/Stellar assets'
@@ -107,11 +109,6 @@ export const useNearIntentCrossChain = ({
           refundType: 'ORIGIN_CHAIN',
           deadline: new Date(Date.now() + 1200000).toISOString(),
         };
-
-        console.log(
-          '[InterSwap] Sending quote request payload:',
-          JSON.stringify(quotePayload, null, 2)
-        );
 
         const data = await getNearIntentQuote(quotePayload);
         setQuote(data.quote);
@@ -150,9 +147,10 @@ export const useNearIntentCrossChain = ({
         if (isStellarBlockchain(sellAsset.blockchain)) {
           const stellarProvider = getProvider(WalletType.STELLAR);
           if (!stellarProvider) throw new Error('Stellar wallet not connected');
+          if (!stellarAddress) throw new Error('Stellar address not found');
 
           notifyWalletSignRequest(WalletType.STELLAR);
-          const config = getStellarConfig('mainnet');
+          const config = getStellarConfig(currentNetwork);
           const server = new StellarSDK.Horizon.Server(config.horizonUrl);
 
           StellarSequenceTracker.reset(stellarAddress);
@@ -202,12 +200,12 @@ export const useNearIntentCrossChain = ({
             stellarAddress,
           });
 
-          console.log(result, '-------- trasnction result from steallr wallet ');
           if (!result.success || !result.hash) {
             throw new Error(result.error || 'Stellar transaction failed');
           }
           txHashResult = result.hash;
         } else {
+          if (!evmAddress) throw new Error('EVM address not found');
           const provider = getProvider(WalletType.EVM);
           if (!provider) throw new Error('EVM wallet not connected');
           const targetChainId = getEvmChainId(sellAsset);
@@ -315,8 +313,6 @@ export const useNearIntentCrossChain = ({
         return txHashResult;
       } catch (err: any) {
         const msg = (err?.message || String(err)).toLowerCase();
-
-        console.log('[InterSwap] Transaction result/error:', err);
 
         const hasNestedRpcError =
           /processing response error|jsonrpc|error=|execution reverted|gas price/.test(msg);

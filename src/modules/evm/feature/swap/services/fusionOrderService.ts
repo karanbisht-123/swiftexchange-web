@@ -75,9 +75,7 @@ export async function build1InchFusionOrder(
     request.quote?.quoteId ?? (request.quote as any)?.data?.quoteId ?? (request as any).quoteId;
 
   if (isCrossChain && !quoteId) {
-    console.warn('[build1InchFusionOrder] quoteId missing for Fusion+ cross-chain order.', {
-      request,
-    });
+    throw new Error('quoteId missing for Fusion+ cross-chain order. Cannot build order.');
   }
 
   let payload: Record<string, unknown>;

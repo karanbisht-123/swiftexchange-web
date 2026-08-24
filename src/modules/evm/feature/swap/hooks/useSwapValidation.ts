@@ -344,6 +344,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       hasInsufficientEvmGas ||
       isLoadingExecution ||
       !currentQuote.data ||
+      !!currentQuote.error ||
       isFetchingSwapAssets ||
       currentQuote.loading ||
       isQuoteLoading ||
@@ -359,6 +360,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     hasInsufficientEvmGas,
     isLoadingExecution,
     currentQuote.data,
+    currentQuote.error,
     currentQuote.loading,
     isFetchingSwapAssets,
     isQuoteLoading,

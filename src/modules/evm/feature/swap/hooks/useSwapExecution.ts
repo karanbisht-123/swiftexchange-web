@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { ethers } from 'ethers';
+
 import { useNotificationStore } from '../../../../../store/notificationStore';
 import { useSwapStore } from '../../../../../store/swapStore';
 import { useTransactionModalStore } from '../../../../../store/transactionModalStore';
@@ -395,6 +397,44 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         throw new Error('Could not get a deposit address for this transaction. Please retry.');
       }
 
+      // Check slippage against the quote the user actually saw
+      let shownAmountOutStr =
+        currentQuote.data?.amountOutFormatted || currentQuote.data?.amountOut || '0';
+      if (
+        currentQuote.data?.amountOut &&
+        !currentQuote.data?.amountOutFormatted &&
+        nearBuyAsset?.decimals
+      ) {
+        try {
+          shownAmountOutStr = ethers.formatUnits(
+            currentQuote.data.amountOut,
+            nearBuyAsset.decimals
+          );
+        } catch {
+          // ignore parsing errors
+        }
+      }
+
+      let liveAmountOutStr = liveQuote.amountOutFormatted || liveQuote.amountOut || '0';
+      if (liveQuote.amountOut && !liveQuote.amountOutFormatted && nearBuyAsset?.decimals) {
+        try {
+          liveAmountOutStr = ethers.formatUnits(liveQuote.amountOut, nearBuyAsset.decimals);
+        } catch {
+          // ignore parsing errors
+        }
+      }
+
+      const shownAmountOut = parseFloat(shownAmountOutStr);
+      const liveAmountOut = parseFloat(liveAmountOutStr);
+      const slippageThreshold = 1 - userSlippageTolerance / 100;
+
+      if (shownAmountOut > 0 && liveAmountOut / shownAmountOut < slippageThreshold) {
+        throw new Error(
+          `Price moved too much: expected ~${shownAmountOut}, live quote is ${liveAmountOut}. ` +
+            `Please review and confirm again.`
+        );
+      }
+
       checkAborted();
       setExecutionCurrentStep('signing');
       setBridgeTxStatus('signing');
@@ -652,6 +692,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           // Poll for activation
           await new Promise<void>((resolve, reject) => {
             let attempts = 0;
+            if (activationPollingRef.current) clearInterval(activationPollingRef.current);
             activationPollingRef.current = setInterval(async () => {
               attempts++;
               try {

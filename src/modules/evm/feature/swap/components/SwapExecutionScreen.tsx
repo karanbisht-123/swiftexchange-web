@@ -45,8 +45,6 @@ export const SwapExecutionScreen: React.FC<SwapExecutionScreenProps> = ({
   errorMsg,
   isStellarAccountActive,
 }) => {
-  console.log(isApprovalRequired, '------ is aproval Required ------');
-
   const fromChainConfig = getChainById(fromChainId);
   const toChainConfig = getChainById(toChainId);
 

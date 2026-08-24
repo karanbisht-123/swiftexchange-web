@@ -101,7 +101,7 @@ const getSwapEndpoint = (action: 'quote' | 'prepare'): string => {
 };
 
 function buildQuotePayload(request: SwapQuoteRequest, chainId: any): any {
-  const slippageValue = parseFloat(request.slippage || '1');
+  const slippageValue = request.slippage !== undefined ? parseFloat(request.slippage) : 1;
   return {
     ...request,
     tokenIn: {
@@ -226,7 +226,7 @@ export async function prepareBridgeTransaction(
     fromAddress: request.fromAddress,
     toAddress: request.destinationAddress,
     feePayType: request.feePayType,
-    slippageTolerance: (request.slippageTolerance || 0.5) + 1,
+    slippageTolerance: request.slippageTolerance || 0.5,
   });
   return res.data;
 }

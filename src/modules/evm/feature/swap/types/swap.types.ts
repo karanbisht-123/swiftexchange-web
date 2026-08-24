@@ -42,9 +42,8 @@ export interface SwapQuote {
   pricePerToken: string;
   fee: number;
   networkFee?: number;
-  poolAddress: string;
   priceImpact: string;
-  rawQuote: any;
+  rawQuote: Record<string, unknown>;
   provider: string;
   minimumReceived?: string;
 }
@@ -52,7 +51,7 @@ export interface SwapQuote {
 export interface UnifiedSwapResponse {
   success: boolean;
   provider: string;
-  data: any;
+  data: Record<string, unknown>;
 }
 
 export interface PrepareRequest {

@@ -93,6 +93,7 @@ export const useEvmSwap = ({
     recommendedSlippage: null,
   });
 
+  const isSubmittingRef = useRef(false);
   const activeSwapId = useRef<string | null>(null);
   const quoteAbortController = useRef<AbortController | null>(null);
   const latestQuoteRequestId = useRef<number>(0);
@@ -287,8 +288,11 @@ export const useEvmSwap = ({
       onBeforeSign?: () => void,
       onProgress?: (step: 'approving' | 'signing') => void
     ): Promise<string> => {
+      if (isSubmittingRef.current) throw new Error('Transaction is already in progress');
+
       const swapId = Date.now().toString();
       activeSwapId.current = swapId;
+      isSubmittingRef.current = true;
       updateState({ loading: true, error: null, txHash: null });
 
       try {
@@ -377,6 +381,10 @@ export const useEvmSwap = ({
           updateState({ error: errorMsg, loading: false, txHash: null });
         }
         throw new Error(errorMsg);
+      } finally {
+        if (activeSwapId.current === swapId) {
+          isSubmittingRef.current = false;
+        }
       }
     },
     [chainId, senderAddress, getProvider, updateTokenBalances, updateState]
@@ -392,9 +400,12 @@ export const useEvmSwap = ({
       currentFusionQuote?: FusionQuote | null,
       onBeforeSign?: () => void
     ): Promise<string> => {
+      if (isSubmittingRef.current) throw new Error('Transaction is already in progress');
+
       const fQuote = currentFusionQuote;
       const swapId = Date.now().toString();
       activeSwapId.current = swapId;
+      isSubmittingRef.current = true;
       updateState({ loading: true, error: null, txHash: null });
 
       try {
@@ -489,6 +500,10 @@ export const useEvmSwap = ({
           updateState({ error: errorMsg, loading: false, txHash: null });
         }
         throw new Error(errorMsg);
+      } finally {
+        if (activeSwapId.current === swapId) {
+          isSubmittingRef.current = false;
+        }
       }
     },
     [chainId, senderAddress, getProvider, updateTokenBalances, updateState]
