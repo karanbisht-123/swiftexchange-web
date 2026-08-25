@@ -7,6 +7,7 @@ import { useNotificationStore } from '@/store/notificationStore';
 import { useTransactionModalStore } from '@/store/transactionModalStore';
 
 import { NotificationPanel } from './NotificationPanel';
+import { PendingTransactionBanner } from './PendingTransactionBanner';
 import { ToastContainer } from './ToastContainer';
 
 export const GlobalNotifications: React.FC = () => {
@@ -17,6 +18,7 @@ export const GlobalNotifications: React.FC = () => {
     <>
       <TransactionMonitor />
       <ToastContainer />
+      <PendingTransactionBanner />
       <NotificationPanel isOpen={isGlobalPanelOpen} onClose={() => setGlobalPanelOpen(false)} />
 
       {isOpen &&

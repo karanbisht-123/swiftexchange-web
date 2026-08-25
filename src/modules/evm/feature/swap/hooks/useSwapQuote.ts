@@ -108,29 +108,22 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
       return;
     }
 
+    let warningError: string | null = null;
+
     if (
       isStellar(toChainId) &&
       isStellarAccountActive === false &&
       buyAssetSymbol.toUpperCase() !== 'XLM'
     ) {
-      setCurrentQuote({
-        source: null,
-        data: null,
-        error: 'Account activation required',
-        loading: false,
-      });
-      return;
-    }
-
-    if (
+      warningError = 'Account activation required';
+    } else if (
       isStellar(toChainId) &&
       isStellarAccountActive !== false &&
       selectedBuyAsset &&
       !selectedBuyAsset.isNative &&
       !selectedBuyAsset.hasTrustline
     ) {
-      setCurrentQuote({ source: null, data: null, error: 'Trustline required', loading: false });
-      return;
+      warningError = 'Trustline required';
     }
 
     if (!selectedSellAsset || !selectedBuyAsset) {
@@ -162,7 +155,12 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
 
           if (requestId !== latestRequestId.current) return;
 
-          setCurrentQuote({ source: 'STELLAR_SWAP', data: sq, error: null, loading: false });
+          setCurrentQuote({
+            source: 'STELLAR_SWAP',
+            data: sq,
+            error: warningError,
+            loading: false,
+          });
         } catch (err) {
           if (requestId !== latestRequestId.current) return;
           console.error('Stellar quote error:', err);
@@ -217,7 +215,7 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
             abortControllerRef.current.signal
           );
           if (requestId !== latestRequestId.current) return;
-          setCurrentQuote({ source: 'EVM_SWAP', data: sq, error: null, loading: false });
+          setCurrentQuote({ source: 'EVM_SWAP', data: sq, error: warningError, loading: false });
         } catch (err: any) {
           if (requestId !== latestRequestId.current) return;
           if (
@@ -310,7 +308,12 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
             throw new Error((inQ as any)?.error || 'Pair not supported by NEAR Intents');
           }
 
-          setCurrentQuote({ source: 'NEAR_INTENT', data: inQ, error: null, loading: false });
+          setCurrentQuote({
+            source: 'NEAR_INTENT',
+            data: inQ,
+            error: warningError,
+            loading: false,
+          });
         } catch (err: any) {
           if (requestId !== latestRequestId.current) return;
           if (
@@ -358,7 +361,7 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
           setCurrentQuote({
             source: 'FUSION_PLUS',
             data: fusionQuote,
-            error: null,
+            error: warningError,
             loading: false,
           });
         } catch (err: any) {

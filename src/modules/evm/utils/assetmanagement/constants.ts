@@ -21,8 +21,7 @@ export const RPC_URLS = {
     'https://polygon-bor-rpc.publicnode.com',
     'https://polygon.drpc.org',
     'https://1rpc.io/matic',
-    'https://polygon-mainnet.gateway.tatum.io/',
-    'https://polygon-mainnet.public.blastapi.io',
+    '"https://polygon-bor-rpc.publicnode.com',
     'https://1rpc.io/matic',
   ],
 
@@ -54,6 +53,7 @@ export const RPC_URLS = {
   ],
 
   BNB: [
+    'https://bsc-dataseed.bnbchain.org',
     'https://bsc-rpc.publicnode.com',
     'https://bsc-dataseed.binance.org',
     'https://bsc.drpc.org',

@@ -263,12 +263,27 @@ export const SwapExecutionScreen: React.FC<SwapExecutionScreenProps> = ({
         </div>
       </div>
 
-      {status === 'error' && errorMsg && (
-        <div className="w-full z-10 px-4 py-3 mb-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
-          <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-          <p className="text-xs font-medium text-red-400 leading-relaxed">{errorMsg}</p>
-        </div>
-      )}
+      {status === 'error' &&
+        errorMsg &&
+        (errorMsg === 'WALLET_PENDING' ? (
+          <div className="w-full z-10 px-4 py-3 mb-4 bg-warning/10 border border-warning/25 rounded-xl space-y-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
+              <p className="text-xs font-black text-warning">
+                Wallet already has a pending request
+              </p>
+            </div>
+            <p className="text-xs text-muted font-medium leading-relaxed">
+              Your wallet app already has a signing request waiting. Open your wallet and Approve or
+              Reject it, then try again here.
+            </p>
+          </div>
+        ) : (
+          <div className="w-full z-10 px-4 py-3 mb-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
+            <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+            <p className="text-xs font-medium text-red-400 leading-relaxed">{errorMsg}</p>
+          </div>
+        ))}
 
       <div className="w-full z-10 pt-4 border-t border-white/5 space-y-4">
         {status === 'pending' &&

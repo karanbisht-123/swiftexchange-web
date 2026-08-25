@@ -18,8 +18,6 @@ import TransactionButton from '../../../../commonfeature/components/TransactionB
 import { getExplorerUrl } from '../../../../evm/utils/Chainregistry';
 import { type FusionQuote } from '../types/swap.types';
 
-import { type FusionQuote } from '../types/swap.types';
-
 interface FusionQuoteScreenProps {
   quote: FusionQuote;
   chainId?: number | string;

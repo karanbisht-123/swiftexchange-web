@@ -17,6 +17,7 @@ import PageLayout from '../../../../../components/layout/PageLayout';
 import { useNotificationStore } from '../../../../../store/notificationStore';
 import { useSwapStore } from '../../../../../store/swapStore';
 import { useTransactionModalStore } from '../../../../../store/transactionModalStore';
+import { rejectPendingWCRequest } from '../../../../../utils/walletConnectUtils';
 import { ActionGuard } from '../../../../commonfeature/components/ActionGuard';
 import TransactionButton from '../../../../commonfeature/components/TransactionButton';
 import { useAssetSelectorModal } from '../../../../commonfeature/components/useAssetSelectorModal';
@@ -26,6 +27,7 @@ import { getStellarConfig } from '../../../../walletconnect/config/chains';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { useStellarAccountStatus } from '../../../../walletconnect/hooks/useStellarAccountStatus';
 import { useWalletConnect } from '../../../../walletconnect/hooks/useWalletConnect';
+import { useGlobalTxStore } from '../../../../walletconnect/store/globalTxStore';
 import { useWalletStore } from '../../../../walletconnect/store/walletConnectStore';
 import { portfolioUtils } from '../../../../walletconnect/utils/portfolioUtils';
 import { getTokensForChain } from '../../../service/tokenListService';
@@ -1030,7 +1032,21 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
           calculatedBuyAmount={calculatedBuyAmount}
           isWaitingForWallet={isWaitingForWallet}
           signingWallet={signingWallet}
-          onDismiss={() => {
+          onDismiss={async () => {
+            const { status, pendingRequest, clearPending } = useGlobalTxStore.getState();
+            if (status === 'pending' && pendingRequest && selectedSellAsset) {
+              const provider = getProvider(selectedSellAsset.walletType);
+              if (provider) {
+                useNotificationStore.getState().showToast({
+                  type: 'EVM_SWAP',
+                  title: 'Cancelling...',
+                  message: 'If you already approved this in your wallet, this may not stop it.',
+                  dontSave: true,
+                });
+                await rejectPendingWCRequest(provider, pendingRequest.id, pendingRequest.topic);
+              }
+              clearPending();
+            }
             swapAbortRef.current?.abort();
             resetLoadingState();
             clearPendingTx();
@@ -1061,36 +1077,38 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
                     : undefined
                 }
               />
-              <div className="relative overflow-hidden rounded-[16px] border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-sm flex flex-col justify-center p-4 sm:px-5 sm:py-4 w-full min-h-[110px] group">
-                <div className="absolute inset-0 z-0 pointer-events-none">
-                  <img
-                    src="/38823-560x240.jpg"
-                    alt="Stellar Portfolio Background"
-                    className="absolute right-0 top-0 bottom-0 h-full w-[150%] sm:w-[90%] object-cover object-right sm:object-right opacity-90 transition-transform duration-1000 group-hover:scale-105"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-r from-[var(--color-bg-secondary)] via-[var(--color-bg-secondary)]/90 to-transparent" />
-                </div>
-
-                <div className="relative z-10 flex flex-col max-w-[240px] sm:max-w-[320px]">
-                  <h3 className="text-base sm:text-base font-black text-[var(--color-text-primary)] tracking-tight leading-tight">
-                    Track Your{' '}
-                    <span className="text-[var(--color-brand-accent)]">Stellar Portfolio</span>
-                  </h3>
-                  <p className="text-[10px] sm:text-[11px] text-[var(--color-text-secondary)] mt-1 leading-snug font-medium">
-                    Real-time PnL, performance insights, and net worth across all your wallets.
-                  </p>
-                  <button
-                    onClick={() => navigate('/stellar/portfolio')}
-                    className="mt-3 w-fit flex items-center gap-1.5 px-4 py-1.5 sm:py-2 bg-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary-hover)] text-[var(--color-text-inverse)] font-bold text-[11px] sm:text-xs rounded-full transition-all active:scale-95 shadow-sm"
-                  >
-                    Explore PnL{' '}
-                    <ArrowRight
-                      size={13}
-                      className="group-hover:translate-x-1 transition-transform"
+              {isStellarAccountActive !== false && (
+                <div className="relative overflow-hidden rounded-[16px] border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-sm flex flex-col justify-center p-4 sm:px-5 sm:py-4 w-full min-h-[110px] group">
+                  <div className="absolute inset-0 z-0 pointer-events-none">
+                    <img
+                      src="/38823-560x240.jpg"
+                      alt="Stellar Portfolio Background"
+                      className="absolute right-0 top-0 bottom-0 h-full w-[150%] sm:w-[90%] object-cover object-right sm:object-right opacity-90 transition-transform duration-1000 group-hover:scale-105"
                     />
-                  </button>
+                    <div className="absolute inset-0 bg-gradient-to-r from-[var(--color-bg-secondary)] via-[var(--color-bg-secondary)]/90 to-transparent" />
+                  </div>
+
+                  <div className="relative z-10 flex flex-col max-w-[240px] sm:max-w-[320px]">
+                    <h3 className="text-base sm:text-base font-black text-[var(--color-text-primary)] tracking-tight leading-tight">
+                      Track Your{' '}
+                      <span className="text-[var(--color-brand-accent)]">Stellar Portfolio</span>
+                    </h3>
+                    <p className="text-[10px] sm:text-[11px] text-[var(--color-text-secondary)] mt-1 leading-snug font-medium">
+                      Real-time PnL, performance insights, and net worth across all your wallets.
+                    </p>
+                    <button
+                      onClick={() => navigate('/stellar/portfolio')}
+                      className="mt-3 w-fit flex items-center gap-1.5 px-4 py-1.5 sm:py-2 bg-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary-hover)] text-[var(--color-text-inverse)] font-bold text-[11px] sm:text-xs rounded-full transition-all active:scale-95 shadow-sm"
+                    >
+                      Explore PnL{' '}
+                      <ArrowRight
+                        size={13}
+                        className="group-hover:translate-x-1 transition-transform"
+                      />
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
           {/* Pay Card */}

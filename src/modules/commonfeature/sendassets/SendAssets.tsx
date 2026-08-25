@@ -7,6 +7,7 @@ import { Tooltip } from '../../../components/common/Tooltip';
 import PageLayout from '../../../components/layout/PageLayout';
 import { toPlainString } from '../../evm/feature/swap/utils/swapAmountUtils';
 import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
+import { StellarActivationBanner } from '../../walletconnect/components/StellarActivationBanner';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
 import { ActionGuard } from '../components/ActionGuard';
@@ -375,6 +376,8 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   const renderForm = () => {
     return (
       <div className="space-y-4">
+        {currentAsset?.type === 'stellar' && <StellarActivationBanner />}
+
         {senderAddress && (
           <div className="bg-bg-tertiary rounded-xl p-4">
             <div className="flex items-center justify-between">

@@ -6,8 +6,6 @@ import { GlobalNotifications } from '@/components/notifications/GlobalNotificati
 import AssetSelectorModal from '../../modules/commonfeature/components/AssetSelectorModal';
 import { AssetSelectorProvider } from '../../modules/commonfeature/components/useAssetSelectorModal';
 
-// Force HMR refresh for the renamed useAssetSelectorModal.tsx
-
 const RootLayout = () => {
   return (
     <AssetSelectorProvider>

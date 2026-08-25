@@ -3,13 +3,17 @@ import { useCallback, useRef, useState } from 'react';
 import * as StellarSDK from '@stellar/stellar-sdk';
 import { ethers } from 'ethers';
 
-import { notifyWalletSignRequest } from '../../../../../utils/walletConnectUtils';
+import {
+  notifyWalletSignRequest,
+  sendEVMTransaction,
+} from '../../../../../utils/walletConnectUtils';
 import { StellarSequenceTracker } from '../../../../stellar/utils/StellarSequenceTracker';
 import { signAndSubmitTransaction } from '../../../../stellar/utils/transactionService';
 import { getStellarConfig } from '../../../../walletconnect/config/chains';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { findChain } from '../../../utils/Chainregistry';
 import { switchOrAddChain } from '../../../utils/evmChainUtils';
+import { rpcManager } from '../../../utils/rpcProvider';
 import {
   type NearIntentQuote,
   type NearIntentQuoteRequest,
@@ -209,11 +213,15 @@ export const useNearIntentCrossChain = ({
           const provider = getProvider(WalletType.EVM);
           if (!provider) throw new Error('EVM wallet not connected');
           const targetChainId = getEvmChainId(sellAsset);
+          let activeChainId: number | string | null = targetChainId;
           if (targetChainId) {
             await switchOrAddChain(provider, targetChainId);
           } else {
             const chainConfig = findChain(sellAsset.blockchain, 'mainnet');
-            if (chainConfig) await switchOrAddChain(provider, chainConfig.chainId);
+            if (chainConfig) {
+              await switchOrAddChain(provider, chainConfig.chainId);
+              activeChainId = chainConfig.chainId;
+            }
           }
 
           const web3Provider = new ethers.BrowserProvider(provider);
@@ -221,7 +229,7 @@ export const useNearIntentCrossChain = ({
           // preventing -32000 "unknown account" from the extension's provider.
           const signer = await web3Provider.getSigner(evmAddress);
 
-          notifyWalletSignRequest(WalletType.EVM);
+          // notifyWalletSignRequest is now handled inside sendEVMTransaction
 
           const rawDeposit = quoteToUse.depositAddress;
           let depositAddr: string;
@@ -268,11 +276,12 @@ export const useNearIntentCrossChain = ({
           }
 
           try {
-            const chainConfig = findChain(sellAsset.blockchain, 'mainnet');
-            const rpcUrl = chainConfig?.rpcUrls?.[0] || chainConfig?.rpcUrl;
-            if (rpcUrl) {
-              const publicProvider = new ethers.JsonRpcProvider(rpcUrl);
-              const feeData = await publicProvider.getFeeData();
+            if (activeChainId) {
+              const feeData = await rpcManager.fetchWithFallback(
+                activeChainId,
+                undefined,
+                async p => await p.getFeeData()
+              );
               if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
                 // EIP-1559 networks (Polygon, Ethereum, etc)
                 // Add a 10% buffer to maxFeePerGas to prevent "below minimum" spikes
@@ -295,10 +304,9 @@ export const useNearIntentCrossChain = ({
             );
           }
 
-          const txHex = await provider.request({
-            method: 'eth_sendTransaction',
-            params: [txParams],
-          });
+          if (!activeChainId)
+            throw new Error('Could not determine target EVM chain ID for this intent');
+          const txHex = await sendEVMTransaction(provider, activeChainId, txParams);
           txHashResultHex = txHex;
           txHashResult = txHashResultHex;
         }

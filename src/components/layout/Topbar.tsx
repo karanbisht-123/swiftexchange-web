@@ -23,8 +23,6 @@ const Topbar: React.FC = () => {
 
   const isAnyWalletConnected = Object.keys(connectedWallets).length > 0;
 
-
-
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
@@ -37,7 +35,6 @@ const Topbar: React.FC = () => {
     if (isMoreOpen) document.addEventListener('mousedown', cb);
     return () => document.removeEventListener('mousedown', cb);
   }, [isMoreOpen]);
-
 
   useEffect(() => {
     if (isRestoringSession) return;
@@ -59,7 +56,7 @@ const Topbar: React.FC = () => {
   }, [disconnectAll, navigate]);
 
   return (
-    <header className="sticky top-0 z-50 h-[60px] mb-1 w-full max-w-full bg-(--color-bg-secondary)/95 backdrop-blur-md flex items-center justify-between px-2 sm:px-4 overflow-x-clip">
+    <header className="sticky top-0 z-50 h-[60px] mb-1 w-full max-w-full  bg-primary border-b border-color backdrop-blur-md flex items-center justify-between px-2 sm:px-4 overflow-x-clip">
       <div className="flex items-center gap-1.5 sm:gap-2 select-none h-full min-w-0 shrink">
         <button
           id="hamburger-btn"
@@ -86,8 +83,6 @@ const Topbar: React.FC = () => {
             ))}
           </div>
         )} */}
-
-
       </div>
 
       <div className="flex items-center gap-1.5 sm:gap-2 lg:gap-4 shrink-0 min-w-0">

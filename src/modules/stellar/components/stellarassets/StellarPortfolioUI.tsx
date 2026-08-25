@@ -585,15 +585,38 @@ const StellarPortfolioUI: React.FC = () => {
         <div className="hidden xl:block w-[1px] h-8 bg-[var(--color-border)] mx-1"></div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleOpenCostBasis}
-            disabled={loadingCostBasisDetails || loadingStellarPnl || !!stellarPnlError}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 transition-all font-bold text-xs border border-emerald-500/20 disabled:opacity-50 h-[34px]"
-          >
-            {loadingCostBasisDetails ? (
-              <div className="w-3.5 h-3.5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-            ) : (
+        {stellarPnlData && !stellarPnlError && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleOpenCostBasis}
+              disabled={loadingCostBasisDetails || loadingStellarPnl}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 transition-all font-bold text-xs border border-emerald-500/20 disabled:opacity-50 h-[34px]"
+            >
+              {loadingCostBasisDetails ? (
+                <div className="w-3.5 h-3.5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M12 8v4l3 3"></path>
+                </svg>
+              )}
+              Cost Basis
+            </button>
+            <button
+              onClick={handleExportReport}
+              disabled={loadingCostBasisDetails || loadingStellarPnl}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-all font-bold text-xs border border-purple-500/20 disabled:opacity-50 h-[34px]"
+            >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="14"
@@ -605,37 +628,14 @@ const StellarPortfolioUI: React.FC = () => {
                 strokeLinecap="round"
                 strokeLinejoin="round"
               >
-                <circle cx="12" cy="12" r="10"></circle>
-                <path d="M12 8v4l3 3"></path>
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
               </svg>
-            )}
-            Cost Basis
-          </button>
-          <button
-            onClick={handleExportReport}
-            disabled={
-              loadingCostBasisDetails || loadingStellarPnl || !stellarPnlData || !!stellarPnlError
-            }
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-all font-bold text-xs border border-purple-500/20 disabled:opacity-50 h-[34px]"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-            Export
-          </button>
-        </div>
+              Export
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -650,10 +650,6 @@ const StellarPortfolioUI: React.FC = () => {
       </div>
     </>
   );
-
-  if (!stellarPnlData) {
-    return null;
-  }
 
   const tablesSection = (
     <>
@@ -1474,7 +1470,7 @@ const StellarPortfolioUI: React.FC = () => {
       <div className="relative flex flex-col gap-4 lg:gap-6 w-full max-w-[1600px] mx-auto pb-24 pt-2 sm:pt-4 px-3 sm:px-4 lg:px-6 min-h-screen font-sans">
         {headerControls}
 
-        {stellarPnlError ? (
+        {stellarPnlError || (!stellarPnlData && !loadingStellarPnl) ? (
           <div className="flex flex-col flex-1 items-center justify-center p-4 mt-8 sm:mt-12">
             <div className="w-full max-w-2xl flex flex-col items-center justify-center bg-rose-500/5 rounded-[2.5rem] border border-rose-500/20 p-8 sm:p-12 text-center min-h-[300px] shadow-sm">
               <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mb-6">
@@ -1499,7 +1495,8 @@ const StellarPortfolioUI: React.FC = () => {
                 Portfolio Analysis Unavailable
               </h2>
               <p className="text-rose-500/80 text-sm sm:text-base font-medium max-w-md leading-relaxed">
-                {stellarPnlError}
+                {stellarPnlError ||
+                  'Sorry, we are not able to fetch data. It seems your wallet is not active or another error occurred.'}
               </p>
             </div>
           </div>

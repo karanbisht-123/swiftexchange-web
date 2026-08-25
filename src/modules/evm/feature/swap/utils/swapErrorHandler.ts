@@ -94,6 +94,15 @@ export function translateErrorMessage(message: string): string {
     return 'User cancelled the transaction';
   }
 
+  // -32002: A signing request is already pending in the connected wallet
+  if (
+    message.includes('-32002') ||
+    /signing request is already in progress/i.test(message) ||
+    /already pending/i.test(message)
+  ) {
+    return 'WALLET_PENDING';
+  }
+
   const processedMessage = message
     .replace(/^could not coalesce error/i, '')
     .replace(/^\s*\(/, '')
@@ -345,6 +354,15 @@ export function parseSwapError(error: any): string {
   const rawMsg: string = error?.message || error?.originalError?.message || '';
   const errCode =
     error?.code || error?.error?.code || error?.info?.error?.code || error?.originalError?.code;
+
+  // -32002: Wallet already has a pending request popup open
+  if (
+    errCode === -32002 ||
+    /signing request is already in progress/i.test(rawMsg) ||
+    /already pending/i.test(rawMsg)
+  ) {
+    return 'WALLET_PENDING';
+  }
 
   const isWalletOrConnectError =
     errCode === 4001 ||

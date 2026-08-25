@@ -1,7 +1,6 @@
 import { Check, ChevronRight, Compass, Copy, Sparkles, Wallet } from 'lucide-react';
 import React from 'react';
 
-
 import { type PortfolioTab } from '../../../modules/walletconnect/hooks/useProfilePortfolio';
 import { portfolioUtils } from '../../../modules/walletconnect/utils/portfolioUtils';
 

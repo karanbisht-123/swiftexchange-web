@@ -7,6 +7,7 @@ import { ethers } from 'ethers';
 import { SendErcAbi } from '../../../abi/SendErcAbi';
 import { useNotificationStore } from '../../../store/notificationStore';
 import { useTransactionModalStore } from '../../../store/transactionModalStore';
+import { rejectPendingWCRequest } from '../../../utils/walletConnectUtils';
 import { validateAddress } from '../../../validator/AddressValidator';
 import { toPlainString } from '../../evm/feature/swap/utils/swapAmountUtils';
 import { estimateEVMFees, sendCryptoEVMPrepare } from '../../evm/service/evmService';
@@ -27,9 +28,9 @@ import { useTransactionRouter } from '../../transaction/hook/useTransactionRoute
 import type { TransactionRequest } from '../../transaction/router/transactionRouter';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
+import { useGlobalTxStore } from '../../walletconnect/store/globalTxStore';
 import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
-
 
 interface TransactionState {
   txHash: string | null;
@@ -62,9 +63,10 @@ const formatErrorMessage = (error: any): string => {
 };
 
 export const useSendAsset = (onBack?: () => void) => {
-  const { connectedWallets } = useWalletConnect();
+  const { connectedWallets, getProvider } = useWalletConnect();
   const { sendTransaction } = useTransactionRouter();
   const currentNetwork = useWalletStore(state => state.network);
+  const { isLocked } = useGlobalTxStore();
   const storeAssets = usePortfolioStore(state => state.assets);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -90,8 +92,7 @@ export const useSendAsset = (onBack?: () => void) => {
     const activeFromStore = storeAssets
       .filter(a => (a.balance || 0) > 0)
       .map(asset => {
-        const type: 'evm' | 'stellar' =
-          asset.chainType === 'stellar' ? 'stellar' : 'evm';
+        const type: 'evm' | 'stellar' = asset.chainType === 'stellar' ? 'stellar' : 'evm';
         const chainId = asset.chainId || (type === 'stellar' ? 'pubnet' : 0);
         return {
           value: asset.id,
@@ -121,9 +122,7 @@ export const useSendAsset = (onBack?: () => void) => {
     for (const config of CHAIN_REGISTRY) {
       if (config.sendEnable) {
         const type: 'evm' | 'stellar' =
-          config.chainId === 'pubnet' || config.chainId === 'testnet'
-            ? 'stellar'
-            : 'evm';
+          config.chainId === 'pubnet' || config.chainId === 'testnet' ? 'stellar' : 'evm';
         registryAssets.push({
           value: `send-${config.chainId}-native`,
           symbol: config.nativeCurrency.symbol,
@@ -371,6 +370,18 @@ export const useSendAsset = (onBack?: () => void) => {
       );
       return;
     }
+
+    if (isLocked()) {
+      useNotificationStore.getState().showToast({
+        type: 'SEND',
+        title: 'Wallet Request Pending',
+        message:
+          'Your wallet already has a pending request. Open your wallet and Approve or Reject it first.',
+        dontSave: true,
+      });
+      return;
+    }
+
     isConfirmingRef.current = true;
 
     try {
@@ -584,7 +595,35 @@ export const useSendAsset = (onBack?: () => void) => {
     }
   };
 
+  const handleCancelPending = useCallback(async () => {
+    const { status, pendingRequest, clearPending } = useGlobalTxStore.getState();
+    if (status === 'pending' && pendingRequest && currentAsset) {
+      const provider = getProvider(currentAsset.walletType as any);
+      if (provider) {
+        useNotificationStore.getState().showToast({
+          type: 'SEND',
+          title: 'Cancelling...',
+          message: 'If you already approved this in your wallet, this may not stop it.',
+          dontSave: true,
+        });
+        await rejectPendingWCRequest(provider, pendingRequest.id, pendingRequest.topic);
+      }
+      clearPending();
+    }
+  }, [currentAsset, connectedWallets]);
+
+  const handleBackToForm = useCallback(() => {
+    handleCancelPending();
+    setTransactionState({ txHash: null, step: 'form', error: null });
+  }, [handleCancelPending]);
+
+  const handleRetryTransaction = useCallback(() => {
+    handleCancelPending();
+    setTransactionState({ txHash: null, step: 'form', error: null });
+  }, [handleCancelPending]);
+
   const handleDone = useCallback(() => {
+    handleCancelPending();
     if (currentAsset?.type === 'evm') {
       navigate('/transactions?tab=recent');
     } else if (currentAsset?.type === 'stellar') {
@@ -594,7 +633,7 @@ export const useSendAsset = (onBack?: () => void) => {
     } else {
       setTransactionState({ txHash: null, step: 'form', error: null });
     }
-  }, [currentAsset, navigate, onBack]);
+  }, [currentAsset, navigate, onBack, handleCancelPending]);
 
   return {
     recipientAddress,
@@ -616,19 +655,19 @@ export const useSendAsset = (onBack?: () => void) => {
     handleRefreshBalances: () => fetchBalance(true),
     handleReviewTransaction: () => setTransactionState(p => ({ ...p, step: 'review' })),
     handleConfirmTransaction,
-    handleBackToForm: () => setTransactionState({ txHash: null, step: 'form', error: null }),
+    handleBackToForm,
     handleDone,
-    handleRetryTransaction: () => setTransactionState({ txHash: null, step: 'form', error: null }),
+    handleRetryTransaction,
     copyToClipboard,
     formError: !currentAsset
       ? null
       : !senderAddress
         ? null
         : recipientAddress &&
-          !validateAddress(recipientAddress, {
-            addressType: currentAsset.addressType as any,
-            network: currentAsset.network,
-          })
+            !validateAddress(recipientAddress, {
+              addressType: currentAsset.addressType as any,
+              network: currentAsset.network,
+            })
           ? 'Invalid address'
           : amount && amount !== '.' && new BigNumber(amount).isGreaterThan(balance) && hasTrustline
             ? 'Insufficient funds'
