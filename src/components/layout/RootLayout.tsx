@@ -1,11 +1,10 @@
 import { Suspense } from 'react';
 import { Outlet } from 'react-router-dom';
 
+import { GlobalNotifications } from '@/components/notifications/GlobalNotifications';
+
 import AssetSelectorModal from '../../modules/commonfeature/components/AssetSelectorModal';
 import { AssetSelectorProvider } from '../../modules/commonfeature/components/useAssetSelectorModal';
-import { GlobalNotifications } from '../GlobalNotifications';
-
-// Force HMR refresh for the renamed useAssetSelectorModal.tsx
 
 const RootLayout = () => {
   return (

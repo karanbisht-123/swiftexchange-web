@@ -1,10 +1,10 @@
 import { Check, ChevronDown, Copy, Plus, X } from 'lucide-react';
 import React, { useRef, useState } from 'react';
 
-import { COSMOS_WALLETS, EVM_WALLETS, STELLAR_WALLETS, WalletType } from '../constants/Wallet';
+import { EVM_WALLETS, STELLAR_WALLETS, WalletType } from '../constants/Wallet';
 import { useWalletConnect } from '../hooks/useWalletConnect';
 
-const ALL_WALLETS = [...EVM_WALLETS, ...COSMOS_WALLETS, ...STELLAR_WALLETS];
+const ALL_WALLETS = [...EVM_WALLETS, ...STELLAR_WALLETS];
 
 const WALLETCONNECT_ICON =
   'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRWu9CeO85RIMN2ixs9U_6YhnatWBxtCzn6L_e7QRO_CiEV1SB0LGbSXJijfHYt0N46slY&usqp=CAU';
@@ -176,7 +176,7 @@ export const ConnectWalletButton: React.FC = () => {
             <div className="overflow-y-auto max-h-72 scrollbar-thin">
               {validConnectedWallets.map(([type, conn]) => {
                 const icon = getWalletIcon(conn.walletId, type, conn.peerIcon);
-                const typeLabel = type === 'evm' ? 'EVM' : type === 'cosmos' ? 'Cosmos' : 'Stellar';
+                const typeLabel = type === 'evm' ? 'EVM' : 'Stellar';
 
                 return (
                   <div
@@ -240,48 +240,6 @@ export const ConnectWalletButton: React.FC = () => {
                           )}
                         </button>
                       </div>
-                      {conn.dydxAddress && (
-                        <div className="flex items-center gap-1 mt-0.5">
-                          <span style={{ color: 'var(--color-text-muted)' }} className="text-xs">
-                            dYdX:
-                          </span>
-                          <span
-                            style={{ color: 'var(--color-brand-primary)' }}
-                            className="text-xs font-mono truncate"
-                          >
-                            {formatAddress(conn.dydxAddress)}
-                          </span>
-                          <button
-                            onClick={() => copyToClipboard(conn.dydxAddress!)}
-                            style={{ color: 'var(--color-text-muted)' }}
-                            className="p-0.5 rounded hover:bg-[var(--color-bg-hover)] transition-colors flex-shrink-0 cursor-pointer"
-                            title="Copy dYdX"
-                          >
-                            {copiedAddress === conn.dydxAddress ? (
-                              <Check
-                                className="w-3 h-3"
-                                style={{ color: 'var(--color-success)' }}
-                              />
-                            ) : (
-                              <Copy className="w-3 h-3" />
-                            )}
-                          </button>
-                        </div>
-                      )}
-                      {/* {type === 'evm' && !conn.dydxAddress && (
-                        <span
-                          style={{
-                            background: 'var(--color-warning-bg)',
-                            color: 'var(--color-warning)',
-                            fontSize: '0.65rem',
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                          }}
-                          className="inline-block mt-0.5"
-                        >
-                          dYdX not derived
-                        </span>
-                      )} */}
                     </div>
 
                     <button

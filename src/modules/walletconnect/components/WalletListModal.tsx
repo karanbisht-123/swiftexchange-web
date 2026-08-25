@@ -1,8 +1,7 @@
 import { ArrowLeft, Check, ShieldCheck, Sparkles, Wallet, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-
 import { ROUTES } from '../../../constants/routes';
-import { useAsterAgent } from '../../../perps/adapters/aster/hooks/useAsterAgent';
+import { useAsterAgent } from '../../perps/adapters/aster/hooks/useAsterAgent';
 import router from '../../../routes';
 import { EVM_WALLETS, STELLAR_WALLETS, type WalletConfig } from '../constants/Wallet';
 import { hasStoredAgentKey } from '../services/asterAgentKeyManager';
@@ -564,9 +563,8 @@ export const WalletListModal: React.FC = () => {
           background: 'var(--color-bg-secondary)',
           borderColor: 'var(--color-border)',
         }}
-        className={`w-full md:w-[440px] rounded-t-3xl md:rounded-3xl shadow-2xl max-h-[92vh] flex flex-col border ${
-          isMobile ? 'animate-slide-up' : 'animate-fade-in'
-        }`}
+        className={`w-full md:w-[440px] rounded-t-3xl md:rounded-3xl shadow-2xl max-h-[92vh] flex flex-col border ${isMobile ? 'animate-slide-up' : 'animate-fade-in'
+          }`}
         onClick={e => e.stopPropagation()}
       >
         {isMobile && (
@@ -688,7 +686,7 @@ export const WalletListModal: React.FC = () => {
                         {renderWalletCard({
                           id: 'unified-swiftex',
                           name: 'SwiftEx Wallet',
-                          icon: '/logo.avif',
+                          icon: '/logo.png',
                           badge: 'REC',
                           isConnecting: connectingWallet === 'unified-swiftex',
                           onClick: handleSwiftExUnifiedConnect,

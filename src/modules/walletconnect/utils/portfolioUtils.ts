@@ -1,6 +1,7 @@
-import { formatMarketPrice, formatNumericWithCommas } from '../../dydx/utils/BigNumberUtils';
-import { type Asset } from '../store/portfolioStore';
 import BigNumber from 'bignumber.js';
+
+import { formatMarketPrice, formatNumericWithCommas } from '../../../utils/BigNumberUtils';
+import { type Asset } from '../store/portfolioStore';
 
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 
@@ -19,24 +20,17 @@ export const portfolioUtils = {
       if (bn.isNaN() || bn.isZero()) return '0';
 
       const num = Math.abs(bn.toNumber());
-      
-      // Determine appropriate decimal places based on size
       let decimals = maxDecimals;
       if (num >= 1000) {
         decimals = 2;
       } else if (num < 0.000001) {
-        decimals = 8; // Show more precision for small balances
+        decimals = 8;
       }
-
-      // Format with commas and rounding
       let formatted = bn.toFormat(decimals, BigNumber.ROUND_HALF_UP);
-      
-      // Remove trailing zeros in decimal part if any
       if (formatted.includes('.')) {
         formatted = formatted.replace(/0+$/, '').replace(/\.$/, '');
       }
-      
-      // If it rounded to 0 but the original value is not zero, find the first significant digit and format
+
       if (formatted === '0' && !bn.isZero()) {
         const str = bn.toFixed(20);
         const match = str.match(/\.0*([1-9])/);
@@ -65,7 +59,9 @@ export const portfolioUtils = {
     return formatNumericWithCommas(value, 2, '$');
   },
 
-  async fetchBatchPrices(symbols: string[]): Promise<Record<string, { usd: number; usd_24h_change: number }>> {
+  async fetchBatchPrices(
+    symbols: string[]
+  ): Promise<Record<string, { usd: number; usd_24h_change: number }>> {
     const COMMON_TOKENS: Record<string, string> = {
       XLM: 'stellar',
       USDC: 'usd-coin',
@@ -81,10 +77,12 @@ export const portfolioUtils = {
       MATIC: 'matic-network',
       AVAX: 'avalanche-2',
       TRX: 'tron',
-      DYDX: 'dydx'
+      DYDX: 'dydx',
     };
 
-    const idsToFetch = Array.from(new Set(symbols.map(s => COMMON_TOKENS[s.toUpperCase()]))).filter(Boolean);
+    const idsToFetch = Array.from(new Set(symbols.map(s => COMMON_TOKENS[s.toUpperCase()]))).filter(
+      Boolean
+    );
 
     if (idsToFetch.length === 0) return {};
 
@@ -106,5 +104,5 @@ export const portfolioUtils = {
     } catch {
       return {};
     }
-  }
+  },
 };

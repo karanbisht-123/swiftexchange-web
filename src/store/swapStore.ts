@@ -12,6 +12,7 @@ export interface SwapState {
   isGasless: boolean;
   userSlippageTolerance: number;
   feePayType: 'native' | 'stablecoin';
+  useUnlimitedApproval: boolean;
 
   pendingTxStatus: 'idle' | 'preparing' | 'signing' | 'success' | 'error';
   pendingTxHasPendingSign: boolean;
@@ -31,7 +32,13 @@ export interface SwapState {
   bridgePendingSignSessionId: string | null;
 
   executionApprovalRequired: boolean | null;
-  executionCurrentStep: 'preparing' | 'approving' | 'signing';
+  executionCurrentStep:
+    | 'preparing'
+    | 'approving'
+    | 'signing'
+    | 'activating'
+    | 'polling_activation'
+    | 'setting_trustline';
 
   setFromChainId: (id: number | string) => void;
   setToChainId: (id: number | string) => void;
@@ -43,6 +50,7 @@ export interface SwapState {
   setIsGasless: (enabled: boolean) => void;
   setUserSlippageTolerance: (slippage: number) => void;
   setFeePayType: (type: 'native' | 'stablecoin') => void;
+  setUseUnlimitedApproval: (val: boolean) => void;
   resetInputs: () => void;
 
   setPendingTxStatus: (s: SwapState['pendingTxStatus']) => void;
@@ -53,7 +61,15 @@ export interface SwapState {
   clearPendingTx: () => void;
 
   setExecutionApprovalRequired: (val: boolean | null) => void;
-  setExecutionCurrentStep: (step: 'preparing' | 'approving' | 'signing') => void;
+  setExecutionCurrentStep: (
+    step:
+      | 'preparing'
+      | 'approving'
+      | 'signing'
+      | 'activating'
+      | 'polling_activation'
+      | 'setting_trustline'
+  ) => void;
 
   setBridgePendingSignPhase: (
     phase: SwapState['bridgePendingSignPhase'],
@@ -75,6 +91,7 @@ export const useSwapStore = create<SwapState>()(
       isGasless: false,
       userSlippageTolerance: 1.0,
       feePayType: 'stablecoin',
+      useUnlimitedApproval: false,
 
       pendingTxStatus: 'idle',
       pendingTxHasPendingSign: false,
@@ -98,6 +115,7 @@ export const useSwapStore = create<SwapState>()(
       setIsGasless: enabled => set({ isGasless: enabled }),
       setUserSlippageTolerance: slippage => set({ userSlippageTolerance: slippage }),
       setFeePayType: type => set({ feePayType: type }),
+      setUseUnlimitedApproval: val => set({ useUnlimitedApproval: val }),
       resetInputs: () =>
         set({
           sellAmount: '',
@@ -145,6 +163,7 @@ export const useSwapStore = create<SwapState>()(
         buyAssetSymbol: state.buyAssetSymbol,
         buyAssetAddress: state.buyAssetAddress,
         userSlippageTolerance: state.userSlippageTolerance,
+        useUnlimitedApproval: state.useUnlimitedApproval,
       }),
     }
   )

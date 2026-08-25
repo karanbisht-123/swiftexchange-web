@@ -59,7 +59,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
 
   const txProvider = (transaction as any).provider;
   const isFusion = txProvider === 'ONEINCH_FUSION' || txProvider === 'ONEINCH_FUSION_PLUS';
-  const isAllbridge = txProvider === 'ALLBRIDGE' || txProvider === 'SRBTODYDX';
+
   const isNearIntent = txProvider === 'NEARINTENT';
 
   const isLocal = 'type' in transaction;
@@ -126,9 +126,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
 
   const explorerLinkUrl = isNearIntent
     ? `https://explorer.near-intents.org/transactions/${transaction.hash}`
-    : isAllbridge
-      ? `https://core.allbridge.io/explorer?search=${transaction.hash}`
-      : getExplorerUrl(chainId, 'tx', displayHash);
+    : getExplorerUrl(chainId, 'tx', displayHash);
   const timestamp = isLocal
     ? (transaction as LocalTransactionWithStatus).timestamp
     : (transaction as TransactionItem).metadata?.blockTimestamp
@@ -425,7 +423,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-1.5 hover:bg-tertiary rounded-md text-muted hover:text-primary transition-colors"
-                    title={isAllbridge ? 'View on Allbridge Explorer' : 'View on Explorer'}
+                    title="View on Explorer"
                   >
                     <ExternalLink size={14} />
                   </a>

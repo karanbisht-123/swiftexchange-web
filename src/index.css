@@ -1068,3 +1068,86 @@
 .ob-stagger > *:nth-child(15) {
   animation-delay: 0.15s;
 }
+
+@layer utilities {
+  .neon-card {
+    --neon-color: var(--color-info);
+    position: relative;
+    overflow: hidden;
+    border-color: color-mix(in srgb, var(--neon-color) 35%, transparent);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--neon-color) 6%, transparent),
+      0 0 18px color-mix(in srgb, var(--neon-color) 18%, transparent),
+      inset 0 0 40px color-mix(in srgb, var(--neon-color) 5%, transparent);
+    animation: neonPulse 3.4s ease-in-out infinite;
+  }
+
+  .neon-badge {
+    --neon-color: var(--color-info);
+    border-color: color-mix(in srgb, var(--neon-color) 35%, transparent);
+    box-shadow:
+      0 0 10px color-mix(in srgb, var(--neon-color) 45%, transparent),
+      0 0 20px color-mix(in srgb, var(--neon-color) 18%, transparent);
+  }
+
+  .neon-text {
+    --neon-color: var(--color-info);
+    text-shadow: 0 0 6px color-mix(in srgb, var(--neon-color) 40%, transparent);
+  }
+
+  .neon-btn {
+    --neon-color: var(--color-info);
+    background: linear-gradient(
+      135deg,
+      var(--neon-color),
+      color-mix(in srgb, var(--neon-color) 75%, black)
+    );
+    color: var(--color-text-inverse);
+    box-shadow:
+      0 0 12px color-mix(in srgb, var(--neon-color) 55%, transparent),
+      0 0 24px color-mix(in srgb, var(--neon-color) 25%, transparent);
+  }
+
+  .neon-sheen::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.6;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--neon-color, var(--color-info)) 12%, transparent),
+      transparent
+    );
+    background-size: 200% 100%;
+    animation: neonSheen 4s linear infinite;
+  }
+
+  @keyframes neonPulse {
+    0%,
+    100% {
+      box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--neon-color) 6%, transparent),
+        0 0 18px color-mix(in srgb, var(--neon-color) 18%, transparent),
+        inset 0 0 40px color-mix(in srgb, var(--neon-color) 5%, transparent);
+    }
+
+    50% {
+      box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--neon-color) 12%, transparent),
+        0 0 26px color-mix(in srgb, var(--neon-color) 28%, transparent),
+        inset 0 0 46px color-mix(in srgb, var(--neon-color) 10%, transparent);
+    }
+  }
+
+  @keyframes neonSheen {
+    0% {
+      background-position: -100% 0;
+    }
+
+    100% {
+      background-position: 100% 0;
+    }
+  }
+}

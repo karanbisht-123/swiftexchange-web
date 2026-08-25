@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getChainById } from '../../../utils/Chainregistry';
+import { getSwapQuote } from '../services/evmSwapService';
+import { get1InchFusionQuote } from '../services/fusionOrderService';
 import {
   DUMMY_EVM_ADDRESS,
   DUMMY_STELLAR_ADDRESS,
@@ -10,7 +12,7 @@ import {
   matchNearIntentToken,
   safeParseUnits,
 } from '../services/oneClickApi';
-import type { ActiveQuote } from '../types/swap.types';
+import type { UnifiedAsset, UnifiedQuote } from '../types/swap.types';
 import { isStellar } from '../utils/swapAssetUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
 
@@ -22,18 +24,13 @@ export interface UseSwapQuoteParams {
   fromChainId: number | string;
   toChainId: number | string;
   ammService: any;
-  selectedSellAsset: any;
-  selectedBuyAsset: any;
+  selectedSellAsset: UnifiedAsset | null;
+  selectedBuyAsset: UnifiedAsset | null;
   userSlippageTolerance: number;
   sellAssetSymbol: string;
   buyAssetSymbol: string;
   fromChainConfig: any;
   toChainConfig: any;
-  fetchSwapQuoteInternal: (request: any, sellAsset: any, buyAsset: any) => Promise<any>;
-  fetchFusionQuote: (sellAsset: any, buyAsset: any, amount: string) => Promise<any>;
-  // getEvmBridgeQuote: (fromChainId: any, toChainId: any, amount: string, sellSymbol: string, buySymbol: string) => Promise<any>;
-  // getStellarBridgeQuote: (params: any) => Promise<any>;
-  // getSupportedTokens: () => Promise<any[]>;
   setFeePayType: (type: 'native' | 'stablecoin') => void;
   setCrossChainWarning: (warning: string | null) => void;
   setBridgeErrorMsg: (msg: string | null) => void;
@@ -44,6 +41,7 @@ export interface UseSwapQuoteParams {
   isSameAssetSelected: boolean;
   evmAddress?: string;
   stellarAddress?: string;
+  isStellarAccountActive?: boolean | null;
 }
 
 export function useSwapQuote(params: UseSwapQuoteParams) {
@@ -61,12 +59,6 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
     sellAssetSymbol,
     buyAssetSymbol,
     fromChainConfig,
-    fetchSwapQuoteInternal,
-    fetchFusionQuote,
-    // getEvmBridgeQuote,
-    // getStellarBridgeQuote,
-    // getSupportedTokens,
-    // setFeePayType,
     setCrossChainWarning,
     setBridgeErrorMsg,
     resetSwap,
@@ -75,9 +67,10 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
     isSameAssetSelected,
     evmAddress,
     stellarAddress,
+    isStellarAccountActive,
   } = params;
 
-  const [activeQuote, setActiveQuote] = useState<ActiveQuote>({
+  const [currentQuote, setCurrentQuote] = useState<UnifiedQuote>({
     source: null,
     data: null,
     error: null,
@@ -86,6 +79,7 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
   const [timeLeft, setTimeToNextRefresh] = useState(30);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const latestRequestId = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const getUsdValue = useCallback((amount: string, asset: any): number | null => {
     if (!amount || !asset) return null;
@@ -105,36 +99,73 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
   }, []);
 
   const fetchUnifiedQuote = useCallback(async () => {
+    if (bridgeTxStatus && bridgeTxStatus !== 'idle') {
+      return; // Do NOT fetch quotes or reset the swap while an execution (like trustline setup) is in progress!
+    }
+
     if (!sellAmount || parseFloat(sellAmount) <= 0 || isChainSwitching || showFusionScreen) {
-      setActiveQuote({ source: null, data: null, error: null, loading: false });
+      setCurrentQuote({ source: null, data: null, error: null, loading: false });
       return;
     }
+
+    let warningError: string | null = null;
+
+    if (
+      isStellar(toChainId) &&
+      isStellarAccountActive === false &&
+      buyAssetSymbol.toUpperCase() !== 'XLM'
+    ) {
+      warningError = 'Account activation required';
+    } else if (
+      isStellar(toChainId) &&
+      isStellarAccountActive !== false &&
+      selectedBuyAsset &&
+      !selectedBuyAsset.isNative &&
+      !selectedBuyAsset.hasTrustline
+    ) {
+      warningError = 'Trustline required';
+    }
+
+    if (!selectedSellAsset || !selectedBuyAsset) {
+      return;
+    }
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
 
     const requestId = ++latestRequestId.current;
     setCrossChainWarning(null);
     setBridgeErrorMsg(null);
+    resetSwap();
 
     if (actionType === 'SWAP') {
       if (isStellar(fromChainId) && ammService) {
         if (!selectedSellAsset || !selectedBuyAsset) return;
         try {
-          const fromAsset = (selectedSellAsset as any).asset;
-          const toAsset = (selectedBuyAsset as any).asset;
+          const fromAsset = selectedSellAsset.asset;
+          const toAsset = selectedBuyAsset.asset;
           if (!fromAsset || !toAsset) return;
 
-          setActiveQuote({ source: 'stellar', data: null, error: null, loading: true });
+          setCurrentQuote({ source: 'STELLAR_SWAP', data: null, error: null, loading: true });
           const sq = await ammService.getSwapQuote(fromAsset, toAsset, sellAmount, {
             slippageTolerance: userSlippageTolerance,
           });
 
           if (requestId !== latestRequestId.current) return;
 
-          setActiveQuote({ source: 'stellar', data: sq, error: null, loading: false });
+          setCurrentQuote({
+            source: 'STELLAR_SWAP',
+            data: sq,
+            error: warningError,
+            loading: false,
+          });
         } catch (err) {
           if (requestId !== latestRequestId.current) return;
           console.error('Stellar quote error:', err);
-          setActiveQuote({
-            source: 'stellar',
+          setCurrentQuote({
+            source: 'STELLAR_SWAP',
             data: null,
             error: parseSwapError(err),
             loading: false,
@@ -151,30 +182,40 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
           const quoteRequest = {
             tokenIn: {
               symbol: selectedSellAsset.symbol,
-              name: selectedSellAsset.symbol,
-              decimals: (selectedSellAsset as any).decimals || 18,
-              address: selectedSellAsset.address || '',
-              balance: (selectedSellAsset as any).balance || '0',
-              logoUri: null,
+              name: selectedSellAsset.name || selectedSellAsset.symbol,
+              decimals: selectedSellAsset.decimals || 18,
+              address: selectedSellAsset.isNative
+                ? '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+                : selectedSellAsset.address || '',
+              balance: selectedSellAsset.balance || '0',
+              logoUri: selectedSellAsset.logoUri || null,
               chainId: fromChainId,
+              isNative: !!selectedSellAsset.isNative,
             },
             tokenOut: {
               symbol: selectedBuyAsset.symbol,
-              name: selectedBuyAsset.symbol,
-              decimals: (selectedBuyAsset as any).decimals || 18,
-              address: selectedBuyAsset.address || '',
-              balance: (selectedBuyAsset as any).balance || '0',
-              logoUri: null,
+              name: selectedBuyAsset.name || selectedBuyAsset.symbol,
+              decimals: selectedBuyAsset.decimals || 18,
+              address: selectedBuyAsset.isNative
+                ? '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+                : selectedBuyAsset.address || '',
+              balance: selectedBuyAsset.balance || '0',
+              logoUri: selectedBuyAsset.logoUri || null,
               chainId: toChainId,
+              isNative: !!selectedBuyAsset.isNative,
             },
             amount: sellAmount,
+            recipient: evmAddress || DUMMY_EVM_ADDRESS,
+            slippage: userSlippageTolerance ? userSlippageTolerance.toString() : '1',
           };
-          setActiveQuote(prev => ({ ...prev, source: 'swap', loading: false }));
-          await fetchSwapQuoteInternal(
+          setCurrentQuote(prev => ({ ...prev, source: 'EVM_SWAP', loading: true }));
+          const sq = await getSwapQuote(
+            fromChainId,
             quoteRequest,
-            selectedSellAsset as any,
-            selectedBuyAsset as any
+            abortControllerRef.current.signal
           );
+          if (requestId !== latestRequestId.current) return;
+          setCurrentQuote({ source: 'EVM_SWAP', data: sq, error: warningError, loading: false });
         } catch (err: any) {
           if (requestId !== latestRequestId.current) return;
           if (
@@ -183,6 +224,12 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
           )
             return;
           console.error('Swap quote error:', err);
+          setCurrentQuote({
+            source: 'EVM_SWAP',
+            data: null,
+            error: parseSwapError(err),
+            loading: false,
+          });
         }
       }
     } else {
@@ -194,13 +241,13 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
           const nearSellAsset = matchNearIntentToken(
             nearTokens,
             sellAssetSymbol,
-            (selectedSellAsset as any)?.address,
+            selectedSellAsset.address,
             fromChainId
           );
           const nearBuyAsset = matchNearIntentToken(
             nearTokens,
             buyAssetSymbol,
-            (selectedBuyAsset as any)?.address,
+            selectedBuyAsset.address,
             toChainId
           );
 
@@ -244,27 +291,12 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
         }
       };
 
-      // ── Allbridge (Stellar→EVM) commented out ──────────────────────────────
-      // const isFromStellar = isStellar(fromChainId);
-      // const tokens = await getSupportedTokens();
-      // const fromChainSym = ChainSymbol.SRB;
-      // const src = tokens.find(t => t.chainSymbol === fromChainSym && t.symbol.toUpperCase() === sellAssetSymbol.toUpperCase());
-      // const dst = tokens.find(t => t.chainSymbol === toChainConfig?.nativeCurrency.symbol && t.symbol.toUpperCase() === buyAssetSymbol.toUpperCase());
-      // const allbridgePromise = src && dst ? getStellarBridgeQuote({...}) : Promise.resolve({error:'Pair not supported by Allbridge'});
-      // ─────────────────────────────────────────────────────────────────────────
-
-      // ── Allbridge EVM→Stellar / EVM→EVM bridge commented out ─────────────
-      // const fromBridgeSupported = isBridgeSupported(sellAssetSymbol, fromChainId);
-      // const toBridgeSupported = isBridgeSupported(buyAssetSymbol, toChainId);
-      // const shouldUseBridge = isToStellar || (bothBridgeSupported && isBelow2Usd);
-      // const bdgPromise = getEvmBridgeQuote(fromChainId, toChainId, sellAmount, sellAssetSymbol, buyAssetSymbol);
-      // ─────────────────────────────────────────────────────────────────────────
-
       const isFromStellar = isStellar(fromChainId);
       const isToStellar = isStellar(toChainId);
+      const isEvmWalletConnected = !!evmAddress;
 
-      if (isFromStellar || isToStellar) {
-        setActiveQuote({ source: 'near_intent', data: null, error: null, loading: true });
+      if (isFromStellar || isToStellar || !isEvmWalletConnected) {
+        setCurrentQuote({ source: 'NEAR_INTENT', data: null, error: null, loading: true });
         setCrossChainWarning(null);
 
         try {
@@ -276,7 +308,12 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
             throw new Error((inQ as any)?.error || 'Pair not supported by NEAR Intents');
           }
 
-          setActiveQuote({ source: 'near_intent', data: inQ, error: null, loading: false });
+          setCurrentQuote({
+            source: 'NEAR_INTENT',
+            data: inQ,
+            error: warningError,
+            loading: false,
+          });
         } catch (err: any) {
           if (requestId !== latestRequestId.current) return;
           if (
@@ -286,8 +323,8 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
             return;
           console.error('Cross-chain quote error:', err);
           setCrossChainWarning(parseSwapError(err));
-          setActiveQuote({
-            source: 'near_intent',
+          setCurrentQuote({
+            source: 'NEAR_INTENT',
             data: null,
             error: parseSwapError(err),
             loading: false,
@@ -295,14 +332,24 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
         }
       } else {
         // EVM to EVM cross-chain -> Fusion Plus (1inch)
-        setActiveQuote({ source: 'fusion_plus', data: null, error: null, loading: true });
+        setCurrentQuote({ source: 'FUSION_PLUS', data: null, error: null, loading: true });
         setCrossChainWarning(null);
 
         try {
-          const fusionQuote = await fetchFusionQuote(
-            selectedSellAsset as any,
-            selectedBuyAsset as any,
-            sellAmount
+          const fusionQuote = await get1InchFusionQuote(
+            fromChainId,
+            {
+              tokenIn: selectedSellAsset.isNative
+                ? '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+                : selectedSellAsset.address || '',
+              tokenOut: selectedBuyAsset.isNative
+                ? '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+                : selectedBuyAsset.address || '',
+              amount: safeParseUnits(sellAmount, selectedSellAsset.decimals),
+              walletAddress: evmAddress || '0x0000000000000000000000000000000000000000',
+              decimals: selectedSellAsset.decimals,
+            },
+            toChainId
           );
 
           if (requestId !== latestRequestId.current) return;
@@ -311,10 +358,10 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
             throw new Error((fusionQuote as any)?.error || 'Pair not supported by Fusion Plus');
           }
 
-          setActiveQuote({
-            source: 'fusion_plus',
+          setCurrentQuote({
+            source: 'FUSION_PLUS',
             data: fusionQuote,
-            error: null,
+            error: warningError,
             loading: false,
           });
         } catch (err: any) {
@@ -326,8 +373,8 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
             return;
           console.error('Fusion Plus quote error:', err);
           setCrossChainWarning(parseSwapError(err));
-          setActiveQuote({
-            source: 'fusion_plus',
+          setCurrentQuote({
+            source: 'FUSION_PLUS',
             data: null,
             error: parseSwapError(err),
             loading: false,
@@ -342,9 +389,6 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
     selectedSellAsset,
     selectedBuyAsset,
     sellAmount,
-    sellAssetSymbol,
-    buyAssetSymbol,
-    fetchSwapQuoteInternal,
     isChainSwitching,
     fromChainConfig,
     userSlippageTolerance,
@@ -352,14 +396,15 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
     isBridgeSupported,
     getUsdValue,
     ammService,
-    fetchFusionQuote,
     evmAddress,
     stellarAddress,
     setCrossChainWarning,
     setBridgeErrorMsg,
+    resetSwap,
+    isStellarAccountActive,
   ]);
 
-  const isQuoteLoading = !!(activeQuote.loading || swapQuoteLoading || isRefreshing);
+  const isQuoteLoading = !!(currentQuote.loading || swapQuoteLoading || isRefreshing);
 
   useEffect(() => {
     setTimeToNextRefresh(30);
@@ -418,8 +463,8 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
   }, [timeLeft, fetchUnifiedQuote]);
 
   return {
-    activeQuote,
-    setActiveQuote,
+    currentQuote,
+    setCurrentQuote,
     timeLeft,
     setTimeToNextRefresh,
     isRefreshing,

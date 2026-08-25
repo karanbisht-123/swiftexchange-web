@@ -10,7 +10,7 @@ function isMainnet(): boolean {
 }
 
 export interface TransactionRequest {
-  type: 'evm' | 'stellar' | 'cosmos';
+  type: 'evm' | 'stellar';
   network: string;
   networkKey: number | string;
   from: string;
@@ -194,9 +194,7 @@ class TransactionRouter {
         case 'stellar':
           result = await this.handleStellarTransaction(session, request);
           break;
-        case 'cosmos':
-          result = await this.handleCosmosTransaction(session, request);
-          break;
+
         default:
           console.error('Unsupported transaction type:', request.type);
           throw new Error(`Unsupported transaction type: ${request.type}`);
@@ -224,11 +222,6 @@ class TransactionRouter {
       console.log('[Router] Patching provider namespaces from session...');
       provider.namespaces = provider.session.namespaces;
     }
-  }
-
-  // Helper to detect if this is a WalletConnect provider that needs client.request()
-  private isWalletConnectProvider(provider: any): boolean {
-    return !!(provider.client && provider.session && typeof provider.client.request === 'function');
   }
 
   private async handleEVMTransaction(
@@ -393,9 +386,6 @@ class TransactionRouter {
     request: TransactionRequest
   ): Promise<TransactionResponse> {
     console.group('[Router] handleStellarTransaction');
-    console.log(request, '-----++++++++++');
-
-    const { provider } = session;
 
     try {
       if (!request.data?.xdr) {
@@ -403,22 +393,7 @@ class TransactionRouter {
         throw new Error('Stellar transaction requires XDR data');
       }
 
-      this.ensureProviderNamespaces(provider);
-
-      console.log('XDR data present:', {
-        xdrLength: request.data.xdr.length,
-        networkPassphrase: request.data.networkPassphrase,
-        networkKey: request.networkKey,
-      });
-
-      console.log('Session info:', {
-        hasProvider: !!provider,
-        hasClient: !!provider?.client,
-        hasSession: !!provider?.session,
-        sessionTopic: provider?.session?.topic,
-        chainId: session.chainId,
-        requestNetworkKey: request.networkKey,
-      });
+      this.ensureProviderNamespaces(session.provider);
 
       const STELLAR_PASSPHRASES: Record<string, string> = {
         pubnet: 'Public Global Stellar Network ; September 2015',
@@ -441,141 +416,26 @@ class TransactionRouter {
         request.data.network ||
         (['pubnet', 'mainnet', 'PUBLIC', 'publink'].includes(networkKeyStr) ? 'PUBNET' : 'TESTNET');
 
-      console.log('Resolved Stellar network params:', {
-        networkKeyStr,
-        resolvedNetwork,
-        resolvedPassphrase,
+      const { signAndSubmitTransaction } = await import('../../stellar/utils/transactionService');
+
+      const result = await signAndSubmitTransaction({
+        xdr: request.data.xdr,
+        network: resolvedNetwork.toUpperCase(),
+        networkPassphrase: resolvedPassphrase,
+        provider: session.provider,
+        stellarAddress: session.address,
       });
 
-      const signParams = {
-        xdr: request.data.xdr,
-        networkPassphrase: resolvedPassphrase,
-        network: resolvedNetwork,
+      if (!result.success || !result.hash) {
+        throw new Error(result.error || 'Stellar transaction failed');
+      }
+
+      console.log('Stellar transaction successful!', result.hash);
+      console.groupEnd();
+      return {
+        status: 'success',
+        hash: result.hash,
       };
-
-      // ✅ FIX 2: must include stellar: prefix for CAIP — current code strips it
-      const stellarChainId =
-        typeof request.networkKey === 'string'
-          ? request.networkKey
-          : String(session.chainId) || 'pubnet';
-
-      const chainCAIP = stellarChainId.includes(':') ? stellarChainId : `stellar:${stellarChainId}`;
-
-      console.log('Using Stellar chain:', chainCAIP);
-
-      if (provider.setDefaultChain) {
-        try {
-          const availableChains = provider.namespaces?.stellar?.chains || [];
-          if (availableChains.includes(chainCAIP)) {
-            provider.setDefaultChain(chainCAIP);
-            console.log(`Set default chain to ${chainCAIP}`);
-          } else {
-            console.warn(`Chain ${chainCAIP} not in namespaces`);
-          }
-        } catch (e) {
-          console.warn('Failed to set default chain (Stellar):', e);
-        }
-      }
-
-      console.log('Calling Stellar transaction method...');
-
-      let result: any;
-
-      if (this.isWalletConnectProvider(provider)) {
-        console.log('Using WalletConnect client.request() for Stellar');
-        const topic = provider.session?.topic;
-
-        if (!topic) {
-          console.error('No WalletConnect session topic found');
-          throw new Error('No active WalletConnect session for Stellar wallet');
-        }
-
-        console.log('WalletConnect request params:', {
-          topic,
-          chainId: chainCAIP,
-          method: 'stellar_signAndSubmitXDR',
-          params: signParams,
-        });
-
-        try {
-          result = await provider.client.request({
-            topic,
-            chainId: chainCAIP,
-            request: {
-              method: 'stellar_signAndSubmitXDR',
-              params: signParams,
-            },
-          });
-        } catch (wcError: any) {
-          console.warn(
-            '[Router] stellar_signAndSubmitXDR failed, trying fallback sign-only...',
-            wcError
-          );
-          const signResult = await provider.client.request({
-            topic,
-            chainId: chainCAIP,
-            request: {
-              method: 'stellar_signTransaction',
-              params: signParams,
-            },
-          });
-
-          const signedXdr =
-            signResult?.signedXDR || (typeof signResult === 'string' ? signResult : null);
-          if (!signedXdr) throw new Error('Wallet failed to sign the transaction');
-
-          console.log('[Router] Fallback sign successful, submitting to Horizon...');
-          const { getStellarConfig } = await import('../../walletconnect/config/chains');
-          const config = getStellarConfig(resolvedNetwork.toLowerCase() as any);
-
-          // Submit to Horizon
-          const broadcastUrl = `${config.horizonUrl}/transactions`;
-          const body = new URLSearchParams({ tx: signedXdr });
-          const res = await fetch(broadcastUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body,
-          });
-
-          if (!res.ok) {
-            const json = await res.json();
-            throw new Error(
-              json?.extras?.result_codes?.transaction || json?.title || 'Submission failed'
-            );
-          }
-          const json = await res.json();
-          result = { hash: json.hash, status: 'success' };
-        }
-      } else {
-        console.log(
-          'Direct provider.request() - calling stellar_signAndSubmitXDR with:',
-          signParams
-        );
-        result = await provider.request({
-          method: 'stellar_signAndSubmitXDR',
-          params: signParams,
-        });
-      }
-
-      console.log('Stellar provider response received:', result);
-
-      if (result?.status === 'success' || result?.hash || result?.signedXDR) {
-        console.log('Stellar transaction successful!');
-        console.groupEnd();
-        return {
-          status: 'success',
-          hash: result.hash || result.transactionHash || 'stellar_submitted',
-        };
-      }
-
-      if (typeof result === 'string') {
-        console.log('Stellar transaction returned string result');
-        console.groupEnd();
-        return { status: 'success', hash: result };
-      }
-
-      console.error('Stellar transaction failed - unexpected response:', result);
-      throw new Error('Stellar transaction failed - unexpected response format');
     } catch (error: any) {
       console.error('Stellar transaction failed:', {
         message: error.message,
@@ -594,7 +454,6 @@ class TransactionRouter {
       } else if (error.response?.data?.detail) {
         errorMessage = `Stellar Error: ${error.response.data.detail}`;
       } else if (typeof error === 'object' && error !== null) {
-        // Handle generic WalletConnect or RPC errors that might contain Stellar codes
         const errorJson = JSON.stringify(error).toLowerCase();
         if (errorJson.includes('tx_bad_seq'))
           errorMessage = 'Stellar Error: tx_bad_seq (Sequence Number Mismatch)';
@@ -610,80 +469,10 @@ class TransactionRouter {
     }
   }
 
-  private async handleCosmosTransaction(
-    session: WalletSession,
-    request: TransactionRequest
-  ): Promise<TransactionResponse> {
-    console.group('[Router] handleCosmosTransaction');
-
-    const { provider } = session;
-
-    try {
-      console.log('Preparing Cosmos transaction...');
-
-      if (!request.data) {
-        console.error('Missing transaction data');
-        throw new Error('Cosmos transaction requires data');
-      }
-
-      console.log('Transaction data present:', {
-        dataKeys: Object.keys(request.data),
-      });
-
-      console.log('Calling provider.request with cosmos_signDirect...');
-
-      let result: any;
-
-      if (this.isWalletConnectProvider(provider)) {
-        console.log('Using WalletConnect client.request() for Cosmos');
-        const topic = provider.session?.topic;
-
-        if (!topic) {
-          throw new Error('No active WalletConnect session for Cosmos wallet');
-        }
-
-        const cosmosChainId = String(request.networkKey);
-        const chainCAIP = `cosmos:${cosmosChainId}`;
-
-        result = await provider.client.request({
-          topic,
-          chainId: chainCAIP,
-          request: {
-            method: 'cosmos_signDirect',
-            params: request.data,
-          },
-        });
-      } else {
-        result = await provider.request({
-          method: 'cosmos_signDirect',
-          params: request.data,
-        });
-      }
-
-      console.log('Provider response:', result);
-      console.log('Cosmos transaction successful!');
-      console.groupEnd();
-
-      return {
-        status: 'success',
-        hash: result.transactionHash || result.hash || 'cosmos_submitted',
-      };
-    } catch (error: any) {
-      console.error('Cosmos transaction failed:', {
-        message: error.message,
-        code: error.code,
-        fullError: error,
-      });
-      console.groupEnd();
-      throw error;
-    }
-  }
-
-  private getWalletType(type: 'evm' | 'stellar' | 'cosmos'): WalletType {
+  private getWalletType(type: 'evm' | 'stellar'): WalletType {
     const mapping: Record<string, WalletType> = {
       evm: WalletType.EVM,
       stellar: WalletType.STELLAR,
-      cosmos: WalletType.COSMOS,
     };
 
     const walletType = mapping[type];

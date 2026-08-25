@@ -6,6 +6,7 @@ import QRCode from 'qrcode';
 import { ConfirmationModal } from '../../../components/common/ConfirmationModal';
 import PageLayout from '../../../components/layout/PageLayout';
 import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
+import { useStellarAccountStatus } from '../../walletconnect/hooks/useStellarAccountStatus';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useAssetSelectorModal } from '../components/useAssetSelectorModal';
 import { useReceiveAssets } from '../hook/useReceiveassets';
@@ -33,7 +34,6 @@ const QRCard = ({
   onAddTrustlineClick,
 }: QRCardProps) => {
   const canInteract = !!walletAddress && isAddressValid;
-
   const canvasCallbackRef = useCallback(
     (canvas: HTMLCanvasElement | null) => {
       if (!canvas || !walletAddress || !isAddressValid) return;
@@ -192,6 +192,10 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
 
   const { openAssetSelector } = useAssetSelectorModal();
 
+  const { isActive } = useStellarAccountStatus(
+    currentAsset?.type === 'stellar' ? walletAddress : ''
+  );
+
   const currentChainLogo = useMemo(() => {
     if (!currentAsset) return null;
     const chainId = currentAsset.chainId;
@@ -280,6 +284,22 @@ const ReceiveAssets = ({ onClose }: { onClose?: () => void }) => {
               </div>
             </button>
           </div>
+
+          {currentAsset?.chainType === 'stellar' && isActive === false && (
+            <div className="bg-warning/10 border border-warning/20 rounded-xl p-4 flex items-start gap-3 animate-fade-in shadow-sm">
+              <AlertCircle size={18} className="text-warning shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-warning tracking-tight">
+                  Stellar Wallet Not Activated
+                </h4>
+                <p className="text-xs text-muted font-medium leading-relaxed">
+                  Your Stellar wallet is inactive. If you send any token other than native XLM to
+                  this address, the transaction will fail or your funds may be lost permanently.
+                  Please activate your wallet by depositing at least 1 XLM.
+                </p>
+              </div>
+            </div>
+          )}
 
           <QRCard {...qrCardProps} />
         </div>

@@ -1,11 +1,10 @@
 import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
 
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { NetworkMonitor } from './components/NetworkMonitor';
+import { ErrorBoundary } from '@/components/core/ErrorBoundary';
+import { NetworkMonitor } from '@/components/core/NetworkMonitor';
+
 import { initDynamicTokenLists } from './modules/evm/utils/Chainregistry';
-import { ApiTradingKeyModal } from './modules/walletconnect/components/ApiTradingKeyModal';
-import { ExportDydxSecretPhraseModal } from './modules/walletconnect/components/ExportDydxSecretPhraseModal';
 import { WalletListModal } from './modules/walletconnect/components/WalletListModal';
 import {
   initWalletListener,
@@ -14,6 +13,25 @@ import {
 import router from './routes';
 import { registerDevice } from './service/deviceService';
 import { useGeolocationStore } from './store/geolocationStore';
+
+const printSecurityWarning = () => {
+  if (import.meta.env.PROD) {
+    console.log(
+      '%cStop!',
+      'color: red; font-size: 60px; font-weight: bold; text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000;'
+    );
+    console.log(
+      "%cThis is a browser feature intended for developers.\nIf someone told you to copy-paste something here to enable a feature or 'hack' someone's account, it is a scam and will give them access to your SwiftEx wallet and funds.",
+      'font-size: 18px; font-weight: bold; color: white;'
+    );
+    console.log(
+      '%cSee https://en.wikipedia.org/wiki/Self-XSS for more information.',
+      'font-size: 16px; color: #3b82f6;'
+    );
+  }
+};
+
+printSecurityWarning();
 
 const isValidDevicePayload = (payload: unknown): boolean => {
   if (!payload || typeof payload !== 'object') return false;
@@ -72,8 +90,6 @@ const App = () => {
     <ErrorBoundary>
       <NetworkMonitor />
       <WalletListModal />
-      <ApiTradingKeyModal />
-      <ExportDydxSecretPhraseModal />
       <RouterProvider router={router} />
     </ErrorBoundary>
   );

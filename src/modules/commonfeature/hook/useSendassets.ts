@@ -7,6 +7,7 @@ import { ethers } from 'ethers';
 import { SendErcAbi } from '../../../abi/SendErcAbi';
 import { useNotificationStore } from '../../../store/notificationStore';
 import { useTransactionModalStore } from '../../../store/transactionModalStore';
+import { rejectPendingWCRequest } from '../../../utils/walletConnectUtils';
 import { validateAddress } from '../../../validator/AddressValidator';
 import { toPlainString } from '../../evm/feature/swap/utils/swapAmountUtils';
 import { estimateEVMFees, sendCryptoEVMPrepare } from '../../evm/service/evmService';
@@ -27,6 +28,7 @@ import { useTransactionRouter } from '../../transaction/hook/useTransactionRoute
 import type { TransactionRequest } from '../../transaction/router/transactionRouter';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
+import { useGlobalTxStore } from '../../walletconnect/store/globalTxStore';
 import { usePortfolioStore } from '../../walletconnect/store/portfolioStore';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 
@@ -49,7 +51,7 @@ export interface EnhancedSendAsset {
   tokenAddress?: string;
   decimals: number;
   isNative: boolean;
-  type: 'evm' | 'stellar' | 'dydx';
+  type: 'evm' | 'stellar';
   networkKey: number | string;
   baseFee: number;
   balance: number;
@@ -61,9 +63,10 @@ const formatErrorMessage = (error: any): string => {
 };
 
 export const useSendAsset = (onBack?: () => void) => {
-  const { connectedWallets } = useWalletConnect();
+  const { connectedWallets, getProvider } = useWalletConnect();
   const { sendTransaction } = useTransactionRouter();
   const currentNetwork = useWalletStore(state => state.network);
+  const { isLocked } = useGlobalTxStore();
   const storeAssets = usePortfolioStore(state => state.assets);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -89,8 +92,7 @@ export const useSendAsset = (onBack?: () => void) => {
     const activeFromStore = storeAssets
       .filter(a => (a.balance || 0) > 0)
       .map(asset => {
-        const type: 'evm' | 'stellar' | 'dydx' =
-          asset.chainType === 'stellar' ? 'stellar' : asset.chainType === 'dydx' ? 'dydx' : 'evm';
+        const type: 'evm' | 'stellar' = asset.chainType === 'stellar' ? 'stellar' : 'evm';
         const chainId = asset.chainId || (type === 'stellar' ? 'pubnet' : 0);
         return {
           value: asset.id,
@@ -99,14 +101,14 @@ export const useSendAsset = (onBack?: () => void) => {
           logo: asset.image,
           network: asset.chainName,
           chainId,
-          addressType: type === 'dydx' ? 'cosmos' : type,
+          addressType: type,
           walletType: type === 'stellar' ? WalletType.STELLAR : WalletType.EVM,
           tokenAddress: asset.address,
           decimals: asset.decimals || (type === 'stellar' ? 7 : 18),
           isNative: asset.isNative || false,
           type,
           networkKey: chainId,
-          baseFee: type === 'stellar' ? 0.00001 : type === 'dydx' ? 0.0001 : 0.001,
+          baseFee: type === 'stellar' ? 0.00001 : 0.001,
           balance: asset.balance || 0,
           blockExplorerUrl: asset.blockExplorerUrl,
         };
@@ -119,12 +121,8 @@ export const useSendAsset = (onBack?: () => void) => {
     const registryAssets: EnhancedSendAsset[] = [];
     for (const config of CHAIN_REGISTRY) {
       if (config.sendEnable) {
-        const type: 'evm' | 'stellar' | 'dydx' =
-          config.chainId === 'pubnet'
-            ? 'stellar'
-            : String(config.chainId).startsWith('dydx')
-              ? 'dydx'
-              : 'evm';
+        const type: 'evm' | 'stellar' =
+          config.chainId === 'pubnet' || config.chainId === 'testnet' ? 'stellar' : 'evm';
         registryAssets.push({
           value: `send-${config.chainId}-native`,
           symbol: config.nativeCurrency.symbol,
@@ -132,14 +130,14 @@ export const useSendAsset = (onBack?: () => void) => {
           logo: config.nativeCurrency.logoURI,
           network: config.name,
           chainId: config.chainId,
-          addressType: type === 'dydx' ? 'cosmos' : type,
+          addressType: type,
           walletType: type === 'stellar' ? WalletType.STELLAR : WalletType.EVM,
           tokenAddress: undefined,
           decimals: config.nativeCurrency.decimals || (type === 'stellar' ? 7 : 18),
           isNative: true,
           type,
           networkKey: config.chainId,
-          baseFee: type === 'stellar' ? 0.00001 : type === 'dydx' ? 0.0001 : 0.001,
+          baseFee: type === 'stellar' ? 0.00001 : 0.001,
           balance: 0,
         });
 
@@ -152,14 +150,14 @@ export const useSendAsset = (onBack?: () => void) => {
             logo: asset.logoURI,
             network: config.name,
             chainId: config.chainId,
-            addressType: type === 'dydx' ? 'cosmos' : type,
+            addressType: type,
             walletType: type === 'stellar' ? WalletType.STELLAR : WalletType.EVM,
             tokenAddress: asset.address,
             decimals: asset.decimals || (type === 'stellar' ? 7 : 18),
             isNative: false,
             type,
             networkKey: config.chainId,
-            baseFee: type === 'stellar' ? 0.00001 : type === 'dydx' ? 0.0001 : 0.001,
+            baseFee: type === 'stellar' ? 0.00001 : 0.001,
             balance: 0,
           });
         });
@@ -211,13 +209,6 @@ export const useSendAsset = (onBack?: () => void) => {
 
   const senderAddress = useMemo(() => {
     if (!currentAsset) return null;
-    if (currentAsset.type === 'dydx') {
-      return (
-        (connectedWallets.evm as any)?.dydxAddress ||
-        (connectedWallets.cosmos as any)?.dydxAddress ||
-        localStorage.getItem('_sx_dkm_addr')
-      );
-    }
     return connectedWallets[currentAsset.walletType]?.address || null;
   }, [connectedWallets, currentAsset]);
 
@@ -235,7 +226,7 @@ export const useSendAsset = (onBack?: () => void) => {
       }
 
       try {
-        let balStr: string;
+        let balStr: string = '0';
         if (currentAsset.type === 'evm') {
           const config = getEVMNetworkConfig(Number(currentAsset.networkKey));
           balStr = await rpcManager.fetchWithFallback(
@@ -255,9 +246,6 @@ export const useSendAsset = (onBack?: () => void) => {
             ? 'native'
             : `${currentAsset.symbol}:${currentAsset.tokenAddress}`;
           balStr = await getStellarBalance(key, senderAddress);
-        } else {
-          // dydx balance is already in storeAssets, but we can refresh via service if needed
-          balStr = toPlainString(currentAsset.balance);
         }
         setBalance(balStr);
       } catch (e) {
@@ -355,8 +343,6 @@ export const useSendAsset = (onBack?: () => void) => {
           );
         } else if (currentAsset.type === 'stellar') {
           fees = await estimateStellarFees();
-        } else {
-          fees = { totalCost: '0.0001', error: null }; // dYdX fees are very low/fixed for now
         }
         setEstimatedFees(fees);
       } catch (e: any) {
@@ -384,6 +370,18 @@ export const useSendAsset = (onBack?: () => void) => {
       );
       return;
     }
+
+    if (isLocked()) {
+      useNotificationStore.getState().showToast({
+        type: 'SEND',
+        title: 'Wallet Request Pending',
+        message:
+          'Your wallet already has a pending request. Open your wallet and Approve or Reject it first.',
+        dontSave: true,
+      });
+      return;
+    }
+
     isConfirmingRef.current = true;
 
     try {
@@ -536,32 +534,6 @@ export const useSendAsset = (onBack?: () => void) => {
           hash: res.hash || undefined,
           isStellar: true,
         });
-      } else {
-        // dYdX direct handling via service
-        console.log('[useSendAsset] Handling dYdX transaction via service');
-        const { dydxWalletService } = await import('../../dydx/service/dydxWalletService');
-        let result;
-        if (currentAsset.symbol === 'USDC') {
-          // USDC is collateral, needs withdraw
-          result = await dydxWalletService.withdraw(amount, recipientAddress);
-        } else {
-          // Native DYDX
-          result = await dydxWalletService.send(amount, recipientAddress);
-        }
-
-        if (!result.success) throw new Error(result.error || 'Transaction failed');
-
-        setRecipientAddress('');
-        setAmount('');
-        setMemo('');
-        setTransactionState({ txHash: null, step: 'form', error: null });
-
-        useTransactionModalStore.getState().openModal({
-          status: 'success',
-          type: 'Send',
-          hash: result.transactionHash || undefined,
-          isStellar: true,
-        });
       }
     } catch (e: any) {
       console.error('[useSendAsset] Transaction exception caught:', e);
@@ -582,7 +554,7 @@ export const useSendAsset = (onBack?: () => void) => {
         status: 'error',
         type: 'Send',
         error: errMsg,
-        isStellar: currentAsset?.type === 'stellar' || currentAsset?.type === 'dydx',
+        isStellar: currentAsset?.type === 'stellar',
       });
     } finally {
       isConfirmingRef.current = false;
@@ -623,7 +595,35 @@ export const useSendAsset = (onBack?: () => void) => {
     }
   };
 
+  const handleCancelPending = useCallback(async () => {
+    const { status, pendingRequest, clearPending } = useGlobalTxStore.getState();
+    if (status === 'pending' && pendingRequest && currentAsset) {
+      const provider = getProvider(currentAsset.walletType as any);
+      if (provider) {
+        useNotificationStore.getState().showToast({
+          type: 'SEND',
+          title: 'Cancelling...',
+          message: 'If you already approved this in your wallet, this may not stop it.',
+          dontSave: true,
+        });
+        await rejectPendingWCRequest(provider, pendingRequest.id, pendingRequest.topic);
+      }
+      clearPending();
+    }
+  }, [currentAsset, connectedWallets]);
+
+  const handleBackToForm = useCallback(() => {
+    handleCancelPending();
+    setTransactionState({ txHash: null, step: 'form', error: null });
+  }, [handleCancelPending]);
+
+  const handleRetryTransaction = useCallback(() => {
+    handleCancelPending();
+    setTransactionState({ txHash: null, step: 'form', error: null });
+  }, [handleCancelPending]);
+
   const handleDone = useCallback(() => {
+    handleCancelPending();
     if (currentAsset?.type === 'evm') {
       navigate('/transactions?tab=recent');
     } else if (currentAsset?.type === 'stellar') {
@@ -633,7 +633,7 @@ export const useSendAsset = (onBack?: () => void) => {
     } else {
       setTransactionState({ txHash: null, step: 'form', error: null });
     }
-  }, [currentAsset, navigate, onBack]);
+  }, [currentAsset, navigate, onBack, handleCancelPending]);
 
   return {
     recipientAddress,
@@ -655,9 +655,9 @@ export const useSendAsset = (onBack?: () => void) => {
     handleRefreshBalances: () => fetchBalance(true),
     handleReviewTransaction: () => setTransactionState(p => ({ ...p, step: 'review' })),
     handleConfirmTransaction,
-    handleBackToForm: () => setTransactionState({ txHash: null, step: 'form', error: null }),
+    handleBackToForm,
     handleDone,
-    handleRetryTransaction: () => setTransactionState({ txHash: null, step: 'form', error: null }),
+    handleRetryTransaction,
     copyToClipboard,
     formError: !currentAsset
       ? null

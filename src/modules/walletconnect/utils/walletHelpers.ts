@@ -94,8 +94,6 @@ export const isWalletInjected = (walletName: string): boolean => {
     metamask: () => win.ethereum?.isMetaMask,
     trust: () => win.ethereum?.isTrust,
     coinbase: () => win.ethereum?.isCoinbaseWallet,
-    keplr: () => !!win.keplr,
-    leap: () => !!win.leap,
     freighter: () => !!win.freighter,
   };
 
@@ -108,8 +106,6 @@ export const getWalletIcon = (walletName: string): string => {
     trust: 'https://trustwallet.com/assets/images/media/assets/TWT.png',
     walletconnect: 'https://avatars.githubusercontent.com/u/37784886',
     coinbase: 'https://www.coinbase.com/img/favicon/favicon-32x32.png',
-    keplr: 'https://www.keplr.app/favicon.ico',
-    leap: 'https://www.leapwallet.io/favicon.ico',
     phantom: 'https://phantom.app/img/phantom-logo.png',
   };
 
