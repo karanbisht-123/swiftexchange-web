@@ -190,8 +190,13 @@ export async function fetchStellarPnl(
       let errorMsg = `Stellar PNL error: ${res.statusText}`;
       try {
         const errorData = await parseBody<any>(res);
-        if (errorData && typeof errorData === 'object' && errorData.error) {
-          errorMsg = errorData.error;
+        if (errorData && typeof errorData === 'object') {
+          if (errorData.title === 'Resource Missing' || errorData.status === 404) {
+            errorMsg =
+              'It seems like your wallet is not active on the Stellar network. Please deposit at least 1 XLM to activate it.';
+          } else if (errorData.error) {
+            errorMsg = errorData.error;
+          }
         } else if (typeof errorData === 'string') {
           errorMsg = errorData;
         }

@@ -50,7 +50,7 @@ export interface NearIntentToken {
   coingeckoId?: string;
 }
 
-const API_BASE_URL = 'https://1click.chaindefuser.com';
+const API_BASE_URL = import.meta.env.VITE_ONE_CLICK_API_URL || 'https://1click.chaindefuser.com';
 
 export const DUMMY_STELLAR_ADDRESS = 'GA222A4L4FY52R67PGYL5TBCUKQVJUUDGROKUOMKF2AZWLXQPMY6MIFY';
 export const DUMMY_EVM_ADDRESS = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
@@ -143,7 +143,7 @@ export const matchNearIntentToken = (
       if (isTargetStellar !== isTokenStellar) return false;
       if (!isTargetStellar && chainId !== undefined) {
         const tChainId = getEvmChainId(t);
-        if (tChainId && String(tChainId) !== String(chainId)) return false;
+        if (String(tChainId) !== String(chainId)) return false;
       }
       if (t.contractAddress && t.contractAddress.toLowerCase() === addrLower) return true;
       if (t.assetId && t.assetId.toLowerCase().includes(addrLower)) return true;
@@ -159,7 +159,7 @@ export const matchNearIntentToken = (
       if (isTargetStellar !== isTokenStellar) return false;
       if (!isTargetStellar && chainId !== undefined) {
         const tChainId = getEvmChainId(t);
-        if (tChainId && String(tChainId) !== String(chainId)) return false;
+        if (String(tChainId) !== String(chainId)) return false;
       }
 
       const s2 = (t.symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');

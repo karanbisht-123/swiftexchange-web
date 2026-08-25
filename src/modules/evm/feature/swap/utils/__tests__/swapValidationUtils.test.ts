@@ -84,7 +84,7 @@ describe('isInsufficientStellarGas', () => {
   });
 
   it('returns true when non-XLM sell asset and XLM balance is too low', () => {
-    const params = { ...baseParams, stellarAssets: [{ symbol: 'XLM', balance: '0.005' }] };
+    const params = { ...baseParams, stellarAssets: [{ symbol: 'XLM', balance: '0.000005' }] };
     expect(isInsufficientStellarGas(params)).toBe(true);
   });
 

@@ -6,45 +6,32 @@ import type {
   ErrorParams,
   MinReceivedParams,
 } from '../types/swap.types';
-import { toPlainString } from './swapAmountUtils';
 import { isStellar } from './swapAssetUtils';
 
 export function getCalculatedBuyAmount(params: BuyAmountParams): string {
   const {
     actionType,
     isGasless,
-    fusionQuote,
     showFusionScreen,
     selectedBuyAsset,
     activeQuoteSource,
     activeQuoteData,
-    swapQuote,
     isSameAssetSelected,
-    feePayType,
   } = params;
 
   if (isSameAssetSelected) return 'SELECT DIFFERENT PAIR';
 
   if (actionType === 'SWAP') {
-    if (isGasless && fusionQuote && showFusionScreen) {
+    if (isGasless && activeQuoteSource === 'FUSION_PLUS' && showFusionScreen) {
       const decimals = selectedBuyAsset?.decimals || 18;
-      return ethers.formatUnits(fusionQuote.toTokenAmount, decimals);
+      return ethers.formatUnits(activeQuoteData.toTokenAmount || '0', decimals);
     }
-    if (activeQuoteSource === 'stellar') return activeQuoteData?.estimatedOutput || '0.00';
-    return swapQuote?.outputAmount || '0.00';
+    if (activeQuoteSource === 'STELLAR_SWAP') return activeQuoteData?.estimatedOutput || '0.00';
+    return activeQuoteData?.outputAmount || '0.00';
   }
 
   // BRIDGE mode
-  if (activeQuoteSource === 'bridge') {
-    const grossAmount = parseFloat(activeQuoteData?.minimumAmountOut || '0');
-    if (feePayType === 'stablecoin' && activeQuoteData?.fee?.stablecoin) {
-      const feeAmount = parseFloat(activeQuoteData.fee.stablecoin.amount || '0');
-      const netAmount = Math.max(0, grossAmount - feeAmount);
-      return toPlainString(netAmount);
-    }
-    return activeQuoteData?.minimumAmountOut || '0.00';
-  }
-  if (activeQuoteSource === 'fusion_plus' && activeQuoteData) {
+  if (activeQuoteSource === 'FUSION_PLUS' && activeQuoteData) {
     const decimals = selectedBuyAsset?.decimals || 18;
     const amtRaw = activeQuoteData.toTokenAmount || activeQuoteData.dstTokenAmount || '0';
     try {
@@ -53,7 +40,8 @@ export function getCalculatedBuyAmount(params: BuyAmountParams): string {
       return '0.00';
     }
   }
-  if (activeQuoteSource === 'near_intent' && activeQuoteData) {
+
+  if (activeQuoteSource === 'NEAR_INTENT' && activeQuoteData) {
     if (activeQuoteData.amountOutFormatted) {
       return activeQuoteData.amountOutFormatted;
     }
@@ -67,7 +55,6 @@ export function getCalculatedBuyAmount(params: BuyAmountParams): string {
     }
     return '0.00';
   }
-  if (swapQuote) return swapQuote.outputAmount || '0.00';
 
   return '0.00';
 }
@@ -77,16 +64,14 @@ export function getMinimumReceived(params: MinReceivedParams): string {
     actionType,
     activeQuoteSource,
     activeQuoteData,
-    feePayType,
     fromChainId,
-    swapQuote,
     selectedBuyAsset,
     userSlippageTolerance,
     calculatedBuyAmount,
   } = params;
 
   if (actionType === 'BRIDGE') {
-    if (activeQuoteSource === 'fusion_plus' && activeQuoteData) {
+    if (activeQuoteSource === 'FUSION_PLUS' && activeQuoteData) {
       const q = activeQuoteData;
       const preset = (q.recommended_preset || 'fast') as 'fast' | 'medium' | 'slow';
       const presetData = q.presets?.[preset];
@@ -99,7 +84,7 @@ export function getMinimumReceived(params: MinReceivedParams): string {
         }
       }
     }
-    if (activeQuoteSource === 'near_intent' && activeQuoteData) {
+    if (activeQuoteSource === 'NEAR_INTENT' && activeQuoteData) {
       if (activeQuoteData.minAmountOut) {
         try {
           return ethers.formatUnits(activeQuoteData.minAmountOut, selectedBuyAsset?.decimals || 18);
@@ -109,25 +94,17 @@ export function getMinimumReceived(params: MinReceivedParams): string {
       }
       return '0.00';
     }
-    if (activeQuoteSource === 'bridge') {
-      const grossAmount = parseFloat(activeQuoteData?.minimumAmountOut || '0');
-      if (feePayType === 'stablecoin' && activeQuoteData?.fee?.stablecoin) {
-        const feeAmount = parseFloat(activeQuoteData.fee.stablecoin.amount || '0');
-        return Math.max(0, grossAmount - feeAmount).toString();
-      }
-      return activeQuoteData?.minimumAmountOut || '0.00';
-    }
   }
 
-  if (isStellar(fromChainId) && activeQuoteSource === 'stellar')
+  if (isStellar(fromChainId) && activeQuoteSource === 'STELLAR_SWAP')
     return activeQuoteData?.minimumOutput || '0.00';
 
-  if (swapQuote?.minimumReceived) return swapQuote.minimumReceived;
-  if (!swapQuote?.outputAmount || !selectedBuyAsset) return '0.00';
+  if (activeQuoteData?.minimumReceived) return activeQuoteData.minimumReceived;
+  if (!activeQuoteData?.outputAmount || !selectedBuyAsset) return '0.00';
 
   try {
     const decimals = selectedBuyAsset.decimals || 18;
-    const amountBN = ethers.parseUnits(swapQuote.outputAmount, decimals);
+    const amountBN = ethers.parseUnits(activeQuoteData.outputAmount, decimals);
     const slippageBips = BigInt(Math.floor(userSlippageTolerance * 100));
     const minReceivedBN = (amountBN * (10000n - slippageBips)) / 10000n;
     return ethers.formatUnits(minReceivedBN, decimals);
@@ -159,6 +136,7 @@ export function getButtonLabel(params: ButtonLabelParams): string {
     selectedBuyAsset,
     nativeSymbol,
     missingWallets,
+    isStellarAccountActive,
   } = params;
 
   if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
@@ -187,14 +165,27 @@ export function getButtonLabel(params: ButtonLabelParams): string {
 
   if (
     isStellar(toChainId) &&
+    isStellarAccountActive === false &&
+    selectedBuyAsset &&
+    selectedBuyAsset.symbol.toUpperCase() !== 'XLM'
+  ) {
+    return 'ACTIVATE ACCOUNT';
+  }
+
+  if (
+    isStellar(toChainId) &&
+    isStellarAccountActive !== false &&
     selectedBuyAsset &&
     !selectedBuyAsset.isNative &&
     !selectedBuyAsset.hasTrustline
   ) {
-    return 'ADD TRUSTLINE & SWAP';
+    return 'ADD TRUSTLINE';
   }
 
   if (errorMessage) {
+    // Never show raw wallet error codes or overly long messages on the button
+    const isRawCode = /^USER_REJECTED$|^ACTION_REJECTED$|^4001$/.test(errorMessage.trim());
+    if (isRawCode) return 'SWAP FAILED';
     return errorMessage.length > 45 ? 'SWAP FAILED' : errorMessage.toUpperCase();
   }
 

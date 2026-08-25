@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
+import { parseRawChainId, switchOrAddChain } from '../../../utils/evmChainUtils';
 import { getEVMNetworkConfig } from '../../../utils/evmUtils';
 import { rpcManager } from '../../../utils/rpcProvider';
 import type { SwapQuote } from '../types/swap.types';
@@ -40,21 +41,16 @@ export async function executeSwap(
   } catch (err) {
     console.warn('[executeSwap] Failed to reset RPC cache, continuing with existing config:', err);
   }
-
   try {
-    const currentChainHex = await rawProvider.request({ method: 'eth_chainId' });
-    const currentChainId = parseInt(currentChainHex, 16);
+    const rawChainId = await rawProvider.request({ method: 'eth_chainId' });
+    const currentChainId = parseRawChainId(rawChainId);
     if (currentChainId !== Number(chainId)) {
-      await rawProvider.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: `0x${Number(chainId).toString(16)}` }],
-      });
+      await switchOrAddChain(rawProvider, chainId);
     }
   } catch (switchErr: any) {
-    console.warn('[executeSwap] Chain switch failed, proceeding anyway:', switchErr?.message);
+    console.error('[executeSwap] Chain switch failed:', switchErr?.message);
+    throw new Error(`Chain switch failed: ${switchErr?.message || 'User rejected'}`);
   }
-
-  // 1. Get transaction payloads from API
   const transactions = await deps.prepareSwapTransaction({
     chainId,
     quote,
@@ -68,28 +64,32 @@ export async function executeSwap(
   if (!transactions?.length) throw new Error('No transactions returned by swap quoter API');
 
   const provider = new ethers.BrowserProvider(rawProvider);
-  const signer = await provider.getSigner();
-
+  // Request a signer for the specific sender address.
+  // Passing the address explicitly ensures the BrowserProvider binds to
+  // the correct account — calling getSigner() with no argument relies on
+  // eth_accounts[0] which may differ from senderAddress in multi-account
+  // or recently-switched-account scenarios, causing -32000 "unknown account".
+  const signer = await provider.getSigner(senderAddress);
   let lastTxHash = '';
-  let didNotifyWalletSign = false;
+  let walletSignNotified = false;
 
-  // 2. Execute each transaction in sequence (e.g. 1st: ERC20 approve, 2nd: DEX swap)
   for (let i = 0; i < transactions.length; i++) {
     const tx = transactions[i];
     const isLast = i === transactions.length - 1;
-
+    const stepLabel: 'approving' | 'signing' = isLast ? 'signing' : 'approving';
     if (onProgress) {
-      onProgress(isLast ? 'signing' : 'approving');
+      onProgress(stepLabel);
     }
-
-    if (!didNotifyWalletSign) {
-      didNotifyWalletSign = true;
+    if (!walletSignNotified) {
+      walletSignNotified = true;
       onBeforeWalletSign?.();
     }
 
-    // Build standard ethers TransactionRequest
     const txParams: ethers.TransactionRequest = {
-      from: tx.from || senderAddress,
+      // Do NOT include `from` here. When using a named signer (getSigner(address)),
+      // ethers will automatically set the correct `from`. Explicitly passing
+      // `tx.from` (from an API payload) can cause -32000 "unknown account" in
+      // extension wallets that validate `from` against the active keyring session.
       to: tx.to,
       data: tx.data || '0x',
       value: tx.value ? BigInt(tx.value) : 0n,
@@ -107,15 +107,11 @@ export async function executeSwap(
       txParams.nonce = Number(tx.nonce);
     }
 
-    // Determine gasLimit: from API payload or estimate with 20% margin
     if (tx.gasLimit || tx.gas) {
       try {
         txParams.gasLimit = BigInt(tx.gasLimit || tx.gas);
       } catch (err) {
-        console.warn(
-          '[executeSwap] Failed to parse gasLimit from API payload, will estimate instead:',
-          err
-        );
+        console.warn('[executeSwap] Failed to parse gasLimit from API, estimating instead:', err);
       }
     }
     if (!txParams.gasLimit) {
@@ -123,19 +119,19 @@ export async function executeSwap(
         const estimatedGas = await provider.estimateGas(txParams);
         txParams.gasLimit = (estimatedGas * 120n) / 100n;
       } catch (err: any) {
-        console.warn('[executeSwap] Gas estimation failed, letting wallet handle:', err.message);
+        console.error('[executeSwap] Gas estimation failed:', err.message);
+        throw new Error(`Transaction simulation failed: ${err.message || 'Unknown error'}`);
       }
     }
-
-    // 3. Send transaction to wallet
     const response = await signer.sendTransaction(txParams);
     lastTxHash = response.hash;
-    console.log(`[executeSwap] Step ${i + 1}/${transactions.length} broadcast: ${lastTxHash}`);
+    console.log(`[executeSwap] Step ${i + 1}/${transactions.length} tx broadcast: ${lastTxHash}`);
 
     if (isLast && onSwapTxHash) {
       onSwapTxHash(lastTxHash);
     } else if (!isLast && onApprovalTxHash) {
       onApprovalTxHash(lastTxHash);
+      if (onProgress) onProgress('signing');
     }
   }
 

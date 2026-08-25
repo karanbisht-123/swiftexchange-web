@@ -3,7 +3,7 @@ import { CheckCircle2, Copy, ExternalLink } from 'lucide-react';
 interface TransactionSuccessProps {
   txHash?: any;
   explorerUrl?: string;
-  assetType?: 'evm' | 'stellar' | 'cosmos';
+  assetType?: 'evm' | 'stellar';
   onCopyHash: (hash: string) => void;
   onClose: () => void;
   onSendAnother: () => void;

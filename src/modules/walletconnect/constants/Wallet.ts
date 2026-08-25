@@ -1,6 +1,5 @@
 export const WalletType = {
   EVM: 'evm',
-  COSMOS: 'cosmos',
   STELLAR: 'stellar',
 } as const;
 
@@ -17,7 +16,7 @@ export const EVM_WALLETS: WalletConfig[] = [
   {
     id: 'swiftex',
     name: 'SwiftEx Wallet',
-    icon: '/logo.avif',
+    icon: '/logo.png',
     type: WalletType.EVM,
   },
   {
@@ -44,27 +43,6 @@ export const EVM_WALLETS: WalletConfig[] = [
     name: 'WalletConnect',
     icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRWu9CeO85RIMN2ixs9U_6YhnatWBxtCzn6L_e7QRO_CiEV1SB0LGbSXJijfHYt0N46slY&usqp=CAU',
     type: WalletType.EVM,
-  },
-];
-
-export const COSMOS_WALLETS: WalletConfig[] = [
-  {
-    id: 'keplr',
-    name: 'Keplr',
-    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ5rMEIpPYpBjh6xhQtBd7TQDiaUi1H1VX9eA&s',
-    type: WalletType.COSMOS,
-  },
-  {
-    id: 'leap',
-    name: 'Leap Wallet',
-    icon: 'https://avatars.githubusercontent.com/u/99279452?s=200&v=4',
-    type: WalletType.COSMOS,
-  },
-  {
-    id: 'walletconnect',
-    name: 'WalletConnect',
-    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRWu9CeO85RIMN2ixs9U_6YhnatWBxtCzn6L_e7QRO_CiEV1SB0LGbSXJijfHYt0N46slY&usqp=CAU',
-    type: WalletType.COSMOS,
   },
 ];
 
@@ -105,13 +83,11 @@ export const CHAIN_METHODS = {
     'eth_signTypedData',
     'eth_signTypedData_v4',
   ],
-  cosmos: ['cosmos_getAccounts', 'cosmos_signDirect', 'cosmos_signAmino', 'cosmos_sendTransaction'],
   stellar: ['stellar_signTransaction', 'stellar_signAndSubmitXDR'],
 };
 
 export const CHAIN_EVENTS = {
   evm: ['chainChanged', 'accountsChanged'],
-  cosmos: ['accountsChanged'],
   stellar: ['accountsChanged'],
 };
 
@@ -155,22 +131,6 @@ export const WALLET_METADATA_MAP: Record<string, WalletMetadata> = {
     redirects: {
       native: 'rainbow://',
       universal: 'https://rnbwapp.com/wc',
-    },
-  },
-  keplr: {
-    name: 'Keplr',
-    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ5rMEIpPYpBjh6xhQtBd7TQDiaUi1H1VX9eA&s',
-    redirects: {
-      native: 'keplrwallet://wcV2',
-      universal: 'https://keplr.app',
-    },
-  },
-  leap: {
-    name: 'Leap Wallet',
-    icon: 'https://avatars.githubusercontent.com/u/99279452?s=200&v=4',
-    redirects: {
-      native: 'leapcosmos://wcV2',
-      universal: 'https://leapwallet.io',
     },
   },
   lobstr: {

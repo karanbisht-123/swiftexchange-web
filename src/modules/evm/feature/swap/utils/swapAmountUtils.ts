@@ -1,5 +1,7 @@
 import { ethers } from 'ethers';
 
+import { getBridgeNativeFee } from './swapFeeUtils';
+
 export function toPlainString(val: string | number | null | undefined): string {
   if (val === null || val === undefined) return '0';
   const num = typeof val === 'number' ? val : Number.parseFloat(val);
@@ -57,7 +59,7 @@ const FALLBACK_GAS_BY_CHAIN: Record<string, string> = {
 
 function getFallbackGasAmount(chainId?: number | string): string {
   // Stellar chain IDs are non-numeric strings ('pubnet', 'testnet')
-  if (typeof chainId === 'string' && isNaN(Number(chainId))) return '0.00001';
+  if (typeof chainId === 'string' && isNaN(Number(chainId))) return '0.01';
   const key = String(chainId);
   return FALLBACK_GAS_BY_CHAIN[key] ?? FALLBACK_GAS_BY_CHAIN.default;
 }
@@ -100,6 +102,7 @@ export interface CalculateMaxAmountParams {
   actionType?: 'SWAP' | 'BRIDGE';
   feePayType?: 'native' | 'stablecoin';
   bridgeNativeFee?: number | string | null;
+  selectedSellAsset?: { decimals: number };
 }
 
 export function calculateMaxSwapAmount(params: CalculateMaxAmountParams): string {
@@ -113,6 +116,7 @@ export function calculateMaxSwapAmount(params: CalculateMaxAmountParams): string
     actionType = 'SWAP',
     feePayType = 'native',
     bridgeNativeFee,
+    selectedSellAsset = { decimals: 18 },
   } = params;
 
   if (balance === undefined || balance === null) return '0';
@@ -133,14 +137,17 @@ export function calculateMaxSwapAmount(params: CalculateMaxAmountParams): string
 
     let gasRequiredBN = isGasless ? 0n : getGasBuffer(chainId, decimals, networkFee);
 
-    if (actionType === 'BRIDGE' && feePayType === 'native' && bridgeNativeFee) {
-      try {
-        const plainBridgeFee = toPlainString(bridgeNativeFee);
-        const bridgeFeeBN = ethers.parseUnits(plainBridgeFee, decimals);
-        gasRequiredBN += bridgeFeeBN;
-      } catch (err) {
-        console.warn('[calculateMaxSwapAmount] Failed to parse bridgeNativeFee:', err);
-      }
+    const parsedBridgeFee = getBridgeNativeFee(
+      actionType,
+      feePayType,
+      bridgeNativeFee ? { fee: { native: bridgeNativeFee } } : null
+    );
+    if (parsedBridgeFee > 0) {
+      const bridgeFeeWei = ethers.parseUnits(
+        parsedBridgeFee.toFixed(18),
+        selectedSellAsset.decimals
+      );
+      gasRequiredBN += bridgeFeeWei;
     }
 
     if (balanceBN <= gasRequiredBN) {

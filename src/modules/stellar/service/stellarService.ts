@@ -58,10 +58,9 @@ export async function getStellarBalance(assetType: string, from: string): Promis
       }
     } else {
       // For non-native, look for code and issuer match
-      // assetType should be code:issuer
-      const [code, issuer] = assetType.split(':');
+      const [code, issuer] = assetType ? assetType.split(':') : [];
       balance =
-        account.balances.find(
+        account?.balances.find(
           b => (b as any).asset_code === code && (b as any).asset_issuer === issuer
         )?.balance ?? '0';
     }
@@ -108,10 +107,11 @@ export async function sendCryptoStellarBuild(
   to: string,
   amount: string,
   options: StellarTransactionOptions = {},
-  asset: { code: string; issuer?: string; isNative?: boolean } = { code: 'XLM', isNative: true }
+  asset: { code: string; issuer?: string; isNative?: boolean; chainId?: string } = { code: 'XLM', isNative: true }
 ): Promise<StellarSendTransaction> {
   const currentNetwork = useWalletStore.getState().network;
-  const config = getStellarConfig(currentNetwork);
+  const networkToUse = asset.chainId === 'testnet' ? 'testnet' : (asset.chainId === 'pubnet' ? 'mainnet' : currentNetwork);
+  const config = getStellarConfig(networkToUse);
 
   const server = new StellarSDK.Horizon.Server(config.horizonUrl);
   const networkPassphrase =

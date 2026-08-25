@@ -64,9 +64,9 @@ describe('formatAmount', () => {
     expect(formatAmount('100', 6)).toBe('100000000');
   });
 
-  it('returns the raw value on a parse error', () => {
+  it('returns "0" on a parse error', () => {
     const result = formatAmount('not-a-number', 18);
-    expect(result).toBe('not-a-number');
+    expect(result).toBe('0');
   });
 });
 
@@ -84,7 +84,7 @@ describe('getGasBuffer', () => {
 
   it('returns the default minimal buffer for EVM chains before quote arrives', () => {
     const buf = getGasBuffer(1, 18);
-    expect(buf).toBe(BigInt('100000000000000')); // 0.0001 ETH
+    expect(buf).toBe(BigInt('5000000000000000')); // 0.005 ETH
   });
 });
 
@@ -167,8 +167,8 @@ describe('calculateMaxSwapAmount', () => {
       feePayType: 'native',
       bridgeNativeFee: '0.005',
     });
-    // Default buffer 0.0001 + 0.005 = 0.0051 ETH -> 1.0 - 0.0051 = 0.9949 ETH
-    expect(result).toBe('0.9949');
+    // Default buffer 0.005 + 0.005 = 0.01 ETH -> 1.0 - 0.01 = 0.99 ETH
+    expect(result).toBe('0.99');
   });
 
   it('returns "0" on try-block error when isNative is true', () => {

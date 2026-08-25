@@ -15,7 +15,6 @@ import { AutoSizer } from 'react-virtualized-auto-sizer';
 import { FixedSizeList } from 'react-window';
 
 import { ROUTES } from '../../../constants/routes';
-import { DydxDepositModal } from '../../dydx/components/DydxDepositModal';
 import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
 import { useWalletAssets } from '../hooks/useWalletAssets';
 import { useWalletConnect } from '../hooks/useWalletConnect';
@@ -548,11 +547,7 @@ const WalletAssetsSection = () => {
     [connectedWallets]
   );
 
-  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
-  const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
-
   const filteredAssets = useMemo(() => assets.filter(asset => (asset.balance || 0) > 0), [assets]);
-
   const portfolioChange = useMemo(() => calculatePortfolioChange(filteredAssets), [filteredAssets]);
   const isPositive = portfolioChange >= 0;
 
@@ -596,10 +591,6 @@ const WalletAssetsSection = () => {
     [navigate]
   );
 
-  const handleCloseDepositModal = useCallback(() => {
-    setIsDepositModalOpen(false);
-    setSelectedAsset(null);
-  }, []);
 
   const Row = useCallback(
     ({ index, style }: { index: number; style: React.CSSProperties }) => (
@@ -750,14 +741,6 @@ const WalletAssetsSection = () => {
           )}
         </div>
       </section>
-
-      {selectedAsset && isDepositModalOpen && (
-        <DydxDepositModal
-          isOpen={isDepositModalOpen}
-          onClose={handleCloseDepositModal}
-          initialAsset={selectedAsset}
-        />
-      )}
     </>
   );
 };

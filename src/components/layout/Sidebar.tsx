@@ -142,7 +142,7 @@ const Sidebar: FC = () => {
         id="sidebar"
         className={`
           fixed left-0 top-0 h-[100dvh] z-40 
-          bg-secondary 
+          bg-primary
           transition-all duration-200 w-16
           flex flex-col border-r border-color
           ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
@@ -150,11 +150,11 @@ const Sidebar: FC = () => {
       >
         <div className="h-16 py-1 flex flex-col items-center justify-center border-b border-color">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold">
-            <img src="/logo.avif" alt="swiftEx-logo" className="w-full h-full object-contain" />
+            <img src="/logo.png" alt="swiftEx-logo" className="w-full h-full object-contain" />
           </div>
           {activeItem === ROUTES.TRADING_PERPS && <h2 className="text-sm font-semibold">BETA</h2>}
         </div>
-        <nav className="flex-1 p-1 pb-4 overflow-y-auto hide-scrollbar">
+        <nav className="flex-1  pb-4 overflow-y-auto hide-scrollbar">
           <div className="space-y-0.5">
             {navItems.map(item => {
               const isActive =
@@ -166,9 +166,9 @@ const Sidebar: FC = () => {
                   key={item.href}
                   onClick={() => handleNavClick(item)}
                   className={`
-                    w-full flex flex-col items-center justify-center gap-0.5 px-0.5 py-2.5 rounded-lg
+                    w-full flex flex-col items-center justify-center gap-0.5 px-0.5 py-2.5 
                     transition-all duration-200 relative group
-                    ${isActive ? 'text-white shadow-sm' : 'text-text-secondary hover:text-text-primary hover:bg-tertiary'}
+                    ${isActive ? 'text-white shadow-lg' : 'text-text-secondary hover:text-text-primary hover:bg-tertiary'}
                     ${item.isRestricted ? 'opacity-40 cursor-not-allowed grayscale' : ''}
                   `}
                   style={{
@@ -196,7 +196,7 @@ const Sidebar: FC = () => {
                   to={item.href}
                   onClick={() => handleNavClick(item)}
                   className={`
-                    flex flex-col items-center justify-center gap-0.5 px-0.5 py-2.5 rounded-lg
+                    flex flex-col items-center justify-center gap-0.5 px-0.5 py-2.5 
                     transition-all duration-200 w-full relative group
                     ${isActive ? 'text-white shadow-sm' : 'text-text-secondary hover:text-text-primary hover:bg-tertiary'}
                     ${item.isRestricted ? 'opacity-40 cursor-not-allowed grayscale pointer-events-none' : ''}

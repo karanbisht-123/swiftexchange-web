@@ -306,19 +306,6 @@ export const STR = {
   ],
 };
 
-export const DYDX = {
-  RPC: RPC.DYDXRPC,
-  chainId: 'dydx-mainnet-1',
-  nativeChainKey: 'dydx',
-  minGasGwei: 0,
-  imageUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/dydx/images/dydx.png',
-  name: 'dYdX',
-  symbol: 'DYDX',
-  chainName: 'dYdX',
-  subName: 'Chain',
-  bridgeSupportTokens: [],
-};
-
 export const CHAINS: Record<string, IChain> = {
   ETH: {
     rpcUrl: ETH.RPC,
@@ -587,58 +574,5 @@ export const CHAINS: Record<string, IChain> = {
     swapEnable: true,
     importForSetupApp: false,
     importForSetupedApp: true,
-  },
-  DYDX: {
-    rpcUrl: DYDX.RPC,
-    rpcUrls: RPC_URLS.DYDX,
-    chainId: DYDX.chainId,
-    nativeChainKey: DYDX.nativeChainKey,
-    minGasGwei: DYDX.minGasGwei,
-    imageUrl: DYDX.imageUrl,
-    name: DYDX.name,
-    symbol: DYDX.symbol,
-    chainName: DYDX.chainName,
-    subName: DYDX.subName,
-    slug: 'dydx',
-    networkType: 'mainnet',
-    blockExplorerUrl: EXPLORER_URLS.DYDX,
-    supportedTokenList: [
-      {
-        name: DYDX.symbol,
-        asset: DYDX.symbol,
-        symbol: DYDX.symbol,
-        address: 'Native',
-        chainId: DYDX.chainId,
-        type: 'NATIVE',
-        decimals: 18,
-        logoURI: DYDX.imageUrl,
-      },
-      {
-        name: 'USD Coin',
-        asset: DYDX.symbol,
-        symbol: 'USDC',
-        address: 'USDC',
-        chainId: DYDX.chainId,
-        type: '',
-        decimals: 6,
-        logoURI:
-          'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png',
-      },
-    ],
-    nativeToken: {
-      name: DYDX.symbol,
-      symbol: DYDX.symbol,
-      address: '',
-      type: DYDX.symbol,
-      decimals: 18,
-      logoURI: DYDX.imageUrl,
-    },
-    bridgeSupportTokens: DYDX.bridgeSupportTokens,
-    sendEnable: false,
-    receiveEnable: false,
-    bridgeEnable: false,
-    swapEnable: false,
-    importForSetupApp: false,
-    importForSetupedApp: false,
   },
 };

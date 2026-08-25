@@ -80,7 +80,7 @@ export function useSwapAssetDefaults(params: {
     }
 
     urlParamsApplied.current = true;
-  }, []);
+  }, [locationState, searchParams]);
 
   useEffect(() => {
     if (hasInitializedDefaults.current) return;

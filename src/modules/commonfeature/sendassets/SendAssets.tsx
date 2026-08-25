@@ -7,6 +7,7 @@ import { Tooltip } from '../../../components/common/Tooltip';
 import PageLayout from '../../../components/layout/PageLayout';
 import { toPlainString } from '../../evm/feature/swap/utils/swapAmountUtils';
 import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
+import { StellarActivationBanner } from '../../walletconnect/components/StellarActivationBanner';
 import { WalletType } from '../../walletconnect/constants/Wallet';
 import { portfolioUtils } from '../../walletconnect/utils/portfolioUtils';
 import { ActionGuard } from '../components/ActionGuard';
@@ -313,8 +314,6 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
         amountRef.current?.focus();
       } else if (currentAsset?.type === 'stellar' && val.length === 56) {
         amountRef.current?.focus();
-      } else if (currentAsset?.type === 'dydx' && val.startsWith('dydx1') && val.length >= 43) {
-        amountRef.current?.focus();
       }
     },
     [setRecipientAddress, currentAsset]
@@ -377,6 +376,8 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
   const renderForm = () => {
     return (
       <div className="space-y-4">
+        {currentAsset?.type === 'stellar' && <StellarActivationBanner />}
+
         {senderAddress && (
           <div className="bg-bg-tertiary rounded-xl p-4">
             <div className="flex items-center justify-between">
@@ -497,9 +498,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
                   placeholder={
                     currentAsset?.type === 'stellar'
                       ? 'Stellar Address (G...)'
-                      : currentAsset?.type === 'dydx'
-                        ? 'dYdX Address (dydx1...)'
-                        : 'EVM Address (0x...)'
+                      : 'EVM Address (0x...)'
                   }
                   value={recipientAddress}
                   onChange={handleRecipientChange}
@@ -633,7 +632,7 @@ const SendAssets: React.FC<SendCryptoProps> = ({ onBack }) => {
             currentAsset={currentAsset}
             recipientAddress={recipientAddress}
             amount={amount}
-            senderAddress={senderAddress}
+            senderAddress={senderAddress || undefined}
             memo={memo}
             estimatedFees={estimatedFees}
             totalAmount={totalAmount}

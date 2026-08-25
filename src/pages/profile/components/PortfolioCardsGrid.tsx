@@ -1,7 +1,6 @@
-import { Activity, Check, ChevronRight, Compass, Copy, Sparkles, Wallet } from 'lucide-react';
+import { Check, ChevronRight, Compass, Copy, Sparkles, Wallet } from 'lucide-react';
 import React from 'react';
 
-import { dydxDataService } from '../../../modules/dydx/service/dydxOrderService';
 import { type PortfolioTab } from '../../../modules/walletconnect/hooks/useProfilePortfolio';
 import { portfolioUtils } from '../../../modules/walletconnect/utils/portfolioUtils';
 
@@ -12,7 +11,7 @@ interface PortfolioCardsGridProps {
   grandTotal: number;
   evmTotal: number;
   stellarTotal: number;
-  dydxTotal: number;
+
   connectedWallets: any;
   copiedStates: Record<string, boolean>;
   handleCopy: (text: string, key: string) => void;
@@ -27,7 +26,7 @@ export const PortfolioCardsGrid: React.FC<PortfolioCardsGridProps> = ({
   grandTotal,
   evmTotal,
   stellarTotal,
-  dydxTotal,
+
   connectedWallets,
   copiedStates,
   handleCopy,
@@ -80,26 +79,19 @@ export const PortfolioCardsGrid: React.FC<PortfolioCardsGridProps> = ({
             'bg-gradient-to-br from-purple-500/20 via-pink-500/10 to-transparent border-purple-500 shadow-purple-500/10',
         };
       }
-      case 'dydx': {
-        const isDydxConnected = dydxDataService.isReady();
+
+      default:
         return {
-          title: 'dYdX Account',
-          icon: <Activity size={20} className="text-emerald-400" />,
-          total: dydxTotal,
-          walletId: isDydxConnected
-            ? connectedWallets.evm?.dydxAddress
-              ? connectedWallets.evm.walletId
-              : connectedWallets.cosmos?.walletId || 'Derived'
-            : 'Not Connected',
-          address: isDydxConnected
-            ? connectedWallets.evm?.dydxAddress || connectedWallets.cosmos?.dydxAddress || ''
-            : '',
-          color: 'from-emerald-500/20 to-teal-500/10 border-emerald-500/30 text-emerald-400',
-          glow: 'shadow-emerald-500/10',
+          title: 'Unknown Portfolio',
+          icon: <Wallet size={20} className="text-gray-400" />,
+          total: 0,
+          walletId: 'Unknown',
+          address: '',
+          color: 'from-gray-500/20 to-gray-500/10 border-gray-500/30 text-gray-400',
+          glow: 'shadow-gray-500/10',
           activeBg:
-            'bg-gradient-to-br from-emerald-500/20 via-teal-500/10 to-transparent border-emerald-500 shadow-emerald-500/10',
+            'bg-gradient-to-br from-gray-500/20 via-gray-500/10 to-transparent border-gray-500 shadow-gray-500/10',
         };
-      }
     }
   };
 

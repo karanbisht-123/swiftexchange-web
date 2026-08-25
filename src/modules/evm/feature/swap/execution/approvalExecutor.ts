@@ -1,7 +1,8 @@
 import { ethers } from 'ethers';
-import { LIMIT_ORDER_PROTOCOL, NATIVE_ADDRESS } from '../constants/swap.constants';
+
 import { getEVMNetworkConfig } from '../../../utils/evmUtils';
 import { rpcManager } from '../../../utils/rpcProvider';
+import { LIMIT_ORDER_PROTOCOL, NATIVE_ADDRESS } from '../constants/swap.constants';
 
 const ERC20_ABI = [
   'function allowance(address owner, address spender) view returns (uint256)',
@@ -55,7 +56,10 @@ export async function sendApprovalTx(
   onBeforeWalletSign?: () => void
 ): Promise<string> {
   const ethersProvider = new ethers.BrowserProvider(provider);
-  const signer = await ethersProvider.getSigner();
+  // Use getSigner(walletAddress) so the signer is explicitly bound to the
+  // correct account — avoids -32000 "unknown account" when the extension's
+  // provider validates `from` against its active keyring session.
+  const signer = await ethersProvider.getSigner(walletAddress);
 
   const iface = new ethers.Interface(ERC20_ABI);
   const data = iface.encodeFunctionData('approve', [spender, amount]);
@@ -77,17 +81,17 @@ export async function sendApprovalTx(
   }
 
   const feeData = await ethersProvider.getFeeData();
-  let gasParams: Partial<ethers.TransactionRequest>;
-
   const rawGasPrice = feeData.gasPrice ?? feeData.maxFeePerGas;
   if (!rawGasPrice) throw new Error('Could not determine gas price for approval');
-  gasParams = {
+  const gasParams: Partial<ethers.TransactionRequest> = {
     gasPrice: (rawGasPrice * 120n) / 100n,
   };
 
   onBeforeWalletSign?.();
   const tx = await signer.sendTransaction({
-    from: walletAddress,
+    // `from` is intentionally omitted — the signer already knows its address
+    // (set via getSigner(walletAddress)). Including it explicitly can cause
+    // -32000 "unknown account" in the extension wallet's provider.
     to: tokenAddress,
     data,
     value: 0n,
@@ -95,10 +99,9 @@ export async function sendApprovalTx(
     ...gasParams,
   });
 
-  console.log('[sendApprovalTx] Sent:', tx.hash);
+  console.info('[sendApprovalTx] Sent:', tx.hash);
   const receipt = await tx.wait();
   if (!receipt || receipt.status === 0) throw new Error('Approval transaction reverted');
-  console.log('[sendApprovalTx] Confirmed:', receipt.hash);
   return receipt.hash;
 }
 
@@ -108,7 +111,8 @@ export async function ensureFusionAllowance(
   amountBN: bigint,
   provider: any,
   chainId: number | string,
-  onBeforeWalletSign?: () => void
+  onBeforeWalletSign?: () => void,
+  useUnlimitedApproval: boolean = false
 ): Promise<{ approvalTxHash?: string }> {
   if (!tokenAddress || isNativeAddress(tokenAddress)) {
     return {};
@@ -123,14 +127,20 @@ export async function ensureFusionAllowance(
   );
 
   if (allowance >= amountBN) {
-    console.log('[ensureFusionAllowance] Already approved, skipping');
     return {};
   }
 
   if (!provider) throw new Error('No provider available for approval transaction');
 
   if (allowance > 0n && allowance < amountBN) {
-    if (tokenAddress.toLowerCase() === '0xdac17f958d2ee523a2206206994597c13d831ec7') {
+    const usdtAddresses = [
+      '0xdac17f958d2ee523a2206206994597c13d831ec7', // ETH
+      '0xc2132d05d31c914a87c6611c10748aeb04b58e8f', // Polygon
+      '0x55d398326f99059ff775485246999027b3197955', // BSC
+      '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9', // Arbitrum
+      '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58', // Optimism
+    ];
+    if (usdtAddresses.includes(tokenAddress.toLowerCase())) {
       await sendApprovalTx(
         tokenAddress,
         LIMIT_ORDER_PROTOCOL,
@@ -142,12 +152,15 @@ export async function ensureFusionAllowance(
     }
   }
 
+  // Approve either the exact swap amount or MaxUint256 based on user preference.
+  // Exact approval is the safe default; unlimited is an explicit user opt-in.
+  const approvalAmount = useUnlimitedApproval ? ethers.MaxUint256 : amountBN;
   const approvalTxHash = await sendApprovalTx(
     tokenAddress,
     LIMIT_ORDER_PROTOCOL,
     walletAddress,
     provider,
-    ethers.MaxUint256,
+    approvalAmount,
     onBeforeWalletSign
   );
 

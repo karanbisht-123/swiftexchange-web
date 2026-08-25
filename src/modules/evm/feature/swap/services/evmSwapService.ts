@@ -1,7 +1,7 @@
 import { fetchApiResponseFromProxy } from '../../../../../service/apiService';
-import type { SwapQuote, SwapQuoteRequest } from '../types/swap.types';
 import { getChainById } from '../../../utils/Chainregistry';
 import { AGGREGATOR_NATIVE_ADDRESS } from '../constants/swap.constants';
+import type { SwapQuote, SwapQuoteRequest } from '../types/swap.types';
 
 const getChainSymbol = (chainId: number | string): string => {
   const chain = getChainById(chainId);
@@ -101,7 +101,7 @@ const getSwapEndpoint = (action: 'quote' | 'prepare'): string => {
 };
 
 function buildQuotePayload(request: SwapQuoteRequest, chainId: any): any {
-  const slippageValue = parseFloat(request.slippage || '1');
+  const slippageValue = request.slippage !== undefined ? parseFloat(request.slippage) : 1;
   return {
     ...request,
     tokenIn: {
@@ -157,7 +157,7 @@ export async function getSwapQuote(
 export async function prepareSwapTransaction(
   request: SwapTransactionRequest
 ): Promise<SwapTransactionData[]> {
-  const { quote, senderAddress, slippageTolerance, ...rest } = request;
+  const { chainId, tokenIn, tokenOut, amount } = request;
 
   const isNativeAddress = (address: string | undefined | null): boolean => {
     if (!address) return true;
@@ -174,19 +174,17 @@ export async function prepareSwapTransaction(
     : request.tokenOut.address;
 
   const payload = {
-    ...rest,
+    amount,
     tokenIn: {
-      ...request.tokenIn,
+      ...tokenIn,
       address: normalizedTokenInAddress,
-      name: request.tokenIn.symbol,
     },
     tokenOut: {
-      ...request.tokenOut,
+      ...tokenOut,
       address: normalizedTokenOutAddress,
-      name: request.tokenOut.symbol,
     },
     recipient: request.senderAddress,
-    chainId: getChainSymbol(request.chainId),
+    chainId: getChainSymbol(chainId),
   };
 
   const res = await fetchApiResponseFromProxy<any>(getSwapEndpoint('prepare'), 'POST', payload);
@@ -228,7 +226,7 @@ export async function prepareBridgeTransaction(
     fromAddress: request.fromAddress,
     toAddress: request.destinationAddress,
     feePayType: request.feePayType,
-    slippageTolerance: (request.slippageTolerance || 0.5) + 1,
+    slippageTolerance: request.slippageTolerance || 0.5,
   });
   return res.data;
 }

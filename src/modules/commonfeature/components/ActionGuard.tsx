@@ -16,7 +16,6 @@ interface ActionGuardProps {
 const WALLET_NAMES: Record<WalletType, string> = {
   [WalletType.EVM]: 'EVM',
   [WalletType.STELLAR]: 'Stellar',
-  [WalletType.COSMOS]: 'Cosmos',
 };
 
 export const ActionGuard: React.FC<ActionGuardProps> = ({

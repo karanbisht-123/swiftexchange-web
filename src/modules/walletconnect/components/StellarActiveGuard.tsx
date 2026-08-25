@@ -225,7 +225,8 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({
             }`}
           >
             <QrCode size={13} />
-            <span>Receive XLM</span>
+            <span className="hidden sm:inline">Receive XLM</span>
+            <span className="sm:hidden">Receive</span>
           </button>
           <button
             onClick={() => setActiveTab('buy')}
@@ -236,7 +237,8 @@ const StellarActiveGuard: React.FC<StellarActiveGuardProps> = ({
             }`}
           >
             <CreditCard size={13} />
-            <span>Buy XLM</span>
+            <span className="hidden sm:inline">Buy XLM</span>
+            <span className="sm:hidden">Buy</span>
           </button>
         </div>
 

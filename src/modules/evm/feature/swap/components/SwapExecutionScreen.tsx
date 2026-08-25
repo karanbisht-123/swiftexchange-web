@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2, Loader2, X } from 'lucide-react';
 import React from 'react';
 
 import { getChainById } from '../../../utils/Chainregistry';
+import { isStellar } from '../utils/swapAssetUtils';
 
 interface SwapExecutionScreenProps {
   actionType: 'SWAP' | 'BRIDGE';
@@ -15,9 +16,16 @@ interface SwapExecutionScreenProps {
   signingWallet: any;
   onDismiss: () => void;
   isApprovalRequired: boolean | null;
-  currentStep: 'preparing' | 'approving' | 'signing';
+  currentStep:
+    | 'preparing'
+    | 'approving'
+    | 'signing'
+    | 'activating'
+    | 'polling_activation'
+    | 'setting_trustline';
   status?: 'pending' | 'error' | 'success';
   errorMsg?: string | null;
+  isStellarAccountActive?: boolean | null;
 }
 
 export const SwapExecutionScreen: React.FC<SwapExecutionScreenProps> = ({
@@ -35,13 +43,67 @@ export const SwapExecutionScreen: React.FC<SwapExecutionScreenProps> = ({
   currentStep,
   status = 'pending',
   errorMsg,
+  isStellarAccountActive,
 }) => {
-  console.log(isApprovalRequired, '------ is aproval Required ------');
-
   const fromChainConfig = getChainById(fromChainId);
   const toChainConfig = getChainById(toChainId);
 
   const steps = React.useMemo(() => {
+    const isActivationRequired =
+      isStellarAccountActive === false &&
+      isStellar(toChainId) &&
+      buyAsset?.symbol?.toUpperCase() !== 'XLM';
+
+    const isTrustlineOnlyRequired =
+      isStellar(toChainId) &&
+      isStellarAccountActive !== false &&
+      buyAsset &&
+      !buyAsset.isNative &&
+      !buyAsset.hasTrustline;
+
+    if (isActivationRequired) {
+      return [
+        {
+          title: 'Activate Account',
+          description: 'Sign EVM transaction to bridge 2 XLM for activation',
+          status:
+            currentStep === 'activating' || currentStep === 'signing'
+              ? 'active'
+              : ['polling_activation', 'setting_trustline'].includes(currentStep)
+                ? 'done'
+                : 'waiting',
+        },
+        {
+          title: 'Await Arrival',
+          description: 'Waiting for XLM to arrive on Stellar network',
+          status:
+            currentStep === 'polling_activation'
+              ? 'active'
+              : ['setting_trustline'].includes(currentStep)
+                ? 'done'
+                : 'waiting',
+        },
+        {
+          title: 'Setup Trustline',
+          description: `Sign Stellar transaction to trust ${buyAsset?.symbol}`,
+          status: currentStep === 'setting_trustline' ? 'active' : 'waiting',
+        },
+      ];
+    }
+
+    if (isTrustlineOnlyRequired) {
+      return [
+        {
+          title: 'Setup Trustline',
+          description: `Sign Stellar transaction to trust ${buyAsset?.symbol}`,
+          status:
+            currentStep === 'setting_trustline' || currentStep === 'preparing'
+              ? 'active'
+              : 'waiting',
+        },
+      ];
+    }
+
     if (isApprovalRequired) {
       return [
         {
@@ -76,7 +138,14 @@ export const SwapExecutionScreen: React.FC<SwapExecutionScreenProps> = ({
         },
       ];
     }
-  }, [isApprovalRequired, currentStep, signingWallet]);
+  }, [
+    isApprovalRequired,
+    currentStep,
+    signingWallet,
+    isStellarAccountActive,
+    toChainConfig,
+    buyAsset,
+  ]);
 
   return (
     <div className="bg-tertiary rounded-3xl p-6 border border-divider/50 w-full max-w-full flex flex-col items-center animate-in fade-in duration-300 relative overflow-hidden min-h-[480px] justify-between">
@@ -194,16 +263,35 @@ export const SwapExecutionScreen: React.FC<SwapExecutionScreenProps> = ({
         </div>
       </div>
 
-      {status === 'error' && errorMsg && (
-        <div className="w-full z-10 px-4 py-3 mb-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
-          <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-          <p className="text-xs font-medium text-red-400 leading-relaxed">{errorMsg}</p>
-        </div>
-      )}
+      {status === 'error' &&
+        errorMsg &&
+        (errorMsg === 'WALLET_PENDING' ? (
+          <div className="w-full z-10 px-4 py-3 mb-4 bg-warning/10 border border-warning/25 rounded-xl space-y-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
+              <p className="text-xs font-black text-warning">
+                Wallet already has a pending request
+              </p>
+            </div>
+            <p className="text-xs text-muted font-medium leading-relaxed">
+              Your wallet app already has a signing request waiting. Open your wallet and Approve or
+              Reject it, then try again here.
+            </p>
+          </div>
+        ) : (
+          <div className="w-full z-10 px-4 py-3 mb-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
+            <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+            <p className="text-xs font-medium text-red-400 leading-relaxed">{errorMsg}</p>
+          </div>
+        ))}
 
       <div className="w-full z-10 pt-4 border-t border-white/5 space-y-4">
         {status === 'pending' &&
-          (isWaitingForWallet || currentStep === 'approving' || currentStep === 'signing') && (
+          (isWaitingForWallet ||
+            currentStep === 'approving' ||
+            currentStep === 'signing' ||
+            currentStep === 'activating' ||
+            currentStep === 'setting_trustline') && (
             <div className="flex items-center gap-2 justify-center py-1">
               <div className="flex gap-0.5">
                 <div className="w-1 h-1 rounded-full bg-brand animate-bounce" />

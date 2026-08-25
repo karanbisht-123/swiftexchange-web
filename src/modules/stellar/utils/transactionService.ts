@@ -115,18 +115,16 @@ export const signAndSubmitTransaction = async (
   }
 
   try {
-    const win = window as any;
-
-    if (provider?.isFreighter || (win.freighter && provider === win.freighter)) {
-      console.log('[StellarTransactionService] Using Freighter');
-      const freighter = win.freighterApi || win.freighter;
+    if (provider && typeof provider.signTransaction === 'function') {
+      console.log('[StellarTransactionService] Using Native Extension');
+      const extension = provider;
 
       await notifyWalletSignRequest();
-      const signResult = await freighter.signTransaction(finalXdr, { network, networkPassphrase });
+      const signResult = await extension.signTransaction(finalXdr, { network, networkPassphrase });
       const signedXdr = typeof signResult === 'string' ? signResult : signResult?.signedTxXdr;
 
       if (!signedXdr) {
-        throw new Error('Freighter failed to sign the transaction');
+        throw new Error('Extension failed to sign the transaction');
       }
 
       const config = getStellarConfig(network.toLowerCase() as any);
@@ -160,7 +158,10 @@ export const signAndSubmitTransaction = async (
       });
 
       if (result?.status === 'success' || result?.hash) {
-        return { success: true, hash: result.hash };
+        const computedHash = new StellarSDK.Transaction(finalXdr, networkPassphrase)
+          .hash()
+          .toString('hex');
+        return { success: true, hash: result.hash || computedHash };
       }
 
       if (result?.signedXDR) {
@@ -189,7 +190,10 @@ export const signAndSubmitTransaction = async (
       });
 
       if (result?.status === 'success' || result?.hash) {
-        return { success: true, hash: result.hash };
+        const computedHash = new StellarSDK.Transaction(finalXdr, networkPassphrase)
+          .hash()
+          .toString('hex');
+        return { success: true, hash: result.hash || computedHash };
       }
 
       throw new Error('Transaction failed');
