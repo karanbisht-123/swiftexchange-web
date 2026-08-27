@@ -133,7 +133,7 @@ const Sidebar: FC = () => {
     <>
       {isOpen && (
         <div
-          className="lg:hidden fixed inset-0 bg-black/30 z-40 transition-opacity"
+          className="lg:hidden fixed inset-0 bg-black/30 z-[99998] transition-opacity"
           onClick={() => setIsOpen(false)}
         />
       )}
@@ -141,7 +141,7 @@ const Sidebar: FC = () => {
       <aside
         id="sidebar"
         className={`
-          fixed left-0 top-0 h-[100dvh] z-40 
+          fixed left-0 top-0 h-[100dvh] z-[99999] 
           bg-primary
           transition-all duration-200 w-16
           flex flex-col border-r border-color

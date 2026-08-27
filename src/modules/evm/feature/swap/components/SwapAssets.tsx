@@ -50,6 +50,7 @@ import type { FusionQuote } from '../types/swap.types';
 import { calculateMaxSwapAmount, toPlainString } from '../utils/swapAmountUtils';
 import { isSameAsset, isStellar, matchesAddress } from '../utils/swapAssetUtils';
 import { parseSwapError } from '../utils/swapErrorHandler';
+import { ActivationModal } from './ActivationModal';
 import FusionQuoteScreen from './FusionQuoteScreen';
 import SlippageSettingsModal from './SlippageSettingsModal';
 import { SwapExecutionScreen } from './SwapExecutionScreen';
@@ -97,6 +98,13 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
+  const [trustlineRefreshNonce, setTrustlineRefreshNonce] = useState(0);
+
+  useEffect(() => {
+    const handleRefresh = () => setTrustlineRefreshNonce(prev => prev + 1);
+    window.addEventListener('stellar-trustline-added', handleRefresh);
+    return () => window.removeEventListener('stellar-trustline-added', handleRefresh);
+  }, []);
   const [crossChainWarning, setCrossChainWarning] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -159,6 +167,17 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
   });
 
   const { isActive: isStellarAccountActive } = useStellarAccountStatus(stellarAddress);
+
+  useEffect(() => {
+    if (
+      toChainId === STELLAR_CHAIN_ID &&
+      isStellarAccountActive === false &&
+      buyAssetSymbol !== 'XLM'
+    ) {
+      setBuyAssetSymbol('XLM');
+      setBuyAssetAddress('native');
+    }
+  }, [toChainId, isStellarAccountActive, buyAssetSymbol, setBuyAssetSymbol, setBuyAssetAddress]);
 
   const bridgeTxStatus = useSwapStore(s => s.pendingTxStatus);
   const bridgeErrorMsg = useSwapStore(s => s.pendingTxErrorMsg);
@@ -617,6 +636,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
     actionType,
     isStellarAccountActive,
     bridgeTxStatus,
+    trustlineRefreshNonce,
   ]);
 
   const initializedChainsRef = useRef<{ from: any; to: any }>({ from: null, to: null });
@@ -1924,6 +1944,7 @@ const SwapAssets: React.FC<SwapAssetsProps> = ({ onClose }) => {
         userSlippageTolerance={userSlippageTolerance}
         setUserSlippageTolerance={setUserSlippageTolerance}
       />
+      <ActivationModal />
     </PageLayout>
   );
 };

@@ -13,6 +13,20 @@ export const portfolioUtils = {
     }, 0);
   },
 
+  calculatePortfolioChange(assets: Asset[]): number {
+    let totalValue = 0;
+    let weightedChange = 0;
+    for (const asset of assets) {
+      if (asset.balance && (asset.current_price || 0) > 0) {
+        const assetValue = asset.balance * asset.current_price;
+        totalValue += assetValue;
+        weightedChange += assetValue * (asset.price_change_percentage_24h || 0);
+      }
+    }
+    if (totalValue === 0) return 0;
+    return weightedChange / totalValue;
+  },
+
   formatBalance(value: number | string | null | undefined, maxDecimals: number = 6): string {
     if (value === null || value === undefined || value === '') return '0';
     try {
@@ -61,7 +75,7 @@ export const portfolioUtils = {
 
   async fetchBatchPrices(
     symbols: string[]
-  ): Promise<Record<string, { usd: number; usd_24h_change: number }>> {
+  ): Promise<Record<string, { usd: number; usd_24h_change: number; sparkline?: number[] }>> {
     const COMMON_TOKENS: Record<string, string> = {
       XLM: 'stellar',
       USDC: 'usd-coin',
@@ -88,16 +102,27 @@ export const portfolioUtils = {
 
     try {
       const response = await fetch(
-        `${COINGECKO_BASE}/simple/price?ids=${idsToFetch.join(',')}&vs_currencies=usd&include_24hr_change=true`
+        `${COINGECKO_BASE}/coins/markets?vs_currency=usd&ids=${idsToFetch.join(',')}&sparkline=true`
       );
       if (!response.ok) return {};
       const data = await response.json();
 
-      const result: Record<string, { usd: number; usd_24h_change: number }> = {};
+      const result: Record<string, { usd: number; usd_24h_change: number; sparkline?: number[] }> =
+        {};
+
+      const dataMap = data.reduce((acc: any, item: any) => {
+        acc[item.id] = item;
+        return acc;
+      }, {});
+
       symbols.forEach(symbol => {
         const id = COMMON_TOKENS[symbol.toUpperCase()];
-        if (id && data[id]) {
-          result[symbol.toUpperCase()] = data[id];
+        if (id && dataMap[id]) {
+          result[symbol.toUpperCase()] = {
+            usd: dataMap[id].current_price,
+            usd_24h_change: dataMap[id].price_change_percentage_24h || 0,
+            sparkline: dataMap[id].sparkline_in_7d?.price,
+          };
         }
       });
       return result;

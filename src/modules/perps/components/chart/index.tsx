@@ -10,8 +10,8 @@ import {
 } from 'lightweight-charts';
 
 import { useThemeStore } from '../../../../store/themeStore';
-import { useCandles } from '../../hooks/useCandles';
 import { useMarketStore } from '../../core/stores/marketStore';
+import { useCandles } from '../../hooks/useCandles';
 import { ChartHeader } from './components/ChartHeader';
 import { DrawingStyleBar, DrawingToolbar, ScaleModeToggle } from './components/DrawingToolbar';
 import { IndicatorSettingsModal } from './components/IndicatorSettingsModal';
@@ -38,9 +38,9 @@ export interface TradingChartProps {
 }
 
 export default function TradingChart({ activeChartTab, onChartTabChange }: TradingChartProps) {
-  const isDark = useThemeStore((s: any) => s.theme) === 'dark';
+  const isDark = useThemeStore((s: any) => s.theme) !== 'light';
   const isMobile = useIsMobile();
-  const selectedMarket = useMarketStore((state) => state.selectedSymbol);
+  const selectedMarket = useMarketStore(state => state.selectedSymbol);
 
   const {
     timeframe,
@@ -198,8 +198,8 @@ export default function TradingChart({ activeChartTab, onChartTabChange }: Tradi
     [lastCandleDataRef, lastIndicatorResults]
   );
 
-  const onCrosshairMoveRef = useRef<(time: number | null) => void>(() => { });
-  const onVisibleRangeChangeRef = useRef<() => void>(() => { });
+  const onCrosshairMoveRef = useRef<(time: number | null) => void>(() => {});
+  const onVisibleRangeChangeRef = useRef<() => void>(() => {});
   const legendRafRef = useRef<number | null>(null);
 
   // Keep refs pointed at latest closures without triggering createInstance re-run

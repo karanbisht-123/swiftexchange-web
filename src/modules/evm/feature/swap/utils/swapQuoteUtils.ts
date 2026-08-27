@@ -132,6 +132,7 @@ export function getButtonLabel(params: ButtonLabelParams): string {
     isAmountLessThanFee,
     hasInsufficientStellarGas,
     hasInsufficientEvmGas,
+    fromChainId,
     toChainId,
     selectedBuyAsset,
     nativeSymbol,
@@ -163,12 +164,13 @@ export function getButtonLabel(params: ButtonLabelParams): string {
     return `INSUFFICIENT ${nativeSymbol} FOR GAS`;
   }
 
-  if (
-    isStellar(toChainId) &&
-    isStellarAccountActive === false &&
-    selectedBuyAsset &&
-    selectedBuyAsset.symbol.toUpperCase() !== 'XLM'
-  ) {
+  if (errorMessage) {
+    if (errorMessage.includes('4 XLM')) {
+      return 'INCREASE AMOUNT';
+    }
+  }
+
+  if (isStellar(toChainId) && isStellarAccountActive === false) {
     return 'ACTIVATE ACCOUNT';
   }
 
@@ -179,7 +181,7 @@ export function getButtonLabel(params: ButtonLabelParams): string {
     !selectedBuyAsset.isNative &&
     !selectedBuyAsset.hasTrustline
   ) {
-    return 'ADD TRUSTLINE';
+    return isStellar(fromChainId) ? 'ADD TRUSTLINE & SWAP' : 'ADD TRUSTLINE';
   }
 
   if (errorMessage) {
@@ -208,12 +210,30 @@ export function getErrorMessage(params: ErrorParams): string | null {
     activeQuoteData,
     feePayType,
     nativeSymbol,
+    isStellarAccountActive,
+    toChainId,
   } = params;
+
+  if (
+    isStellarAccountActive === false &&
+    isStellar(toChainId) &&
+    activeQuoteData &&
+    activeQuoteData.amountOutFormatted &&
+    parseFloat(activeQuoteData.amountOutFormatted) < 4
+  ) {
+    return `Need at least 4 XLM output to activate your Stellar wallet. You're getting ${parseFloat(activeQuoteData.amountOutFormatted).toFixed(2)} XLM — increase your input amount.`;
+  }
 
   if (bridgeTxStatus === 'error' || bridgeErrorMsg)
     return bridgeErrorMsg || 'Transaction failed. Please try again.';
   if (swapError) return swapError;
-  if (activeQuoteError) return activeQuoteError;
+  if (
+    activeQuoteError &&
+    activeQuoteError !== 'Trustline required' &&
+    activeQuoteError !== 'Account activation required'
+  ) {
+    return activeQuoteError;
+  }
   if (isInsufficientBalance) return 'Insufficient balance for this transaction';
   if (isAmountLessThanFee) {
     const feeAmount = parseFloat(activeQuoteData?.fee?.stablecoin?.amount || '0');

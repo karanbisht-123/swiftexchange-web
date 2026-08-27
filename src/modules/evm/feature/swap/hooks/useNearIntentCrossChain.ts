@@ -111,7 +111,7 @@ export const useNearIntentCrossChain = ({
           recipientType: 'DESTINATION_CHAIN',
           refundTo,
           refundType: 'ORIGIN_CHAIN',
-          deadline: new Date(Date.now() + 1200000).toISOString(),
+          deadline: new Date(Date.now() + 900000).toISOString(), // 15 minutes
         };
 
         const data = await getNearIntentQuote(quotePayload);
