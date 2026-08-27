@@ -176,6 +176,8 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       activeQuoteData: currentQuote.data,
       feePayType,
       nativeSymbol,
+      isStellarAccountActive,
+      toChainId,
     });
   }, [
     bridgeTxStatus,
@@ -192,6 +194,8 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     currentQuote.data,
     feePayType,
     nativeSymbol,
+    isStellarAccountActive,
+    toChainId,
   ]);
 
   const buttonLabel = useMemo(() => {
@@ -206,6 +210,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       isAmountLessThanFee,
       hasInsufficientStellarGas,
       hasInsufficientEvmGas,
+      fromChainId,
       toChainId,
       selectedBuyAsset,
       nativeSymbol,
@@ -223,6 +228,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     isAmountLessThanFee,
     hasInsufficientStellarGas,
     hasInsufficientEvmGas,
+    fromChainId,
     toChainId,
     selectedBuyAsset,
     nativeSymbol,
@@ -250,10 +256,8 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       bridgeTxStatus === 'error' ||
       bridgeErrorMsg ||
       isSameAssetSelected ||
-      (actionType === 'BRIDGE' && crossChainWarning) ||
-      (currentQuote.error &&
-        currentQuote.error !== 'Trustline required' &&
-        currentQuote.error !== 'Account activation required')
+      errorMessage ||
+      (actionType === 'BRIDGE' && crossChainWarning)
     );
   }, [
     isWalletMissing,
@@ -327,7 +331,11 @@ export function useSwapValidation(params: UseSwapValidationParams) {
   ]);
 
   const isSwapDisabled = useMemo(() => {
-    if (buttonLabel === 'ACTIVATE ACCOUNT' || buttonLabel === 'ADD TRUSTLINE') {
+    if (
+      buttonLabel === 'ACTIVATE ACCOUNT' ||
+      buttonLabel === 'ADD TRUSTLINE' ||
+      buttonLabel === 'ADD TRUSTLINE & SWAP'
+    ) {
       return false;
     }
 
@@ -348,7 +356,8 @@ export function useSwapValidation(params: UseSwapValidationParams) {
       isFetchingSwapAssets ||
       currentQuote.loading ||
       isQuoteLoading ||
-      isSameAssetSelected
+      isSameAssetSelected ||
+      !!errorMessage
     );
   }, [
     buttonLabel,
@@ -365,6 +374,7 @@ export function useSwapValidation(params: UseSwapValidationParams) {
     isFetchingSwapAssets,
     isQuoteLoading,
     isSameAssetSelected,
+    errorMessage,
   ]);
 
   return {

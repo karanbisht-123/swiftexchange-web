@@ -216,7 +216,7 @@ export default function StellarTradingChart({
   initialAssetPair,
   autoStream = true,
 }: StellarTradingChartProps) {
-  const isDark = useThemeStore(s => s.theme) === 'dark';
+  const isDark = useThemeStore(s => s.theme) !== 'light';
   const [resolution, setResolution] = useState<ChartResolution>(CHART_RESOLUTIONS['15m']);
   const [timeRangeKey, setTimeRangeKey] = useState<keyof typeof TIME_RANGES>('1D');
   const [chartType, setChartType] = useState<ChartType>('candlestick');
@@ -271,25 +271,25 @@ export default function StellarTradingChart({
   const getThemeColors = () => {
     if (isDark) {
       return {
-        background: '#0f1528',
-        textColor: '#e8edf8',
-        gridColor: '#020e46',
-        borderColor: '#1e2840',
+        background: 'transparent',
+        textColor: '#a1a1aa',
+        gridColor: 'rgba(255, 255, 255, 0.03)',
+        borderColor: 'rgba(255, 255, 255, 0.08)',
         upColor: '#10b981',
         downColor: '#ef4444',
-        volumeColor: 'rgba(128, 128, 128, 0.2)',
-        crosshairColor: '#4a5680',
+        volumeColor: 'rgba(128, 128, 128, 0.15)',
+        crosshairColor: '#71717a',
       };
     }
     return {
-      background: '#fff',
-      textColor: '#0f1729',
-      gridColor: '#dce3ed',
-      borderColor: '#e4e8f0',
+      background: 'transparent',
+      textColor: '#475569',
+      gridColor: 'rgba(0, 0, 0, 0.04)',
+      borderColor: 'rgba(0, 0, 0, 0.08)',
       upColor: '#10b981',
       downColor: '#ef4444',
-      volumeColor: 'rgba(107, 114, 128, 0.2)',
-      crosshairColor: '#424a59ff',
+      volumeColor: 'rgba(107, 114, 128, 0.15)',
+      crosshairColor: '#94a3b8',
     };
   };
 

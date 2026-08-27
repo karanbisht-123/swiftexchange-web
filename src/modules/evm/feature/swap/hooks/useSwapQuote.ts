@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useTransactionModalStore } from '../../../../../store/transactionModalStore';
 import { getChainById } from '../../../utils/Chainregistry';
 import { getSwapQuote } from '../services/evmSwapService';
 import { get1InchFusionQuote } from '../services/fusionOrderService';
@@ -99,7 +100,8 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
   }, []);
 
   const fetchUnifiedQuote = useCallback(async () => {
-    if (bridgeTxStatus && bridgeTxStatus !== 'idle') {
+    const isModalOpen = useTransactionModalStore.getState().isOpen;
+    if ((bridgeTxStatus && bridgeTxStatus !== 'idle') || isModalOpen) {
       return; // Do NOT fetch quotes or reset the swap while an execution (like trustline setup) is in progress!
     }
 
@@ -426,7 +428,8 @@ export function useSwapQuote(params: UseSwapQuoteParams) {
       showFusionScreen ||
       isSameAssetSelected ||
       isQuoteLoading ||
-      (bridgeTxStatus && bridgeTxStatus !== 'idle');
+      (bridgeTxStatus && bridgeTxStatus !== 'idle') ||
+      useTransactionModalStore.getState().isOpen;
 
     if (sellAmount && parseFloat(sellAmount) > 0 && !shouldPauseTimer) {
       timer = setInterval(() => {

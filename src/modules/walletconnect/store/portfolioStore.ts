@@ -20,6 +20,7 @@ export interface Asset {
   address?: string;
   decimals?: number;
   blockExplorerUrl?: string;
+  sparkline?: number[];
 }
 
 export interface ProviderStatus {
@@ -294,21 +295,23 @@ export const usePortfolioStore = create<PortfolioState & PortfolioActions>()(
 
         enrichPrices: async () => {
           const { assets } = get();
-          const needsPrice = assets.filter(a => a.current_price === 0 && (a.balance || 0) > 0);
+          const needsPrice = assets.filter(a => (a.balance || 0) > 0);
           if (needsPrice.length === 0) return;
 
           try {
-            const symbols = needsPrice.map(a => a.symbol);
+            const symbols = Array.from(new Set(needsPrice.map(a => a.symbol)));
             const priceData = await portfolioUtils.fetchBatchPrices(symbols);
 
             set(s => {
               const updatedAssets = s.assets.map(asset => {
                 const newData = priceData[asset.symbol.toUpperCase()];
-                if (asset.current_price === 0 && newData) {
+                if (newData) {
                   return {
                     ...asset,
-                    current_price: newData.usd,
-                    price_change_percentage_24h: newData.usd_24h_change || 0,
+                    current_price: asset.current_price === 0 ? newData.usd : asset.current_price,
+                    price_change_percentage_24h:
+                      newData.usd_24h_change || asset.price_change_percentage_24h,
+                    sparkline: newData.sparkline || asset.sparkline,
                   };
                 }
                 return asset;

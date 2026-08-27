@@ -253,6 +253,7 @@ export interface ButtonLabelParams {
   isAmountLessThanFee: boolean;
   hasInsufficientStellarGas: boolean;
   hasInsufficientEvmGas: boolean;
+  fromChainId: number | string;
   toChainId: number | string;
   selectedBuyAsset: UnifiedAsset | null;
   nativeSymbol: string;
@@ -275,4 +276,6 @@ export interface ErrorParams {
   activeQuoteData: any;
   feePayType: 'native' | 'stablecoin';
   nativeSymbol: string;
+  isStellarAccountActive?: boolean | null;
+  toChainId: number | string;
 }

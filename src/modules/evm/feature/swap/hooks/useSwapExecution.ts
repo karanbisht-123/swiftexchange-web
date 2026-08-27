@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { Horizon } from '@stellar/stellar-sdk';
 import { ethers } from 'ethers';
 
 import { useNotificationStore } from '../../../../../store/notificationStore';
 import { useSwapStore } from '../../../../../store/swapStore';
 import { useTransactionModalStore } from '../../../../../store/transactionModalStore';
+import { AmmSwapService } from '../../../../stellar/service/ammSwapService';
+import {
+  buildTrustlineTransaction,
+  signAndSubmitTrustline,
+} from '../../../../stellar/utils/assetUtils/assetUtils';
+import { getStellarConfig } from '../../../../walletconnect/config/chains';
 import { WalletType } from '../../../../walletconnect/constants/Wallet';
 import { usePortfolioStore } from '../../../../walletconnect/store/portfolioStore';
-import { useWalletStore } from '../../../../walletconnect/store/walletConnectStore';
 import { storeSwapOrder } from '../../../service/evmTransactionStatusService';
 import { getChainById } from '../../../utils/Chainregistry';
 import { getEVMNetworkConfig, simulateEVMTransaction } from '../../../utils/evmUtils';
@@ -98,6 +104,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
     setSellAmount,
     executeNearIntentDeposit,
     isStellarAccountActive,
+    currentNetwork,
   } = params;
 
   const navigate = useNavigate();
@@ -387,7 +394,7 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         recipientType: 'DESTINATION_CHAIN' as const,
         refundTo,
         refundType: 'ORIGIN_CHAIN',
-        deadline: new Date(Date.now() + 1200000).toISOString(),
+        deadline: new Date(Date.now() + 900000).toISOString(), // 15 minutes
       };
 
       const liveQuoteRes = await getNearIntentQuote(liveQuotePayload);
@@ -435,6 +442,19 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         );
       }
 
+      if (isStellar(toChainId) && isStellarAccountActive === false) {
+        // Hard guard: reject if the live quote doesn't give enough XLM to activate the account
+        const MIN_ACTIVATION_XLM = 4;
+        const liveOutFormatted = parseFloat(
+          liveQuote.amountOutFormatted || liveQuote.amountOut || '0'
+        );
+        if (liveOutFormatted < MIN_ACTIVATION_XLM) {
+          throw new Error(
+            `Minimum 4 XLM required for wallet activation. You need at least ${MIN_ACTIVATION_XLM} XLM but this swap only gives ${liveOutFormatted.toFixed(4)} XLM. Please increase your input amount.`
+          );
+        }
+      }
+
       checkAborted();
       setExecutionCurrentStep('signing');
       setBridgeTxStatus('signing');
@@ -442,6 +462,18 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
 
       const hash = await executeNearIntentDeposit(nearSellAsset, sellAmount, liveQuote);
       checkAborted();
+
+      if (!isStellarOrigin && evmAddress && hash && hash.startsWith('0x')) {
+        const { ethers } = await import('ethers');
+        const evmProvider = getProvider(WalletType.EVM);
+        if (evmProvider) {
+          const provider = new ethers.BrowserProvider(evmProvider);
+          const receipt = await provider.waitForTransaction(hash);
+          if (receipt && receipt.status === 0) {
+            throw new Error('Transaction reverted on-chain.');
+          }
+        }
+      }
 
       const computedOutAmount = liveQuote.amountOutFormatted || liveQuote.amountOut;
       const wasTracked = hash ? trackDydxIntent(hash, computedOutAmount) : false;
@@ -462,6 +494,23 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           amountOut: computedOutAmount,
           txType: 'Bridge',
         }).catch(() => {});
+      }
+
+      if (isStellar(toChainId) && isStellarAccountActive === false) {
+        // Intercept normal bridge completion for activation flow
+        const { useActivationStore } = await import('../../../../../store/activationStore');
+        useActivationStore.getState().setPendingActivation({
+          quoteHash: hash || '',
+          depositAddress: liveQuote.depositAddress,
+          originalDestAsset: {
+            symbol: buyAssetSymbol,
+            address: (selectedBuyAsset as any)?.address || '',
+          },
+          status: 'pending_bridge',
+          startedAt: Date.now(),
+        });
+        handleReset();
+        return;
       }
 
       handleReset();
@@ -596,7 +645,8 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           const msg = gasErr?.message || '';
           if (
             msg.toLowerCase().includes('insufficient funds') ||
-            msg.toLowerCase().includes('insufficient')
+            msg.toLowerCase().includes('insufficient') ||
+            msg.includes('Minimum 4 XLM')
           ) {
             setBridgeErrorMsg(msg);
             setBridgeTxStatus('error');
@@ -613,170 +663,13 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
       }
 
       // --- NEW ACTIVATION & TRUSTLINE LOGIC ---
-      const isActivating =
-        isStellar(toChainId) &&
-        isStellarAccountActive === false &&
-        buyAssetSymbol.toUpperCase() !== 'XLM';
-
       const isSettingTrustline =
+        !isStellar(fromChainId) &&
         isStellar(toChainId) &&
         isStellarAccountActive !== false &&
         selectedBuyAsset &&
         !(selectedBuyAsset as any).isNative &&
         !(selectedBuyAsset as any).hasTrustline;
-
-      if (isActivating) {
-        // Perform Activation Step
-        setExecutionCurrentStep('activating');
-        setBridgeTxStatus('preparing');
-
-        try {
-          const {
-            getNearIntentQuote,
-            fetchNearIntentTokens,
-            matchNearIntentToken,
-            pollNearIntentStatus,
-          } = await import('../services/oneClickApi');
-          const nearTokens = await fetchNearIntentTokens();
-
-          const nearSellAsset = matchNearIntentToken(
-            nearTokens,
-            sellAssetSymbol,
-            (selectedSellAsset as any)?.address,
-            fromChainId
-          );
-
-          const xlmToken = nearTokens.find(
-            t =>
-              t.blockchain.toLowerCase() === 'stellar' &&
-              (t.symbol.toUpperCase() === 'XLM' ||
-                !t.contractAddress ||
-                t.contractAddress === 'native')
-          );
-
-          if (!nearSellAsset || !xlmToken)
-            throw new Error('Could not resolve assets for activation.');
-
-          const activationQuoteRes = await getNearIntentQuote({
-            dry: false,
-            swapType: 'EXACT_OUTPUT',
-            slippageTolerance: userSlippageTolerance * 100,
-            originAsset: nearSellAsset.assetId,
-            depositType: 'ORIGIN_CHAIN',
-            destinationAsset: xlmToken.assetId,
-            amount: '2', // 2 XLM for reserve
-            recipient: stellarAddress,
-            recipientType: 'DESTINATION_CHAIN',
-            refundTo: evmAddress,
-            refundType: 'ORIGIN_CHAIN',
-            deadline: new Date(Date.now() + 1200000).toISOString(),
-          });
-
-          const activationQuote = activationQuoteRes.quote;
-          if (!activationQuote?.depositAddress) throw new Error('Failed to get activation quote.');
-
-          checkAborted();
-          setExecutionCurrentStep('signing'); // Prompt EVM tx for activation
-          setIsWaitingForWallet(true);
-
-          const activationHash = await executeNearIntentDeposit!(
-            nearSellAsset,
-            activationQuote.amountIn,
-            activationQuote
-          );
-          if (!activationHash) throw new Error('Activation deposit failed.');
-
-          setIsWaitingForWallet(false);
-          setExecutionCurrentStep('polling_activation');
-
-          // Poll for activation
-          await new Promise<void>((resolve, reject) => {
-            let attempts = 0;
-            if (activationPollingRef.current) clearInterval(activationPollingRef.current);
-            activationPollingRef.current = setInterval(async () => {
-              attempts++;
-              try {
-                const statusRes = await pollNearIntentStatus(
-                  activationHash,
-                  activationQuote.depositAddress,
-                  activationQuote.depositMemo
-                );
-                if (statusRes.status === 'completed') {
-                  if (activationPollingRef.current) clearInterval(activationPollingRef.current);
-                  resolve();
-                } else if (statusRes.status === 'failed' || statusRes.status === 'refunded') {
-                  if (activationPollingRef.current) clearInterval(activationPollingRef.current);
-                  reject(new Error('Activation deposit failed or refunded.'));
-                }
-              } catch (e) {
-                console.warn('Polling error', e);
-              }
-
-              if (attempts > 120) {
-                if (activationPollingRef.current) clearInterval(activationPollingRef.current);
-                reject(new Error('Activation timed out.'));
-              }
-            }, 5000);
-          });
-
-          checkAborted();
-
-          // Setup trustline
-          setExecutionCurrentStep('setting_trustline');
-          setIsWaitingForWallet(true);
-          const { buildTrustlineTransaction, signAndSubmitTrustline } =
-            await import('../../../../stellar/utils/assetUtils/assetUtils');
-          const { getStellarConfig } = await import('../../../../walletconnect/config/chains');
-          const { Horizon } = await import('@stellar/stellar-sdk');
-
-          const currentNetwork = useWalletStore.getState().network;
-          const stellarConfig = getStellarConfig(currentNetwork);
-          const server = new Horizon.Server(stellarConfig.horizonUrl);
-          const stellarProvider = getProvider(WalletType.STELLAR);
-          const buyAssetIssuer =
-            (selectedBuyAsset as any)?.issuer || (selectedBuyAsset as any)?.address;
-
-          const xdr = await buildTrustlineTransaction({
-            server,
-            stellarAddress,
-            assetCode: buyAssetSymbol,
-            assetIssuer: buyAssetIssuer,
-            currentNetwork,
-          });
-
-          const networkPassphrase = stellarConfig.networkPassphrase || '';
-          const trustlineResult = await signAndSubmitTrustline(
-            xdr,
-            stellarConfig.network === 'PUBLIC' ? 'mainnet' : 'testnet',
-            networkPassphrase,
-            stellarProvider
-          );
-
-          if (!trustlineResult.success)
-            throw new Error(trustlineResult.error || 'Failed to set up trustline.');
-          setIsWaitingForWallet(false);
-
-          // Activation & Trustline complete!
-          handleReset();
-          showToast({
-            type: 'STELLAR',
-            title: 'Setup Complete',
-            message: `Account activated and trustline created for ${buyAssetSymbol}. You can now execute your swap!`,
-          });
-          openModal({
-            status: 'success',
-            type: 'Swap',
-            hash: trustlineResult.transactionHash,
-            isStellar: true,
-          });
-          return; // STOP execution here, don't execute the main swap.
-        } catch (err: any) {
-          setIsWaitingForWallet(false);
-          if (activationPollingRef.current) clearInterval(activationPollingRef.current);
-          if ((err as any)?.name === 'AbortError') throw err;
-          throw new Error(`Activation failed: ${err.message}`);
-        }
-      }
 
       if (isSettingTrustline) {
         // Perform Trustline Setup Only
@@ -784,12 +677,6 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
         setBridgeTxStatus('preparing');
         setIsWaitingForWallet(true);
         try {
-          const { buildTrustlineTransaction, signAndSubmitTrustline } =
-            await import('../../../../stellar/utils/assetUtils/assetUtils');
-          const { getStellarConfig } = await import('../../../../walletconnect/config/chains');
-          const { Horizon } = await import('@stellar/stellar-sdk');
-
-          const currentNetwork = useWalletStore.getState().network;
           const stellarConfig = getStellarConfig(currentNetwork);
           const server = new Horizon.Server(stellarConfig.horizonUrl);
           const stellarProvider = getProvider(WalletType.STELLAR);
@@ -815,6 +702,13 @@ export function useSwapExecution(params: UseSwapExecutionParams) {
           if (!trustlineResult.success)
             throw new Error(trustlineResult.error || 'Failed to set up trustline.');
           setIsWaitingForWallet(false);
+
+          try {
+            AmmSwapService.clearAccountCache();
+          } catch (e) {
+            console.error(e);
+          }
+          window.dispatchEvent(new Event('stellar-trustline-added'));
 
           handleReset();
           showToast({

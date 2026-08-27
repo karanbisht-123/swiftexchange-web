@@ -49,24 +49,24 @@ export function useChartInstance(isDark: boolean): UseChartInstanceResult {
     () =>
       isDark
         ? {
-            background: '#0f1528',
-            textColor: '#e8edf8',
-            gridColor: '#1e28405d',
-            borderColor: '#1e2840',
-            upColor: '#0ecb81',
-            downColor: '#ff4d4d',
-            volumeColor: 'rgba(128, 128, 128, 0.2)',
-            crosshairColor: '#4a5680',
+            background: 'transparent',
+            textColor: '#a1a1aa',
+            gridColor: 'rgba(255, 255, 255, 0.03)',
+            borderColor: 'rgba(255, 255, 255, 0.08)',
+            upColor: '#10b981',
+            downColor: '#ef4444',
+            volumeColor: 'rgba(128, 128, 128, 0.15)',
+            crosshairColor: '#71717a',
           }
         : {
-            background: '#ffffff',
-            textColor: '#0f1729',
-            gridColor: '#dce3ed',
-            borderColor: '#e4e8f0',
-            upColor: '#00b074',
-            downColor: '#ff3b30',
-            volumeColor: 'rgba(107, 114, 128, 0.2)',
-            crosshairColor: '#8896b3',
+            background: 'transparent',
+            textColor: '#475569',
+            gridColor: 'rgba(0, 0, 0, 0.04)',
+            borderColor: 'rgba(0, 0, 0, 0.08)',
+            upColor: '#10b981',
+            downColor: '#ef4444',
+            volumeColor: 'rgba(107, 114, 128, 0.15)',
+            crosshairColor: '#94a3b8',
           },
     [isDark]
   );

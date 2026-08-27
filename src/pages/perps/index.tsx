@@ -9,7 +9,13 @@ const PerpetualsTradingPage: React.FC = () => {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [tampered, setTampered] = useState(false);
 
+  const isDev =
+    (typeof process !== 'undefined' && process.env.NODE_ENV === 'development') ||
+    (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV);
+
   useEffect(() => {
+    if (isDev) return;
+
     const observer = new MutationObserver(mutations => {
       mutations.forEach(mutation => {
         mutation.removedNodes.forEach(node => {
@@ -25,9 +31,9 @@ const PerpetualsTradingPage: React.FC = () => {
     }
 
     return () => observer.disconnect();
-  }, []);
+  }, [isDev]);
 
-  if (tampered) {
+  if (tampered && !isDev) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-[#0a0a0a] text-center">
         <ShieldAlert className="mb-6 h-20 w-20 text-red-500 animate-bounce" />
@@ -45,41 +51,49 @@ const PerpetualsTradingPage: React.FC = () => {
     );
   }
 
+  if (isDev) {
+    return (
+      <div className="relative flex h-full w-full flex-col overflow-hidden bg-bg-primary">
+        <ExchangeLayout />
+      </div>
+    );
+  }
+
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#0a0a0a]">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-bg-primary">
       <div className="pointer-events-none flex-1 select-none opacity-90 blur-[1px] transition-all duration-1000">
         <ExchangeLayout />
       </div>
 
       <div
         ref={overlayRef}
-        className="absolute inset-0 z-[9999] flex items-center justify-center bg-black/20 backdrop-blur-sm"
+        className="absolute inset-0 z-[9999] flex items-center justify-center bg-bg-primary/40 backdrop-blur-sm"
         onContextMenu={e => e.preventDefault()}
       >
-        <div className="relative flex max-w-lg flex-col items-center justify-center overflow-hidden rounded-3xl border border-white/10 bg-black/60 p-12 text-center shadow-[0_0_80px_-20px_rgba(59,130,246,0.3)] backdrop-blur-2xl">
-          <div className="absolute -top-32 -left-32 h-64 w-64 rounded-full bg-indigo-500/10 blur-[80px]" />
-          <div className="absolute -bottom-32 -right-32 h-64 w-64 rounded-full bg-blue-500/10 blur-[80px]" />
+        <div className="relative flex max-w-lg flex-col items-center justify-center overflow-hidden rounded-3xl border border-border/50 bg-bg-secondary/80 p-12 text-center shadow-premium backdrop-blur-2xl">
+          <div className="absolute -top-32 -left-32 h-64 w-64 rounded-full bg-brand/10 blur-[80px]" />
+          <div className="absolute -bottom-32 -right-32 h-64 w-64 rounded-full bg-brand/10 blur-[80px]" />
 
           <div className="relative mb-8">
-            <div className="absolute inset-0 animate-ping rounded-full bg-blue-500/20" />
-            <div className="relative flex h-20 w-20 items-center justify-center rounded-full border border-white/10 bg-gradient-to-b from-white/5 to-transparent shadow-[0_0_30px_rgba(59,130,246,0.2)]">
-              <Rocket className="h-10 w-10 text-blue-400 drop-shadow-[0_0_15px_rgba(59,130,246,0.6)]" />
+            <div className="absolute inset-0 animate-ping rounded-full bg-brand/20" />
+            <div className="relative flex h-20 w-20 items-center justify-center rounded-full border border-border/50 bg-gradient-to-b from-brand/5 to-transparent shadow-[0_0_30px_var(--color-brand-primary)]">
+              <Rocket className="h-10 w-10 text-brand drop-shadow-[0_0_15px_var(--color-brand-primary)]" />
             </div>
           </div>
 
-          <h2 className="mb-4 bg-gradient-to-br from-white via-blue-100 to-blue-400 bg-clip-text text-4xl font-extrabold tracking-tight text-transparent drop-shadow-sm">
+          <h2 className="mb-4 bg-gradient-to-br from-text-primary via-text-primary to-brand bg-clip-text text-4xl font-extrabold tracking-tight text-transparent drop-shadow-sm">
             Perpetuals Are Coming
           </h2>
 
-          <p className="text-md leading-relaxed text-gray-300">
+          <p className="text-md leading-relaxed text-text-secondary">
             We are partnering with industry-leading decentralized exchanges to bring you a seamless,
             deep-liquidity perpetuals trading experience right in your wallet.
           </p>
 
-          <div className="mt-8 flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-medium text-blue-200 shadow-inner">
+          <div className="mt-8 flex items-center gap-3 rounded-full border border-border/50 bg-bg-tertiary/50 px-5 py-2.5 text-sm font-medium text-text-primary shadow-inner">
             <span className="relative flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-blue-500"></span>
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand opacity-75"></span>
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-brand"></span>
             </span>
             Integration in progress
           </div>
