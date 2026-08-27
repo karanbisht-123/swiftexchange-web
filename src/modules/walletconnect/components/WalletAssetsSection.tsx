@@ -16,6 +16,7 @@ import { FixedSizeList } from 'react-window';
 
 import { ROUTES } from '../../../constants/routes';
 import { getChainLogoUrl } from '../../evm/utils/Chainregistry';
+import { useIsMobile } from '../../perps/components/chart/hooks/useIsMobile';
 import { useWalletAssets } from '../hooks/useWalletAssets';
 import { useWalletConnect } from '../hooks/useWalletConnect';
 import { type Asset } from '../store/portfolioStore';
@@ -119,20 +120,6 @@ const canTradeAsset = (asset: Asset): boolean => {
   if (asset.chainType === 'stellar') return true;
   if (asset.chainType === 'evm') return true;
   return false;
-};
-
-const calculatePortfolioChange = (assets: Asset[]): number => {
-  let totalValue = 0;
-  let weightedChange = 0;
-  for (const asset of assets) {
-    if (asset.balance && (asset.current_price || 0) > 0) {
-      const assetValue = asset.balance * asset.current_price;
-      totalValue += assetValue;
-      weightedChange += assetValue * (asset.price_change_percentage_24h || 0);
-    }
-  }
-  if (totalValue === 0) return 0;
-  return weightedChange / totalValue;
 };
 
 const MobileActionSheet = ({
@@ -386,8 +373,7 @@ const AssetRow = memo(
             onClick={() => {
               if (window.innerWidth < 1024) setSheetOpen(true);
             }}
-            className="flex items-center gap-3 h-full bg-secondary rounded-xl px-3 cursor-pointer lg:cursor-default active:scale-[0.98] lg:active:scale-100 transition-transform"
-            style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.05)' }}
+            className="flex items-center gap-3 h-full bg-secondary hover:bg-hover rounded-xl px-3 cursor-pointer lg:cursor-default active:scale-[0.98] lg:active:scale-100 transition-all"
           >
             {/* Token icon */}
             <div className="relative shrink-0">
@@ -507,11 +493,7 @@ AssetRow.displayName = 'AssetRow';
 const SkeletonRows = () => (
   <div className="flex flex-col gap-2 px-3 py-3">
     {[1, 2, 3, 4, 5].map(i => (
-      <div
-        key={i}
-        className="flex items-center gap-3 px-3 py-3.5 bg-secondary rounded-xl"
-        style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.05)' }}
-      >
+      <div key={i} className="flex items-center gap-3 px-3 py-3.5 bg-secondary rounded-xl">
         <Shimmer className="w-9 h-9 rounded-full shrink-0" />
         <div className="flex-1">
           <Shimmer className="h-3.5 w-16 mb-2" />
@@ -526,21 +508,120 @@ const SkeletonRows = () => (
   </div>
 );
 
+// Sparkline SVG Component
+const Sparkline = ({ data, colorClass }: { data: number[]; colorClass: string }) => {
+  if (!data || data.length === 0) return null;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+
+  const width = 45;
+  const height = 20;
+
+  const points = data
+    .map((val, i) => {
+      const x = (i / (data.length - 1)) * width;
+      const y = height - ((val - min) / range) * height;
+      return `${x},${y}`;
+    })
+    .join(' ');
+
+  return (
+    <svg width={width} height={height} className="overflow-visible">
+      <polyline
+        points={points}
+        fill="none"
+        stroke="currentColor"
+        className={colorClass}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+};
+
+const MoverCard = ({
+  asset,
+  type,
+  onClick,
+}: {
+  asset: Asset;
+  type: 'gain' | 'loss';
+  onClick: () => void;
+}) => {
+  const colorClass = type === 'gain' ? 'text-success' : 'text-danger';
+
+  return (
+    <div
+      onClick={onClick}
+      className="flex flex-col lg:flex-row lg:items-center gap-2.5 lg:gap-2 p-3 bg-secondary hover:bg-hover rounded-xl cursor-pointer transition-all border-none"
+    >
+      {/* Mobile Top Row / Desktop Left Side */}
+      <div className="flex items-start justify-between w-full lg:w-auto">
+        <div className="relative shrink-0">
+          <img
+            src={asset.image}
+            className="w-8 h-8 rounded-full bg-tertiary"
+            alt={asset.symbol}
+            onError={e => {
+              e.currentTarget.src = `https://ui-avatars.com/api/?name=${asset.symbol}&background=random`;
+            }}
+          />
+          <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-secondary border border-color flex items-center justify-center">
+            {getChainIcon(asset) ? (
+              <img
+                src={getChainIcon(asset)}
+                alt={asset.chainName}
+                className="w-2.5 h-2.5 rounded-full"
+              />
+            ) : (
+              <span className="text-[6px] font-bold text-muted">
+                {asset.chainType === 'stellar' ? asset.chainId : asset.chainName?.[0] || '?'}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Rate on Mobile (Top Right) */}
+        <div className={`lg:hidden text-[12px] font-bold pt-1 ${colorClass}`}>
+          {type === 'gain' ? '+' : ''}
+          {asset.price_change_percentage_24h?.toFixed(2)}%
+        </div>
+      </div>
+
+      {/* Middle area (Symbol & Price) */}
+      <div className="flex-1 min-w-0 pr-1 flex flex-col lg:justify-end">
+        <div className="font-bold text-[13px] text-primary truncate">{asset.symbol}</div>
+        <div className="text-[11px] text-muted truncate">
+          {portfolioUtils.formatUSD(asset.current_price)}
+        </div>
+      </div>
+
+      {/* Sparkline (Desktop only) */}
+      {asset.sparkline && asset.sparkline.length > 0 && (
+        <div className="shrink-0 px-1 opacity-80 hidden lg:block xl:block">
+          <Sparkline data={asset.sparkline} colorClass={colorClass} />
+        </div>
+      )}
+
+      {/* Rate on Desktop (Far Right) */}
+      <div className={`hidden lg:block text-xs font-bold shrink-0 ${colorClass}`}>
+        {type === 'gain' ? '+' : ''}
+        {asset.price_change_percentage_24h?.toFixed(2)}%
+      </div>
+    </div>
+  );
+};
+
 //Main Section
 const WalletAssetsSection = () => {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const { network } = useWalletStore();
   const { connectedWallets, openModal } = useWalletConnect();
-  const {
-    assets,
-    loading,
-    isRefreshing,
-    totalValue,
-    hasError,
-    errorMessage,
-    providerStatus,
-    refetch,
-  } = useWalletAssets(network);
+  const { assets, loading, isRefreshing, hasError, errorMessage, providerStatus, refetch } =
+    useWalletAssets(network);
 
   const hasAnyConnectedWallet = useMemo(
     () => Object.values(connectedWallets).some(w => !!w?.address),
@@ -548,8 +629,30 @@ const WalletAssetsSection = () => {
   );
 
   const filteredAssets = useMemo(() => assets.filter(asset => (asset.balance || 0) > 0), [assets]);
-  const portfolioChange = useMemo(() => calculatePortfolioChange(filteredAssets), [filteredAssets]);
-  const isPositive = portfolioChange >= 0;
+
+  const topGainers = useMemo(() => {
+    const unique = new Map<string, Asset>();
+    [...filteredAssets]
+      .filter(a => (a.price_change_percentage_24h || 0) > 0)
+      .sort((a, b) => (b.price_change_percentage_24h || 0) - (a.price_change_percentage_24h || 0))
+      .forEach(a => {
+        if (!unique.has(a.symbol)) unique.set(a.symbol, a);
+      });
+    return Array.from(unique.values()).slice(0, 4);
+  }, [filteredAssets]);
+
+  const topLosers = useMemo(() => {
+    const unique = new Map<string, Asset>();
+    [...filteredAssets]
+      .filter(a => (a.price_change_percentage_24h || 0) < 0)
+      .sort((a, b) => (a.price_change_percentage_24h || 0) - (b.price_change_percentage_24h || 0))
+      .forEach(a => {
+        if (!unique.has(a.symbol)) unique.set(a.symbol, a);
+      });
+    return Array.from(unique.values()).slice(0, 4);
+  }, [filteredAssets]);
+
+  const hasMovers = topGainers.length > 0 || topLosers.length > 0;
 
   const handleTrade = useCallback(
     (asset: Asset) => {
@@ -591,7 +694,6 @@ const WalletAssetsSection = () => {
     [navigate]
   );
 
-
   const Row = useCallback(
     ({ index, style }: { index: number; style: React.CSSProperties }) => (
       <AssetRow
@@ -607,141 +709,159 @@ const WalletAssetsSection = () => {
   );
 
   return (
-    <>
-      <section className="card lg:mt-3 rounded-none border-none lg:rounded-lg lg:overflow-hidden p-0">
-        {/* ── Header ── */}
-        <div className="flex justify-between items-stretch px-4 py-3 lg:px-5 border-b border-color bg-secondary/50 backdrop-blur-md">
-          {/* Left Side: Balance & Stats */}
-          <div className="min-w-0 flex flex-col justify-between">
-            <div>
-              <div className="flex items-center gap-1.5 text-muted mb-1">
-                <Wallet size={12} className="text-brand shrink-0" />
-                <span className="text-[10px] font-bold uppercase tracking-wider">Portfolio</span>
-              </div>
-              <div className="flex items-baseline gap-2 flex-wrap">
-                <span className="text-2xl lg:text-3xl font-extrabold tracking-tight text-primary truncate leading-none">
-                  {loading ? (
-                    <Shimmer className="h-7 w-28" />
-                  ) : (
-                    portfolioUtils.formatUSD(totalValue)
-                  )}
-                </span>
-                {!loading && filteredAssets.length > 0 && (
-                  <div
-                    className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold shrink-0
-                    ${isPositive ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'}`}
-                  >
-                    {isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-                    {isPositive ? '+' : ''}
-                    {portfolioChange.toFixed(2)}%
-                  </div>
-                )}
-              </div>
-            </div>
-            <span className="text-[10px] text-muted mt-1 block leading-none">24h performance</span>
+    <div className="flex flex-col lg:flex-row-reverse gap-2 sm:gap-4 lg:gap-6 lg:items-start lg:mt-3">
+      {hasMovers && isMobile && (
+        <div className="w-full flex flex-col gap-2 pb-1">
+          <div className="flex items-center gap-1.5 px-1">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted">
+              Top Movers
+            </span>
           </div>
-
-          {/* Right Side: Refresh & Navigation Link */}
-          <div className="flex flex-col items-end justify-center shrink-0 pl-2 min-h-[58px]">
-            <button
-              onClick={refetch}
-              disabled={loading || isRefreshing}
-              className="flex items-center justify-center w-8 h-8 rounded-full text-muted hover:text-primary hover:bg-hover active:scale-95 transition-all duration-200 cursor-pointer"
-              title="Refresh"
-            >
-              <RefreshCw size={15} className={isRefreshing ? 'animate-spin' : ''} />
-            </button>
+          <div className="w-full flex overflow-x-auto hide-scrollbar gap-3 pb-2  px-2 sm:mx-0 sm:px-0">
+            {[
+              ...topGainers.map(a => ({ ...a, type: 'gain' as const })),
+              ...topLosers.map(a => ({ ...a, type: 'loss' as const })),
+            ].map(asset => (
+              <div key={asset.id} className="shrink-0 w-[124px]">
+                <MoverCard asset={asset} type={asset.type} onClick={() => handleTrade(asset)} />
+              </div>
+            ))}
           </div>
         </div>
-        {/* ── Body ── */}
-        <div className="min-h-[400px]">
-          {hasError && filteredAssets.length === 0 ? (
-            <div className="px-5 py-16 text-center flex flex-col items-center">
-              <AlertCircle className="w-10 h-10 text-red-500 mb-3 opacity-70" />
-              <h4 className="font-semibold text-primary mb-1">Connection issue</h4>
-              <p className="text-sm text-muted mb-6 max-w-xs">
-                {errorMessage || 'Unable to sync portfolio. Check your connection and try again.'}
-              </p>
-              <button
-                onClick={refetch}
-                disabled={loading}
-                className="btn btn-primary px-6 py-2 flex items-center gap-2 rounded-xl"
-              >
-                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-                {loading ? 'Refreshing…' : 'Retry'}
-              </button>
-            </div>
-          ) : filteredAssets.length === 0 && loading ? (
-            <SkeletonRows />
-          ) : filteredAssets.length === 0 ? (
-            <div className="px-5 py-20 text-center">
-              <div className="w-16 h-16 rounded-full bg-tertiary flex items-center justify-center mx-auto mb-4">
-                <Wallet size={28} className="text-muted opacity-40" />
-              </div>
-              <p className="font-medium text-primary mb-1">
-                {hasAnyConnectedWallet ? 'No assets' : 'Connect Wallet to View Assets'}
-              </p>
-              <p className="text-sm text-muted mb-4 max-w-xs mx-auto">
-                {hasAnyConnectedWallet
-                  ? 'Your wallet has no balances yet.'
-                  : 'Connect your EVM or Stellar wallet to view balances, track your portfolio, and trade.'}
-              </p>
-              {hasAnyConnectedWallet ? (
-                <button
-                  onClick={() => navigate(ROUTES.MY_ASSETS)}
-                  className="group inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-primary font-bold text-xs uppercase tracking-wider bg-secondary border border-color hover:bg-hover active:scale-95 transition-all duration-200 cursor-pointer mx-auto shadow-sm"
-                >
-                  <span>View Full Portfolio</span>
-                  <ArrowUpRight
-                    size={14}
-                    className="text-muted group-hover:text-primary transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 shrink-0"
-                  />
-                </button>
-              ) : (
-                <button
-                  onClick={openModal}
-                  className="btn btn-primary px-6 py-2.5 rounded-xl font-bold text-sm inline-flex items-center gap-2"
-                >
-                  <Wallet size={16} />
-                  Connect Wallet
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="w-full h-[71svh] lg:h-[65svh] pt-1">
-              {/* Per-provider stale banners — shown above the list when a refresh failed but cached data exists */}
-              <ProviderStaleBanners
-                providerStatus={providerStatus}
-                onRetry={refetch}
-                isRetrying={isRefreshing}
-              />
-              <AutoSizer
-                renderProp={({ height, width }) => (
-                  <FixedSizeList
-                    height={height || 0}
-                    itemCount={filteredAssets.length}
-                    itemSize={ROW_HEIGHT}
-                    width={width || 0}
-                    className="hide-scrollbar"
-                  >
-                    {Row}
-                  </FixedSizeList>
-                )}
-              />
-            </div>
-          )}
+      )}
 
-          {isRefreshing && assets.length > 0 && (
-            <div className="flex items-center justify-center gap-2 py-2 border-t border-color">
-              <RefreshCw size={11} className="animate-spin text-muted" />
-              <span className="text-[10px] uppercase tracking-widest font-bold text-muted">
-                Updating…
-              </span>
+      {hasMovers && !isMobile && (
+        <div className="w-full lg:w-[40%] shrink-0 flex flex-col gap-6 bg-secondary/80 backdrop-blur-xl rounded-xl p-4 lg:p-5 shadow-premium border-none">
+          {topGainers.length > 0 && (
+            <div className="flex flex-col gap-2.5">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted flex items-center gap-1.5 px-1">
+                <TrendingUp size={14} className="text-success" /> Top Gainers
+              </h3>
+              <div className="flex flex-col gap-1.5">
+                {topGainers.map(asset => (
+                  <MoverCard
+                    key={asset.id}
+                    asset={asset}
+                    type="gain"
+                    onClick={() => handleTrade(asset)}
+                  />
+                ))}
+              </div>
             </div>
           )}
+          {topLosers.length > 0 && (
+            <div className="flex flex-col gap-2.5">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted flex items-center gap-1.5 px-1">
+                <TrendingDown size={14} className="text-danger" /> Top Losers
+              </h3>
+              <div className="flex flex-col gap-1.5">
+                {topLosers.map(asset => (
+                  <MoverCard
+                    key={asset.id}
+                    asset={asset}
+                    type="loss"
+                    onClick={() => handleTrade(asset)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <section className="flex-1 min-w-0 card rounded-none border-none lg:rounded-xl lg:border-none lg:overflow-hidden p-0 shadow-premium">
+        {/* ── Portfolio List ── */}
+        <div className="flex flex-col h-full bg-secondary/80 backdrop-blur-xl">
+          {/* ── Body ── */}
+          <div className="min-h-[400px]">
+            {hasError && filteredAssets.length === 0 ? (
+              <div className="px-5 py-16 text-center flex flex-col items-center">
+                <AlertCircle className="w-10 h-10 text-red-500 mb-3 opacity-70" />
+                <h4 className="font-semibold text-primary mb-1">Connection issue</h4>
+                <p className="text-sm text-muted mb-6 max-w-xs">
+                  {errorMessage || 'Unable to sync portfolio. Check your connection and try again.'}
+                </p>
+                <button
+                  onClick={refetch}
+                  disabled={loading}
+                  className="btn btn-primary px-6 py-2 flex items-center gap-2 rounded-xl"
+                >
+                  <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                  {loading ? 'Refreshing…' : 'Retry'}
+                </button>
+              </div>
+            ) : filteredAssets.length === 0 && loading ? (
+              <SkeletonRows />
+            ) : filteredAssets.length === 0 ? (
+              <div className="px-5 py-20 text-center">
+                <div className="w-16 h-16 rounded-full bg-tertiary flex items-center justify-center mx-auto mb-4">
+                  <Wallet size={28} className="text-muted opacity-40" />
+                </div>
+                <p className="font-medium text-primary mb-1">
+                  {hasAnyConnectedWallet ? 'No assets' : 'Connect Wallet to View Assets'}
+                </p>
+                <p className="text-sm text-muted mb-4 max-w-xs mx-auto">
+                  {hasAnyConnectedWallet
+                    ? 'Your wallet has no balances yet.'
+                    : 'Connect your EVM or Stellar wallet to view balances, track your portfolio, and trade.'}
+                </p>
+                {hasAnyConnectedWallet ? (
+                  <button
+                    onClick={() => navigate(ROUTES.MY_ASSETS)}
+                    className="group inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-primary font-bold text-xs uppercase tracking-wider bg-secondary border border-color hover:bg-hover active:scale-95 transition-all duration-200 cursor-pointer mx-auto shadow-sm"
+                  >
+                    <span>View Full Portfolio</span>
+                    <ArrowUpRight
+                      size={14}
+                      className="text-muted group-hover:text-primary transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 shrink-0"
+                    />
+                  </button>
+                ) : (
+                  <button
+                    onClick={openModal}
+                    className="btn btn-primary px-6 py-2.5 rounded-xl font-bold text-sm inline-flex items-center gap-2"
+                  >
+                    <Wallet size={16} />
+                    Connect Wallet
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="w-full h-[71svh] lg:h-[65svh] pt-1">
+                {/* Per-provider stale banners — shown above the list when a refresh failed but cached data exists */}
+                <ProviderStaleBanners
+                  providerStatus={providerStatus}
+                  onRetry={refetch}
+                  isRetrying={isRefreshing}
+                />
+                <AutoSizer
+                  renderProp={({ height, width }) => (
+                    <FixedSizeList
+                      height={height || 0}
+                      itemCount={filteredAssets.length}
+                      itemSize={ROW_HEIGHT}
+                      width={width || 0}
+                      className="hide-scrollbar"
+                    >
+                      {Row}
+                    </FixedSizeList>
+                  )}
+                />
+              </div>
+            )}
+
+            {isRefreshing && assets.length > 0 && (
+              <div className="flex items-center justify-center gap-2 py-2 border-t border-color">
+                <RefreshCw size={11} className="animate-spin text-muted" />
+                <span className="text-[10px] uppercase tracking-widest font-bold text-muted">
+                  Updating…
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       </section>
-    </>
+    </div>
   );
 };
 

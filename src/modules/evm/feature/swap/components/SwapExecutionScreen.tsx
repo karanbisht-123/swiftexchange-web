@@ -55,6 +55,15 @@ export const SwapExecutionScreen: React.FC<SwapExecutionScreenProps> = ({
       buyAsset?.symbol?.toUpperCase() !== 'XLM';
 
     const isTrustlineOnlyRequired =
+      !isStellar(fromChainId) &&
+      isStellar(toChainId) &&
+      isStellarAccountActive !== false &&
+      buyAsset &&
+      !buyAsset.isNative &&
+      !buyAsset.hasTrustline;
+
+    const isStellarTrustlineAndSwap =
+      isStellar(fromChainId) &&
       isStellar(toChainId) &&
       isStellarAccountActive !== false &&
       buyAsset &&
@@ -100,6 +109,23 @@ export const SwapExecutionScreen: React.FC<SwapExecutionScreenProps> = ({
             currentStep === 'setting_trustline' || currentStep === 'preparing'
               ? 'active'
               : 'waiting',
+        },
+      ];
+    }
+
+    if (isStellarTrustlineAndSwap) {
+      return [
+        {
+          title: 'Build Swap Order',
+          description: 'Bundling trustline and swap operations...',
+          status: currentStep === 'preparing' ? 'active' : 'done',
+        },
+        {
+          title: 'Confirm Trustline & Swap',
+          description: signingWallet?.peerName
+            ? `Approve and sign in your ${signingWallet.peerName} wallet`
+            : 'Sign bundled transaction in your connected wallet',
+          status: currentStep === 'signing' ? 'active' : 'waiting',
         },
       ];
     }

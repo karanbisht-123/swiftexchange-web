@@ -37,7 +37,7 @@ export async function executeSwap(
 
   try {
     const config = getEVMNetworkConfig(chainId);
-    if (config?.rpcUrls) rpcManager.resetChain(chainId, config.rpcUrls);
+    if (config?.rpcUrls) rpcManager.resetChain(chainId);
   } catch (err) {
     console.warn('[executeSwap] Failed to reset RPC cache, continuing with existing config:', err);
   }

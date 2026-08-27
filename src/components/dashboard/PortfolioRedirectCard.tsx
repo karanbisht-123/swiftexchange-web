@@ -8,7 +8,7 @@ export const PortfolioRedirectCard: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="relative overflow-hidden rounded-none sm:rounded-[16px] border-b sm:border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-sm flex flex-col justify-center py-2.5 px-4 sm:px-5 sm:py-3 w-full min-h-[76px] sm:min-h-[84px] group h-full">
+    <div className="relative overflow-hidden rounded-none sm:rounded-[16px] border-none bg-[var(--color-bg-secondary)] shadow-sm flex flex-col justify-center py-2.5 px-4 sm:px-5 sm:py-3 w-full min-h-[76px] sm:min-h-[84px] group h-full">
       <div className="absolute inset-0 z-0 pointer-events-none">
         <img
           src="/38823-560x240.jpg"

@@ -21,6 +21,10 @@ export class StellarBaseService {
     this.networkKey = networkKey;
   }
 
+  static clearAccountCache() {
+    accountCache.clear();
+  }
+
   async getAccountData(address: string): Promise<{ tokens: TokenInfo[]; subentryCount: number }> {
     if (!StellarSDK.StrKey.isValidEd25519PublicKey(address)) {
       throw new Error('Invalid Stellar address');
