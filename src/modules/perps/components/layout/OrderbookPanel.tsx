@@ -3,6 +3,7 @@ import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useMarketStore } from '../../core/stores/marketStore';
 import { useOrderEntryStore } from '../../core/stores/orderEntryStore';
+import { useOnClickOutside } from '../../hooks/useOnClickOutside';
 import { useOrderbook } from '../../hooks/useOrderbook';
 import { useTrades } from '../../hooks/useTrades';
 
@@ -10,8 +11,6 @@ interface OrderbookRowProps {
   price: number;
   displaySize: number;
   displayCumTotal: number;
-  maxCumTotal: number;
-  maxRowSize: number;
   isAsk: boolean;
   isUsdtUnit: boolean;
   formatPrice: (v: number) => string;
@@ -22,8 +21,6 @@ const OrderbookRow = memo(function OrderbookRow({
   price,
   displaySize,
   displayCumTotal,
-  maxCumTotal,
-  maxRowSize,
   isAsk,
   isUsdtUnit,
   formatPrice,
@@ -49,9 +46,6 @@ const OrderbookRow = memo(function OrderbookRow({
     }
   }, [displaySize]);
 
-  const depthPct = Math.min(100, (displayCumTotal / (maxCumTotal || 1)) * 100);
-  const sizePct = Math.min(100, (displaySize / (maxRowSize || 1)) * 100);
-
   return (
     <div
       className="ob-row-enter flex justify-between items-center px-2 py-0.5 my-[1px] hover:bg-hover cursor-pointer relative leading-none shrink-0 group select-none"
@@ -59,11 +53,11 @@ const OrderbookRow = memo(function OrderbookRow({
     >
       <div
         className={`absolute inset-y-0 right-0 pointer-events-none ob-depth-bar ${isAsk ? 'ob-depth-bar--ask-soft' : 'ob-depth-bar--bid-soft'}`}
-        style={{ width: `${depthPct}%` }}
+        style={{ width: `calc((var(--cum-total) / var(--max-cum)) * 100%)` }}
       />
       <div
         className={`absolute inset-y-0 right-0 pointer-events-none ob-depth-bar ${isAsk ? 'ob-depth-bar--ask-strong' : 'ob-depth-bar--bid-strong'}`}
-        style={{ width: `${sizePct}%` }}
+        style={{ width: `calc((var(--row-size) / var(--max-size)) * 100%)` }}
       />
       <span
         className={`font-mono-tabular text-[11px] font-medium z-10 ${isAsk ? 'text-danger' : 'text-success'}`}
@@ -153,21 +147,8 @@ export const OrderbookPanel: React.FC = () => {
     setSelectedPrecision(tickSize);
   }, [tickSize]);
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (unitDropdownRef.current && !unitDropdownRef.current.contains(e.target as Node)) {
-        setIsUnitOpen(false);
-      }
-      if (
-        precisionDropdownRef.current &&
-        !precisionDropdownRef.current.contains(e.target as Node)
-      ) {
-        setIsPrecisionOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  useOnClickOutside(unitDropdownRef, () => setIsUnitOpen(false));
+  useOnClickOutside(precisionDropdownRef, () => setIsPrecisionOpen(false));
 
   const rowsPerSide = viewMode === 'both' ? 14 : 35;
 
@@ -364,23 +345,36 @@ export const OrderbookPanel: React.FC = () => {
             {viewMode !== 'bids' && (
               <div
                 className={`flex flex-col ${viewMode === 'both' ? 'flex-1 min-h-0 justify-end overflow-hidden' : 'flex-1 min-h-0 ob-scroll overflow-y-auto'} pb-0.5`}
+                style={
+                  {
+                    '--max-cum': maxCumTotal || 1,
+                    '--max-size': maxRowSize || 1,
+                  } as React.CSSProperties
+                }
               >
                 {askRows.length === 0 ? (
                   <div className="text-center text-muted py-6 text-[11px]">Waiting for data…</div>
                 ) : (
                   askRows.map(row => (
-                    <OrderbookRow
+                    <div
                       key={`ask-${row.price}`}
-                      price={row.price}
-                      displaySize={isUsdtUnit ? row.quoteSize : row.size}
-                      displayCumTotal={isUsdtUnit ? row.cumTotalQuote : row.cumTotalBase}
-                      maxCumTotal={maxCumTotal}
-                      maxRowSize={maxRowSize}
-                      isAsk={true}
-                      isUsdtUnit={isUsdtUnit}
-                      formatPrice={formatPrice}
-                      formatVal={formatVal}
-                    />
+                      style={
+                        {
+                          '--cum-total': isUsdtUnit ? row.cumTotalQuote : row.cumTotalBase,
+                          '--row-size': isUsdtUnit ? row.quoteSize : row.size,
+                        } as React.CSSProperties
+                      }
+                    >
+                      <OrderbookRow
+                        price={row.price}
+                        displaySize={isUsdtUnit ? row.quoteSize : row.size}
+                        displayCumTotal={isUsdtUnit ? row.cumTotalQuote : row.cumTotalBase}
+                        isAsk={true}
+                        isUsdtUnit={isUsdtUnit}
+                        formatPrice={formatPrice}
+                        formatVal={formatVal}
+                      />
+                    </div>
                   ))
                 )}
               </div>
@@ -407,23 +401,36 @@ export const OrderbookPanel: React.FC = () => {
             {viewMode !== 'asks' && (
               <div
                 className={`flex flex-col ${viewMode === 'both' ? 'flex-1 min-h-0 overflow-hidden' : 'flex-1 min-h-0 ob-scroll overflow-y-auto'} pt-0.5`}
+                style={
+                  {
+                    '--max-cum': maxCumTotal || 1,
+                    '--max-size': maxRowSize || 1,
+                  } as React.CSSProperties
+                }
               >
                 {bidRows.length === 0 ? (
                   <div className="text-center text-muted py-6 text-[11px]">Waiting for data…</div>
                 ) : (
                   bidRows.map(row => (
-                    <OrderbookRow
+                    <div
                       key={`bid-${row.price}`}
-                      price={row.price}
-                      displaySize={isUsdtUnit ? row.quoteSize : row.size}
-                      displayCumTotal={isUsdtUnit ? row.cumTotalQuote : row.cumTotalBase}
-                      maxCumTotal={maxCumTotal}
-                      maxRowSize={maxRowSize}
-                      isAsk={false}
-                      isUsdtUnit={isUsdtUnit}
-                      formatPrice={formatPrice}
-                      formatVal={formatVal}
-                    />
+                      style={
+                        {
+                          '--cum-total': isUsdtUnit ? row.cumTotalQuote : row.cumTotalBase,
+                          '--row-size': isUsdtUnit ? row.quoteSize : row.size,
+                        } as React.CSSProperties
+                      }
+                    >
+                      <OrderbookRow
+                        price={row.price}
+                        displaySize={isUsdtUnit ? row.quoteSize : row.size}
+                        displayCumTotal={isUsdtUnit ? row.cumTotalQuote : row.cumTotalBase}
+                        isAsk={false}
+                        isUsdtUnit={isUsdtUnit}
+                        formatPrice={formatPrice}
+                        formatVal={formatVal}
+                      />
+                    </div>
                   ))
                 )}
               </div>

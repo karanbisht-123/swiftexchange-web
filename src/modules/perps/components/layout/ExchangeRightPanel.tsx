@@ -1,10 +1,16 @@
-import { HelpCircle, KeyRound, AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, HelpCircle, KeyRound, Loader2 } from 'lucide-react';
 import React, { useState } from 'react';
 
 import { useNotificationStore } from '../../../../store/notificationStore';
 import { useAsterAgent, useAsterAgentStore } from '../../adapters/aster/hooks/useAsterAgent';
 import { useAsterDataSync } from '../../adapters/aster/hooks/useAsterDataSync';
 import { useOrders } from '../../adapters/aster/hooks/useOrders';
+import {
+  useHyperliquidAgent,
+  useHyperliquidAgentStore,
+} from '../../adapters/hyperliquid/hooks/useHyperliquidAgent';
+import { useHyperliquidDataStream } from '../../adapters/hyperliquid/hooks/useHyperliquidDataStream';
+import { useExchangeManager } from '../../core/ExchangeManager';
 import { useAccountStore } from '../../core/stores/accountStore';
 import { useMarketStore } from '../../core/stores/marketStore';
 import { usePositionStore } from '../../core/stores/positionStore';
@@ -50,16 +56,33 @@ const useTotalWalletBalance = (balances: Record<string, any>) => {
 };
 
 export const ExchangeOrderFormPanel: React.FC = () => {
-  const { asterSigner, userAddr, isReady, deriveState, error: deriveError, deriveAgentKey } = useAsterAgent();
-  
-  const handleDeriveKey = async () => {
+  const asterAgent = useAsterAgent();
+  const hyperliquidAgent = useHyperliquidAgent();
+  const currentExchange = useExchangeManager(s => s.currentExchange);
+  const activeAgent = currentExchange === 'hyperliquid' ? hyperliquidAgent : asterAgent;
+  const { userAddr, isReady, deriveState, error: deriveError, deriveAgentKey } = activeAgent;
+
+  const isDepositError = deriveState === 'error' && deriveError?.message?.includes('Must deposit');
+
+  const handleActionClick = async () => {
+    if (isDepositError) {
+      setAccountModalTab('deposit');
+      setActiveModal('account');
+      return;
+    }
+
     let timeoutId: any;
     try {
       timeoutId = setTimeout(() => {
-        const state = useAsterAgentStore.getState();
+        const state =
+          currentExchange === 'hyperliquid'
+            ? useHyperliquidAgentStore.getState()
+            : useAsterAgentStore.getState();
         if (state.deriveState === 'signing') {
-           state.setDeriveState('error');
-           state.setError(new Error('Signature request timed out after 1 minute. Please try again.'));
+          state.setDeriveState('error');
+          state.setError(
+            new Error('Signature request timed out after 1 minute. Please try again.')
+          );
         }
       }, 60000);
       await deriveAgentKey();
@@ -71,9 +94,10 @@ export const ExchangeOrderFormPanel: React.FC = () => {
   };
   const market = useMarketStore(state => state.markets[state.selectedSymbol]);
 
-  useAsterDataSync(asterSigner, userAddr);
+  useAsterDataSync(asterAgent.asterSigner, userAddr);
+  useHyperliquidDataStream(userAddr);
 
-  const { place, placeChase, placeBatch } = useOrders(asterSigner, userAddr);
+  const { place, placeChase, placeBatch } = useOrders(asterAgent.asterSigner, userAddr);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeModal, setActiveModal] = useState<
     'margin' | 'leverage' | 'account' | 'assetMode' | null
@@ -83,7 +107,7 @@ export const ExchangeOrderFormPanel: React.FC = () => {
   >('deposit');
 
   const handlePlaceOrder = async (payload: any) => {
-    if (!asterSigner || !userAddr) return;
+    if (!activeAgent.isReady || !userAddr) return;
 
     setIsSubmitting(true);
     try {
@@ -214,9 +238,9 @@ export const ExchangeOrderFormPanel: React.FC = () => {
           workingType: payload.workingType,
           stopPrice:
             payload.type === 'STOP' ||
-              payload.type === 'STOP_MARKET' ||
-              payload.type === 'TAKE_PROFIT' ||
-              payload.type === 'TAKE_PROFIT_MARKET'
+            payload.type === 'STOP_MARKET' ||
+            payload.type === 'TAKE_PROFIT' ||
+            payload.type === 'TAKE_PROFIT_MARKET'
               ? formattedStopPrice
               : undefined,
           activationPrice:
@@ -231,8 +255,9 @@ export const ExchangeOrderFormPanel: React.FC = () => {
         type: 'DYDX',
         title: 'Order Placed',
         status: 'success',
-        message: `${payload.side} ${payload.type} ${formattedQty || payload.size} ${payload.symbol.split('-')[0]
-          } placed successfully.`,
+        message: `${payload.side} ${payload.type} ${formattedQty || payload.size} ${
+          payload.symbol.split('-')[0]
+        } placed successfully.`,
       });
     } catch (err: any) {
       console.error('Failed to place order:', err);
@@ -270,10 +295,12 @@ export const ExchangeOrderFormPanel: React.FC = () => {
             {/* Background effects */}
             <div className="absolute -top-20 -right-20 w-40 h-40 bg-brand/20 blur-[50px] rounded-full pointer-events-none" />
             <div className="absolute -bottom-20 -left-20 w-40 h-40 bg-brand/10 blur-[50px] rounded-full pointer-events-none" />
-            
+
             <div className="relative z-10 flex flex-col items-center w-full">
               <div className="relative mb-5">
-                <div className={`absolute inset-0 bg-brand/20 blur-xl rounded-full ${deriveState === 'signing' ? 'animate-pulse' : ''}`} />
+                <div
+                  className={`absolute inset-0 bg-brand/20 blur-xl rounded-full ${deriveState === 'signing' ? 'animate-pulse' : ''}`}
+                />
                 <div className="w-14 h-14 bg-secondary/80 border border-white/10 rounded-full flex items-center justify-center relative shadow-inner">
                   {deriveState === 'signing' ? (
                     <Loader2 className="w-6 h-6 text-brand animate-spin" />
@@ -286,35 +313,38 @@ export const ExchangeOrderFormPanel: React.FC = () => {
               </div>
 
               <h3 className="text-base font-black text-white mb-2 tracking-tight">
-                {deriveState === 'signing' 
-                  ? 'Approve in Wallet' 
+                {deriveState === 'signing'
+                  ? 'Approve in Wallet'
                   : deriveState === 'error'
-                  ? 'Authorization Failed'
-                  : 'Trading Authorization'}
+                    ? 'Authorization Failed'
+                    : 'Trading Authorization'}
               </h3>
-              
+
               <p className="text-xs text-muted mb-6 max-w-[240px] leading-relaxed">
-                {deriveState === 'signing' 
-                  ? 'Please check your connected wallet and approve the signature request to enable trading.' 
+                {deriveState === 'signing'
+                  ? 'Please check your connected wallet and approve the signature request to enable trading.'
                   : deriveState === 'error'
-                  ? (deriveError?.message || 'The request was rejected or timed out. Please try again.')
-                  : 'Sign a one-time request to verify your wallet and enable gas-free trading.'}
+                    ? deriveError?.message ||
+                      'The request was rejected or timed out. Please try again.'
+                    : 'Sign a one-time request to verify your wallet and enable gas-free trading.'}
               </p>
 
               <button
                 type="button"
-                onClick={handleDeriveKey}
+                onClick={handleActionClick}
                 disabled={deriveState === 'signing'}
                 className="w-full relative overflow-hidden group bg-brand hover:bg-brand-hover text-white rounded-xl py-3 font-bold text-xs transition-all duration-300 shadow-[0_0_20px_rgba(var(--color-brand-rgb),0.3)] hover:shadow-[0_0_30px_rgba(var(--color-brand-rgb),0.5)] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none"
               >
                 <span className="relative z-10">
-                  {deriveState === 'signing' 
-                    ? 'Waiting for Approval...' 
-                    : deriveState === 'error'
-                    ? 'Try Again'
-                    : 'Prepare Wallet'}
+                  {isDepositError
+                    ? 'Deposit Funds'
+                    : deriveState === 'signing'
+                      ? 'Waiting for Approval...'
+                      : deriveState === 'error'
+                        ? 'Try Again'
+                        : 'Prepare Wallet'}
                 </span>
-                {(!deriveState || deriveState !== 'signing') ? (
+                {!deriveState || deriveState !== 'signing' ? (
                   <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
                 ) : null}
               </button>
@@ -346,7 +376,11 @@ export const ExchangeOrderFormPanel: React.FC = () => {
 };
 
 export const ExchangeAccountPanel: React.FC = () => {
-  const { isReady: isAsterReady } = useAsterAgent();
+  const asterAgent = useAsterAgent();
+  const hyperliquidAgent = useHyperliquidAgent();
+  const currentExchange = useExchangeManager(s => s.currentExchange);
+  const { isReady: isAsterReady } =
+    currentExchange === 'hyperliquid' ? hyperliquidAgent : asterAgent;
   const market = useMarketStore(state => state.markets[state.selectedSymbol]);
 
   const [activeModal, setActiveModal] = useState<
@@ -355,6 +389,11 @@ export const ExchangeAccountPanel: React.FC = () => {
   const [accountModalTab, setAccountModalTab] = useState<
     'deposit' | 'withdraw' | 'transfer' | 'history'
   >('deposit');
+
+  const handleOpenAccount = (tab: 'deposit' | 'withdraw' | 'transfer' | 'history') => {
+    setAccountModalTab(tab);
+    setActiveModal('account');
+  };
 
   const { totalMaintenanceMargin, crossMarginRatio } = useTradeCalculations(
     market?.symbol || 'BTCUSDT',
@@ -378,30 +417,21 @@ export const ExchangeAccountPanel: React.FC = () => {
         <div className="flex gap-1.5">
           <button
             type="button"
-            onClick={() => {
-              setAccountModalTab('deposit');
-              setActiveModal('account');
-            }}
+            onClick={() => handleOpenAccount('deposit')}
             className="flex-1 bg-tertiary hover:bg-hover text-secondary hover:text-primary py-1.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer text-center"
           >
             Deposit
           </button>
           <button
             type="button"
-            onClick={() => {
-              setAccountModalTab('withdraw');
-              setActiveModal('account');
-            }}
+            onClick={() => handleOpenAccount('withdraw')}
             className="flex-1 bg-tertiary hover:bg-hover text-secondary hover:text-primary py-1.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer text-center"
           >
             Withdraw
           </button>
           <button
             type="button"
-            onClick={() => {
-              setAccountModalTab('transfer');
-              setActiveModal('account');
-            }}
+            onClick={() => handleOpenAccount('transfer')}
             className="flex-1 bg-tertiary hover:bg-hover text-secondary hover:text-primary py-1.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer text-center"
           >
             Transfer
@@ -424,14 +454,15 @@ export const ExchangeAccountPanel: React.FC = () => {
           <div className="flex justify-between items-center text-[11px] text-secondary">
             <span>Perpetuals Unrealized Pnl</span>
             <span
-              className={`font-medium ${!isAsterReady
+              className={`font-medium ${
+                !isAsterReady
                   ? 'text-primary'
                   : totalPnl > 0
                     ? 'text-success'
                     : totalPnl < 0
                       ? 'text-danger'
                       : 'text-primary'
-                }`}
+              }`}
             >
               {!isAsterReady ? '--' : `${totalPnl > 0 ? '+' : ''}${totalPnl.toFixed(2)} USD`}
             </span>
@@ -446,23 +477,25 @@ export const ExchangeAccountPanel: React.FC = () => {
             <div className="flex items-center gap-1">
               {isAsterReady && (
                 <div
-                  className={`w-2 h-2 rounded-full ${crossMarginRatio > 80
+                  className={`w-2 h-2 rounded-full ${
+                    crossMarginRatio > 80
                       ? 'bg-danger'
                       : crossMarginRatio > 50
                         ? 'bg-warning'
                         : 'bg-success'
-                    }`}
+                  }`}
                 />
               )}
               <span
-                className={`font-medium ${!isAsterReady
+                className={`font-medium ${
+                  !isAsterReady
                     ? 'text-primary'
                     : crossMarginRatio > 80
                       ? 'text-danger'
                       : crossMarginRatio > 50
                         ? 'text-warning'
                         : 'text-success'
-                  }`}
+                }`}
               >
                 {isAsterReady ? `${crossMarginRatio.toFixed(2)}%` : '--'}
               </span>

@@ -220,8 +220,21 @@
 
   body {
     background-color: var(--color-bg-primary);
+    background-image:
+      radial-gradient(
+        at 10% 5%,
+        color-mix(in srgb, var(--color-brand-primary) 7%, transparent) 0px,
+        transparent 50%
+      ),
+      radial-gradient(
+        at 90% 85%,
+        color-mix(in srgb, var(--color-brand-accent) 5%, transparent) 0px,
+        transparent 50%
+      );
+    background-attachment: fixed;
     color: var(--color-text-primary);
     line-height: 1.6;
+    min-height: 100vh;
     transition:
       background-color 0.2s ease,
       color 0.2s ease;
@@ -863,23 +876,16 @@
   animation: pulseSubtle 3s ease-in-out infinite;
 }
 
-.hide-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-
+/* Scrollbar hide utility */
+.scrollbar-hide,
 .hide-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
 
-/* Scrollbar hide utility */
-.scrollbar-hide::-webkit-scrollbar {
+.scrollbar-hide::-webkit-scrollbar,
+.hide-scrollbar::-webkit-scrollbar {
   display: none;
-}
-
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
 }
 
 @keyframes slideUpModal {

@@ -62,12 +62,19 @@ export const ConnectWalletButton: React.FC = () => {
 
   if (!hasConnections) {
     return (
-      <button
-        onClick={openModal}
-        className="flex items-center text-white gap-2 shadow bg-brand rounded-md px-3 py-1.5 text-sm font-semibold hover:opacity-90 transition-opacity cursor-pointer"
-      >
-        Connect
-      </button>
+      <div className="relative inline-flex p-[2px] rounded-xl overflow-hidden shadow-[0_0_20px_rgba(59,130,246,0.35)] hover:shadow-[0_0_25px_rgba(59,130,246,0.55)] transition-all duration-300 group cursor-pointer">
+        <div className="absolute -inset-[200%] animate-[spin_3.5s_linear_infinite] bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0%,#3b82f6_20%,#93c5fd_30%,#ffffff_35%,transparent_38%,transparent_50%,#3b82f6_70%,#93c5fd_80%,#ffffff_85%,transparent_88%)] will-change-transform opacity-95" />
+        <button
+          onClick={openModal}
+          style={{
+            background: 'var(--color-bg-secondary)',
+            color: 'var(--color-text-primary)',
+          }}
+          className="relative flex items-center justify-center gap-1.5 hover:bg-[var(--color-bg-hover)] rounded-[10px] px-4 py-1.5 text-sm font-semibold transition-colors duration-200 cursor-pointer select-none"
+        >
+          <span className="font-bold tracking-wide">Connect</span>
+        </button>
+      </div>
     );
   }
 

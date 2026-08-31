@@ -1,3 +1,5 @@
+import BigNumber from 'bignumber.js';
+
 import type { AccountBalance, Position } from '../core/models';
 import type { LeverageBracket } from '../core/stores/leverageStore';
 
@@ -62,44 +64,46 @@ export function calculateLiquidationPrice({
   isMultiAsset = false,
   bracketsBySymbol = {},
 }: LiqCalcParams): number | null {
-  const size = parseFloat(position.size || '0');
-  const entryPrice = parseFloat(position.entryPrice || '0');
+  const size = new BigNumber(position.size || '0');
+  const entryPrice = new BigNumber(position.entryPrice || '0');
 
-  if (size === 0 || entryPrice <= 0) return null;
+  if (size.isZero() || entryPrice.lte(0)) return null;
 
-  const isLong = size > 0;
-  const absSize = Math.abs(size);
-  const notional = absSize * entryPrice;
+  const isLong = size.gt(0);
+  const absSize = size.abs();
+  const notional = absSize.times(entryPrice);
 
   const { maintMarginRatio: mmr, cum } = getBracketForNotional(
     position.symbol,
-    notional,
+    notional.toNumber(),
     bracketsBySymbol
   );
 
+  const mmrBn = new BigNumber(mmr);
+  const cumBn = new BigNumber(cum);
+
   // 1. Isolated Margin Mode
   if (position.marginType === 'isolated') {
-    let isolatedMargin = parseFloat(position.isolatedMargin || '0');
-    if (isolatedMargin <= 0 && position.leverage > 0) {
-      isolatedMargin = notional / position.leverage;
+    let isolatedMargin = new BigNumber(position.isolatedMargin || '0');
+    if (isolatedMargin.lte(0) && position.leverage > 0) {
+      isolatedMargin = notional.div(position.leverage);
     }
 
     if (isLong) {
-      const denom = absSize * (1 - mmr);
-      if (denom <= 0) return null;
-      const liqPrice = (entryPrice * absSize - isolatedMargin + cum) / denom;
-      return liqPrice > 0 ? liqPrice : null;
+      const denom = absSize.times(new BigNumber(1).minus(mmrBn));
+      if (denom.lte(0)) return null;
+      const liqPrice = entryPrice.times(absSize).minus(isolatedMargin).plus(cumBn).div(denom);
+      return liqPrice.gt(0) ? liqPrice.toNumber() : null;
     } else {
-      const denom = absSize * (1 + mmr);
-      if (denom <= 0) return null;
-      const liqPrice = (entryPrice * absSize + isolatedMargin - cum) / denom;
-      return liqPrice > 0 ? liqPrice : null;
+      const denom = absSize.times(new BigNumber(1).plus(mmrBn));
+      if (denom.lte(0)) return null;
+      const liqPrice = entryPrice.times(absSize).plus(isolatedMargin).minus(cumBn).div(denom);
+      return liqPrice.gt(0) ? liqPrice.toNumber() : null;
     }
   }
 
   // 2. Cross Margin Mode
-  // If API already provided a valid non-zero liquidation price for Cross, we can check it
-  const apiLiq = parseFloat(position.liquidationPrice || '0');
+  const apiLiq = new BigNumber(position.liquidationPrice || '0');
 
   // Convert balances to map if array
   let balanceMap: Record<string, AccountBalance> = {};
@@ -108,33 +112,33 @@ export function calculateLiquidationPrice({
       balanceMap[b.asset] = b;
     });
   } else if (balances && typeof balances === 'object') {
-    balanceMap = balances;
+    balanceMap = balances as Record<string, AccountBalance>;
   }
 
   // Calculate Cross Wallet Balance
-  let crossWalletBalance = 0;
+  let crossWalletBalance = new BigNumber(0);
   if (isMultiAsset) {
     // Multi-asset mode: sum total margin balance across all assets
     Object.values(balanceMap).forEach(b => {
-      const total = parseFloat(b.total || b.marginBalance || '0');
-      if (total > 0) crossWalletBalance += total;
+      const total = new BigNumber(b.total || b.marginBalance || '0');
+      if (total.gt(0)) crossWalletBalance = crossWalletBalance.plus(total);
     });
   } else {
     // Single-asset mode (USDT-M)
     const usdtBal = balanceMap['USDT'] || balanceMap['USD'];
     if (usdtBal) {
-      crossWalletBalance = parseFloat(usdtBal.total || usdtBal.marginBalance || '0');
+      crossWalletBalance = new BigNumber(usdtBal.total || usdtBal.marginBalance || '0');
     }
   }
 
   // If no balance loaded yet and API gave a liq price, fallback to API
-  if (crossWalletBalance <= 0 && apiLiq > 0) {
-    return apiLiq;
+  if (crossWalletBalance.lte(0) && apiLiq.gt(0)) {
+    return apiLiq.toNumber();
   }
 
   // Calculate other cross positions' maintenance margin and unrealized PnL
-  let otherMaintMargin = 0;
-  let otherUnrealizedPnl = 0;
+  let otherMaintMargin = new BigNumber(0);
+  let otherUnrealizedPnl = new BigNumber(0);
 
   const targetNormSymbol = normalizeSymbol(position.symbol);
 
@@ -142,30 +146,36 @@ export function calculateLiquidationPrice({
     if (normalizeSymbol(p.symbol) === targetNormSymbol) return; // Skip current position
     if (p.marginType === 'isolated') return; // Skip isolated positions
 
-    const pSize = Math.abs(parseFloat(p.size || '0'));
-    const pEntry = parseFloat(p.entryPrice || '0');
-    const pMark = parseFloat(p.markPrice || '0') || pEntry;
-    const pNotional = pSize * pMark;
+    const pSize = new BigNumber(p.size || '0').abs();
+    const pEntry = new BigNumber(p.entryPrice || '0');
+    const pMarkStr = p.markPrice || '0';
+    const pMark = pMarkStr === '0' ? pEntry : new BigNumber(pMarkStr);
+    const pNotional = pSize.times(pMark);
 
-    if (pNotional > 0) {
-      const pBracket = getBracketForNotional(p.symbol, pNotional, bracketsBySymbol);
-      otherMaintMargin += Math.max(0, pNotional * pBracket.maintMarginRatio - pBracket.cum);
-      otherUnrealizedPnl += parseFloat(p.unrealizedPnl || '0');
+    if (pNotional.gt(0)) {
+      const pBracket = getBracketForNotional(p.symbol, pNotional.toNumber(), bracketsBySymbol);
+      const pMmrBn = new BigNumber(pBracket.maintMarginRatio);
+      const pCumBn = new BigNumber(pBracket.cum);
+      const mm = pNotional.times(pMmrBn).minus(pCumBn);
+      if (mm.gt(0)) {
+        otherMaintMargin = otherMaintMargin.plus(mm);
+      }
+      otherUnrealizedPnl = otherUnrealizedPnl.plus(new BigNumber(p.unrealizedPnl || '0'));
     }
   });
 
-  const availableCollateral = crossWalletBalance + otherUnrealizedPnl - otherMaintMargin;
+  const availableCollateral = crossWalletBalance.plus(otherUnrealizedPnl).minus(otherMaintMargin);
 
   if (isLong) {
-    const denom = absSize * (1 - mmr);
-    if (denom <= 0) return null;
-    const liqPrice = (entryPrice * absSize - availableCollateral + cum) / denom;
-    return liqPrice > 0 ? liqPrice : null;
+    const denom = absSize.times(new BigNumber(1).minus(mmrBn));
+    if (denom.lte(0)) return null;
+    const liqPrice = entryPrice.times(absSize).minus(availableCollateral).plus(cumBn).div(denom);
+    return liqPrice.gt(0) ? liqPrice.toNumber() : null;
   } else {
-    const denom = absSize * (1 + mmr);
-    if (denom <= 0) return null;
-    const liqPrice = (entryPrice * absSize + availableCollateral - cum) / denom;
-    return liqPrice > 0 ? liqPrice : null;
+    const denom = absSize.times(new BigNumber(1).plus(mmrBn));
+    if (denom.lte(0)) return null;
+    const liqPrice = entryPrice.times(absSize).plus(availableCollateral).minus(cumBn).div(denom);
+    return liqPrice.gt(0) ? liqPrice.toNumber() : null;
   }
 }
 
@@ -178,23 +188,23 @@ export function formatPricePrecision(
   tickSize?: number | string
 ): string {
   if (price === null || price === undefined) return '--';
-  const val = typeof price === 'number' ? price : parseFloat(price);
-  if (isNaN(val) || val <= 0) return '--';
+  const bn = new BigNumber(price);
+  if (bn.isNaN() || bn.lte(0)) return '--';
 
   // If explicit tickSize is provided, determine decimal count
   if (tickSize) {
     const tickStr = String(tickSize);
     if (tickStr.includes('.')) {
       const decimals = tickStr.split('.')[1].length;
-      return val.toFixed(decimals);
+      return bn.toFixed(decimals);
     }
   }
 
   // Dynamic smart precision
-  if (val >= 1000) return val.toFixed(2);
-  if (val >= 100) return val.toFixed(2);
-  if (val >= 10) return val.toFixed(3);
-  if (val >= 1) return val.toFixed(4);
-  if (val >= 0.01) return val.toFixed(5);
-  return val.toFixed(6);
+  if (bn.gte(1000)) return bn.toFixed(2);
+  if (bn.gte(100)) return bn.toFixed(2);
+  if (bn.gte(10)) return bn.toFixed(3);
+  if (bn.gte(1)) return bn.toFixed(4);
+  if (bn.gte(0.01)) return bn.toFixed(5);
+  return bn.toFixed(6);
 }

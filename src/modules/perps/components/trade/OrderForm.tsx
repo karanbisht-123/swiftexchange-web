@@ -42,11 +42,19 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   const [isAssetModeModalOpen, setIsAssetModeModalOpen] = useState(false);
   const [isTifOpen, setIsTifOpen] = useState(false);
 
-  const balances = useAccountStore(state => state.balances);
-  const markets = useMarketStore(state => state.markets);
   const selectedSymbol = useMarketStore(state => state.selectedSymbol);
-
+  const markets = useMarketStore(state => state.markets);
   const market = markets[selectedSymbol] || null;
+
+  const baseAsset = market?.baseAsset || selectedSymbol.split('-')[0] || 'ASSET';
+  const quoteAsset = market?.quoteAsset || selectedSymbol.split('-')[1] || 'USDT';
+
+  const baseBalance = useAccountStore(state => state.balances[baseAsset]);
+  const quoteBalance = useAccountStore(state => state.balances[quoteAsset]);
+
+  const relevantBalances = useMemo(() => {
+    return [baseBalance, quoteBalance].filter(Boolean);
+  }, [baseBalance, quoteBalance]);
 
   const {
     walletBalance: calcWalletBalance,
@@ -66,7 +74,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     return validateOrder(
       market,
       currentPrice,
-      Object.values(balances),
+      relevantBalances,
       store.side,
       store.orderType,
       store.price,
@@ -79,7 +87,7 @@ export const OrderForm: React.FC<OrderFormProps> = ({
   }, [
     market,
     currentPrice,
-    balances,
+    relevantBalances,
     store.side,
     store.orderType,
     store.price,
@@ -126,8 +134,6 @@ export const OrderForm: React.FC<OrderFormProps> = ({
     onSubmitOrder(payload);
   };
 
-  const baseAsset = market?.baseAsset || selectedSymbol.split('-')[0] || 'ASSET';
-  const quoteAsset = market?.quoteAsset || selectedSymbol.split('-')[1] || 'USDT';
   const currentCurrency = store.sizeAsset === 'base' ? baseAsset : quoteAsset;
   const baseDecimals = market?.stepSize ? Math.max(0, -Math.floor(Math.log10(market.stepSize))) : 4;
   const priceDecimals = market?.tickSize
@@ -324,10 +330,11 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                   key={dist}
                   type="button"
                   onClick={() => store.setScaledDistribution(dist as any)}
-                  className={`flex-1 py-1 text-center rounded transition-colors ${store.scaledDistribution === dist
+                  className={`flex-1 py-1 text-center rounded transition-colors ${
+                    store.scaledDistribution === dist
                       ? 'bg-secondary text-primary shadow-sm'
                       : 'text-secondary hover:text-primary'
-                    }`}
+                  }`}
                 >
                   {dist === 'FLAT' ? 'Flat' : dist === 'ASCENDING' ? 'Scale Up' : 'Scale Down'}
                 </button>
@@ -375,10 +382,11 @@ export const OrderForm: React.FC<OrderFormProps> = ({
               {[0, 25, 50, 75, 100].map(mark => (
                 <div
                   key={mark}
-                  className={`w-1.5 h-1.5 rounded-full z-0 transition-colors ${currentSliderPct >= mark
+                  className={`w-1.5 h-1.5 rounded-full z-0 transition-colors ${
+                    currentSliderPct >= mark
                       ? 'bg-brand ring-2 ring-brand/30'
                       : 'bg-tertiary border border-color'
-                    }`}
+                  }`}
                 />
               ))}
             </div>
@@ -536,10 +544,11 @@ export const OrderForm: React.FC<OrderFormProps> = ({
                         store.setTimeInForce(opt.value);
                         setIsTifOpen(false);
                       }}
-                      className={`block w-full text-left px-3 py-1.5 text-[11px] hover:bg-hover transition-colors ${store.timeInForce === opt.value
+                      className={`block w-full text-left px-3 py-1.5 text-[11px] hover:bg-hover transition-colors ${
+                        store.timeInForce === opt.value
                           ? 'text-brand font-semibold'
                           : 'text-primary'
-                        }`}
+                      }`}
                     >
                       {opt.label}
                     </button>

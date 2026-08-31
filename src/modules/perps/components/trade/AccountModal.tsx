@@ -21,13 +21,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ethers } from 'ethers';
 import QRCode from 'qrcode';
 
-
-
-
-
+import { useNotificationStore } from '../../../../store/notificationStore';
 import { switchOrAddChain } from '../../../evm/utils/evmChainUtils';
 import { walletService } from '../../../walletconnect/services/walletService';
-import { useNotificationStore } from '../../../../store/notificationStore';
 import {
   type DepositAsset,
   type DepositWithdrawRecord,
@@ -49,6 +45,9 @@ import { parseAsterError } from '../../adapters/aster/api/errors';
 import { EVM_CHAINS, getAsterDepositBridge } from '../../adapters/aster/constants';
 import { useAsterAgent } from '../../adapters/aster/hooks/useAsterAgent';
 import { EVM_CHAIN_NAME_MAP, signEVMWithdraw } from '../../adapters/aster/signer';
+import { depositToHyperliquid } from '../../adapters/hyperliquid/api/deposit';
+import { withdrawFromHyperliquid } from '../../adapters/hyperliquid/api/withdraw';
+import { useExchangeManager } from '../../core/ExchangeManager';
 import { useAccountStore } from '../../core/stores/accountStore';
 import { startDepositPolling, useDepositTrackerStore } from '../../core/stores/depositTrackerStore';
 import { getCoinIconUrl } from '../../services/coinIconService';
@@ -78,10 +77,11 @@ const AccountToggle: React.FC<{
         key={opt}
         type="button"
         onClick={() => onChange(opt)}
-        className={`flex-1 text-[12px] font-medium rounded-md transition-all cursor-pointer ${value === opt
+        className={`flex-1 text-[12px] font-medium rounded-md transition-all cursor-pointer ${
+          value === opt
             ? 'bg-secondary text-primary shadow-sm border border-color'
             : 'text-secondary hover:text-primary'
-          }`}
+        }`}
       >
         {opt === 'perp' ? 'Perpetual' : 'Spot'}
       </button>
@@ -181,8 +181,9 @@ const CustomAssetSelector: React.FC<{
                 onChange(a.name);
                 setOpen(false);
               }}
-              className={`w-full flex items-center justify-between px-3 py-2 text-[12px] text-left hover:bg-hover transition-colors cursor-pointer ${a.name === value ? 'bg-brand/10 text-brand font-semibold' : 'text-primary'
-                }`}
+              className={`w-full flex items-center justify-between px-3 py-2 text-[12px] text-left hover:bg-hover transition-colors cursor-pointer ${
+                a.name === value ? 'bg-brand/10 text-brand font-semibold' : 'text-primary'
+              }`}
             >
               <AssetOptionRow asset={a} />
               {a.name === value && <Check size={12} className="text-brand" />}
@@ -249,6 +250,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
   onClose,
   initialTab = 'deposit',
 }) => {
+  const currentExchange = useExchangeManager(s => s.currentExchange);
   const { asterSigner, userAddr } = useAsterAgent();
   const balances = useAccountStore(state => state.balances);
 
@@ -266,8 +268,15 @@ export const AccountModal: React.FC<AccountModalProps> = ({
   const [activeTab, setActiveTab] = useState<'deposit' | 'withdraw' | 'transfer' | 'history'>(
     initialTab
   );
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
   const [accountType, setAccountType] = useState<'perp' | 'spot'>('perp');
-  const [selectedChainId, setSelectedChainId] = useState<number>(56);
+  const [selectedChainId, setSelectedChainId] = useState<number>(
+    currentExchange === 'hyperliquid' ? 42161 : 56
+  );
 
   // Deposit State
   const [depositMethod, setDepositMethod] = useState<'wallet' | 'qrcode'>('wallet');
@@ -279,6 +288,17 @@ export const AccountModal: React.FC<AccountModalProps> = ({
   const [depositProgress, setDepositProgress] = useState<DepositProgress | null>(null);
   const [copiedAddr, setCopiedAddr] = useState(false);
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (currentExchange === 'hyperliquid') {
+      setSelectedChainId(42161);
+      // Hyperliquid only supports USDC natively right now via bridge
+      if (activeTab === 'deposit' && selectedDepositAsset?.name !== 'USDC') {
+        const usdcAsset = depositAssets.find(a => a.name === 'USDC');
+        if (usdcAsset) setSelectedDepositAsset(usdcAsset);
+      }
+    }
+  }, [currentExchange, activeTab, depositAssets, selectedDepositAsset]);
 
   // Withdraw State
   const [withdrawAssets, setWithdrawAssets] = useState<WithdrawAsset[]>([]);
@@ -419,7 +439,8 @@ export const AccountModal: React.FC<AccountModalProps> = ({
       activeTab === 'deposit' &&
       depositMethod === 'qrcode' &&
       qrCanvasRef.current &&
-      depositBridgeAddress
+      depositBridgeAddress &&
+      currentExchange !== 'hyperliquid'
     ) {
       QRCode.toCanvas(qrCanvasRef.current, depositBridgeAddress, {
         width: 140,
@@ -427,7 +448,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
         color: { dark: '#FFFFFF', light: '#161922' },
       }).catch(console.error);
     }
-  }, [activeTab, depositMethod, depositBridgeAddress]);
+  }, [activeTab, depositMethod, depositBridgeAddress, currentExchange]);
 
   // History Fetcher
   const fetchHistory = useCallback(async () => {
@@ -517,39 +538,67 @@ export const AccountModal: React.FC<AccountModalProps> = ({
     });
 
     try {
-      const res = await depositAssetOnChain(
-        provider,
-        selectedDepositAsset,
-        depositAmount,
-        selectedChainId,
-        progress => setDepositProgress(progress)
-      );
+      if (currentExchange === 'hyperliquid') {
+        // HYPERLIQUID NATIVE DEPOSIT FLOW
+        if (selectedChainId !== 42161) {
+          setDepositProgress({
+            step: 'SWITCHING_NETWORK',
+            message: 'Please switch to Arbitrum One...',
+          });
+          await switchOrAddChain(provider, 42161);
+        }
 
-      addDepositRecord({
-        txHash: res.txHash,
-        asset: res.asset,
-        amount: res.amount,
-        chainId: res.chainId,
-        chainName: EVM_CHAINS[res.chainId]?.name || 'EVM',
-        explorerUrl: res.explorerUrl || `${EVM_CHAINS[res.chainId]?.explorer}/tx/${res.txHash}`,
-        status: 'INDEXING',
-      });
+        const res = await depositToHyperliquid(provider, depositAmount, progress =>
+          setDepositProgress(progress as any)
+        );
 
-      if (asterSigner && userAddr) {
-        startDepositPolling(asterSigner, userAddr);
+        useNotificationStore.getState().showToast({
+          type: 'DYDX',
+          title: 'Deposit Broadcasted',
+          message: `Deposited ${res.amount} USDC to Hyperliquid Bridge.`,
+        });
+
+        setDepositProgress({
+          step: 'SUCCESS',
+          message: `Transaction confirmed! It will be credited by Hyperliquid shortly.`,
+          txHash: res.txHash,
+        });
+      } else {
+        // ASTER DEPOSIT FLOW
+        const res = await depositAssetOnChain(
+          provider,
+          selectedDepositAsset,
+          depositAmount,
+          selectedChainId,
+          progress => setDepositProgress(progress)
+        );
+
+        addDepositRecord({
+          txHash: res.txHash,
+          asset: res.asset,
+          amount: res.amount,
+          chainId: res.chainId,
+          chainName: EVM_CHAINS[res.chainId]?.name || 'EVM',
+          explorerUrl: res.explorerUrl || `${EVM_CHAINS[res.chainId]?.explorer}/tx/${res.txHash}`,
+          status: 'INDEXING',
+        });
+
+        if (asterSigner && userAddr) {
+          startDepositPolling(asterSigner, userAddr);
+        }
+
+        useNotificationStore.getState().showToast({
+          type: 'DYDX',
+          title: 'Deposit Broadcasted',
+          message: `Deposited ${res.amount} ${res.asset} to Aster. Tracking in progress.`,
+        });
+
+        setDepositProgress({
+          step: 'SUCCESS',
+          message: `Transaction confirmed on-chain! Aster is now indexing your ${res.amount} ${res.asset} deposit.`,
+          txHash: res.txHash,
+        });
       }
-
-      useNotificationStore.getState().showToast({
-        type: 'DYDX',
-        title: 'Deposit Broadcasted',
-        message: `Deposited ${res.amount} ${res.asset} to Aster. Tracking in progress.`,
-      });
-
-      setDepositProgress({
-        step: 'SUCCESS',
-        message: `Transaction confirmed on-chain! Aster is now indexing your ${res.amount} ${res.asset} deposit.`,
-        txHash: res.txHash,
-      });
 
       setDepositAmount('');
       refreshWalletBalance();
@@ -609,40 +658,60 @@ export const AccountModal: React.FC<AccountModalProps> = ({
   };
 
   const handleExecuteWithdraw = async () => {
-    if (!selectedWithdrawAsset || !asterSigner || !userAddr) return;
+    if (!selectedWithdrawAsset) return;
     setIsWithdrawing(true);
     try {
       const provider = walletService.getProvider('evm');
       if (!provider) throw new Error('EVM wallet not connected');
       const ep = new ethers.BrowserProvider(provider as any);
       const userWalletSigner = await ep.getSigner();
-      const nonce = Date.now() * 1000;
-      const fee = String(chainWithdrawDetails.fee || '0');
 
-      const userSignature = await signEVMWithdraw(userWalletSigner, selectedChainId, {
-        destination: destinationAddress,
-        token: selectedWithdrawAsset.name,
-        amount: withdrawAmount,
-        fee,
-        nonce,
-      });
+      if (currentExchange === 'hyperliquid') {
+        // HYPERLIQUID WITHDRAW FLOW
+        await withdrawFromHyperliquid(
+          userWalletSigner,
+          destinationAddress,
+          withdrawAmount,
+          false // Mainnet by default, could be derived from config
+        );
 
-      await submitWithdraw(asterSigner, userAddr, {
-        chainId: selectedChainId,
-        asset: selectedWithdrawAsset.name,
-        amount: withdrawAmount,
-        fee,
-        receiver: destinationAddress,
-        userNonce: String(nonce),
-        userSignature,
-        accountType,
-      });
+        useNotificationStore.getState().showToast({
+          type: 'DYDX',
+          title: 'Withdrawal Submitted',
+          message: `${withdrawAmount} USDC withdrawal submitted to Hyperliquid.`,
+        });
+      } else {
+        // ASTER WITHDRAW FLOW
+        if (!asterSigner || !userAddr) return;
+        const nonce = Date.now() * 1000;
+        const fee = String(chainWithdrawDetails.fee || '0');
 
-      useNotificationStore.getState().showToast({
-        type: 'DYDX',
-        title: 'Withdrawal Submitted',
-        message: `${withdrawAmount} ${selectedWithdrawAsset.name} withdrawal submitted.`,
-      });
+        const userSignature = await signEVMWithdraw(userWalletSigner, selectedChainId, {
+          destination: destinationAddress,
+          token: selectedWithdrawAsset.name,
+          amount: withdrawAmount,
+          fee,
+          nonce,
+        });
+
+        await submitWithdraw(asterSigner, userAddr, {
+          chainId: selectedChainId,
+          asset: selectedWithdrawAsset.name,
+          amount: withdrawAmount,
+          fee,
+          receiver: destinationAddress,
+          userNonce: String(nonce),
+          userSignature,
+          accountType,
+        });
+
+        useNotificationStore.getState().showToast({
+          type: 'DYDX',
+          title: 'Withdrawal Submitted',
+          message: `${withdrawAmount} ${selectedWithdrawAsset.name} withdrawal submitted.`,
+        });
+      }
+
       setShowWithdrawConfirm(false);
       setWithdrawAmount('');
       onClose();
@@ -666,8 +735,9 @@ export const AccountModal: React.FC<AccountModalProps> = ({
       useNotificationStore.getState().showToast({
         type: 'DYDX',
         title: 'Transfer Successful',
-        message: `${transferAmount} ${transferAsset} → ${transferDirection === 'SPOT_TO_PERP' ? 'Perpetual' : 'Spot'
-          } Account`,
+        message: `${transferAmount} ${transferAsset} → ${
+          transferDirection === 'SPOT_TO_PERP' ? 'Perpetual' : 'Spot'
+        } Account`,
       });
       setTransferAmount('');
       onClose();
@@ -700,10 +770,11 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                 setShowWithdrawConfirm(false);
                 setDepositProgress(null);
               }}
-              className={`flex-1 py-1.5 text-[12px] font-medium rounded-md flex items-center justify-center gap-1.5 transition-all cursor-pointer ${activeTab === key
+              className={`flex-1 py-1.5 text-[12px] font-medium rounded-md flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                activeTab === key
                   ? 'bg-secondary text-primary shadow-sm border border-color font-semibold'
                   : 'text-secondary hover:text-primary'
-                }`}
+              }`}
             >
               <Icon size={13} />
               {label}
@@ -723,10 +794,11 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                   return (
                     <div
                       key={dep.id}
-                      className={`p-3 rounded-lg border text-[11px] space-y-1.5 transition-all shadow-sm ${isConfirmed
+                      className={`p-3 rounded-lg border text-[11px] space-y-1.5 transition-all shadow-sm ${
+                        isConfirmed
                           ? 'bg-success/10 border-success/30'
                           : 'bg-brand/10 border-brand/30'
-                        }`}
+                      }`}
                     >
                       <div className="flex items-center justify-between font-semibold">
                         <div className="flex items-center gap-1.5">
@@ -741,8 +813,9 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                         </div>
                         <div className="flex items-center gap-2">
                           <span
-                            className={`text-[9px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider ${isConfirmed ? 'bg-success/20 text-success' : 'bg-brand/20 text-brand'
-                              }`}
+                            className={`text-[9px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider ${
+                              isConfirmed ? 'bg-success/20 text-success' : 'bg-brand/20 text-brand'
+                            }`}
                           >
                             {isConfirmed ? 'Credited' : 'Indexing'}
                           </span>
@@ -819,10 +892,11 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                   key={m}
                   type="button"
                   onClick={() => setDepositMethod(m)}
-                  className={`flex-1 py-1.5 rounded-md flex items-center justify-center gap-1.5 transition-all cursor-pointer ${depositMethod === m
+                  className={`flex-1 py-1.5 rounded-md flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    depositMethod === m
                       ? 'bg-secondary text-primary font-semibold border border-color shadow-sm'
                       : 'text-secondary hover:text-primary'
-                    }`}
+                  }`}
                 >
                   {m === 'wallet' ? <WalletIcon size={12} /> : <QrCode size={12} />}
                   {m === 'wallet' ? 'Direct Deposit' : 'Deposit Address / QR'}
@@ -852,21 +926,21 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                         style={{
                           borderColor:
                             depositProgress.step === 'CONFIRMING' ||
-                              depositProgress.step === 'SUCCESS'
+                            depositProgress.step === 'SUCCESS'
                               ? '#10b981'
                               : depositProgress.step === 'FAILED'
                                 ? 'var(--color-danger)'
                                 : 'var(--color-brand-primary)',
                           background:
                             depositProgress.step === 'CONFIRMING' ||
-                              depositProgress.step === 'SUCCESS'
+                            depositProgress.step === 'SUCCESS'
                               ? '#10b981'
                               : 'transparent',
                         }}
                         className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors"
                       >
                         {depositProgress.step === 'CONFIRMING' ||
-                          depositProgress.step === 'SUCCESS' ? (
+                        depositProgress.step === 'SUCCESS' ? (
                           <Check className="w-3 h-3 text-black stroke-[3]" />
                         ) : depositProgress.step === 'FAILED' ? (
                           <X className="w-3 h-3 text-red-400" />
@@ -878,7 +952,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                         style={{
                           background:
                             depositProgress.step === 'CONFIRMING' ||
-                              depositProgress.step === 'SUCCESS'
+                            depositProgress.step === 'SUCCESS'
                               ? '#10b981'
                               : 'var(--color-border)',
                         }}
@@ -892,7 +966,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                           style={{
                             color:
                               depositProgress.step === 'CONFIRMING' ||
-                                depositProgress.step === 'SUCCESS'
+                              depositProgress.step === 'SUCCESS'
                                 ? '#10b981'
                                 : 'var(--color-text-primary)',
                           }}
@@ -901,7 +975,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                           Confirm in Wallet
                         </span>
                         {depositProgress.step === 'CONFIRMING' ||
-                          depositProgress.step === 'SUCCESS' ? (
+                        depositProgress.step === 'SUCCESS' ? (
                           <span className="text-xs font-semibold text-emerald-400">Signed</span>
                         ) : depositProgress.step !== 'FAILED' ? (
                           <span className="text-xs text-secondary">Awaiting signature...</span>
@@ -1219,10 +1293,11 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                   ))}
               </div>
               <div
-                className={`flex items-center bg-tertiary border rounded-lg h-10 px-3 transition-colors focus-within:border-brand ${destinationAddress && !ethers.isAddress(destinationAddress)
+                className={`flex items-center bg-tertiary border rounded-lg h-10 px-3 transition-colors focus-within:border-brand ${
+                  destinationAddress && !ethers.isAddress(destinationAddress)
                     ? 'border-danger/60'
                     : 'border-color'
-                  }`}
+                }`}
               >
                 <input
                   type="text"
@@ -1473,10 +1548,11 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                     key={f}
                     type="button"
                     onClick={() => setHistoryFilter(f)}
-                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${historyFilter === f
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                      historyFilter === f
                         ? 'bg-secondary text-primary font-semibold shadow-sm'
                         : 'text-secondary hover:text-primary'
-                      }`}
+                    }`}
                   >
                     {f}
                   </button>
@@ -1517,11 +1593,11 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                     const dateStr =
                       timestamp && !isNaN(timestamp)
                         ? new Date(timestamp).toLocaleString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
                         : '—';
 
                     return (
@@ -1531,8 +1607,9 @@ export const AccountModal: React.FC<AccountModalProps> = ({
                       >
                         <div className="flex items-center gap-2.5">
                           <div
-                            className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${isDeposit ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'
-                              }`}
+                            className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
+                              isDeposit ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'
+                            }`}
                           >
                             {isDeposit ? (
                               <ArrowDownToLine size={13} />

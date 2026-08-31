@@ -1,5 +1,122 @@
+import { WALLET_METADATA_MAP } from '../modules/walletconnect/constants/Wallet';
 import { useGlobalTxStore } from '../modules/walletconnect/store/globalTxStore';
 import { sendCustomNotification } from '../service/notificationService';
+
+export function isMobileDevice(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+  const isIPadOS =
+    typeof navigator.platform === 'string' &&
+    navigator.platform === 'MacIntel' &&
+    (navigator.maxTouchPoints || 0) > 1;
+  return isMobileUA || isIPadOS;
+}
+
+export function isInAppBrowser(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /Trust|MetaMask|Keplr|Freighter|LOBSTR|CoinbaseWallet|TokenPocket|Rainbow/i.test(ua);
+}
+
+/**
+ * Returns formatted Universal Link or Native Deep Link for a given wallet ID and WC pairing URI.
+ */
+export function formatWalletDeepLink(
+  walletId: string,
+  uri: string,
+  preferUniversal = true
+): string {
+  if (!uri) return '';
+
+  const meta = WALLET_METADATA_MAP[walletId];
+  if (!meta || !meta.redirects) {
+    return uri;
+  }
+
+  const { native, universal } = meta.redirects;
+  const encodedUri = encodeURIComponent(uri);
+
+  if (preferUniversal && universal) {
+    const separator = universal.includes('?')
+      ? '&'
+      : universal.endsWith('/wc') || universal.endsWith('/')
+        ? '?'
+        : '/wc?';
+    return `${universal}${separator}uri=${encodedUri}`;
+  }
+
+  if (native) {
+    const separator = native.endsWith('://') ? '' : native.endsWith('/') ? '' : '/';
+    return `${native}${separator}wc?uri=${encodedUri}`;
+  }
+
+  if (universal) {
+    const separator = universal.includes('?')
+      ? '&'
+      : universal.endsWith('/wc') || universal.endsWith('/')
+        ? '?'
+        : '/wc?';
+    return `${universal}${separator}uri=${encodedUri}`;
+  }
+
+  return uri;
+}
+
+/**
+ * Returns both universal and native formatted links for the wallet.
+ */
+export function getWalletRedirectUrls(
+  walletId: string,
+  uri: string
+): { universal?: string; native?: string; formattedUrl: string } {
+  if (!uri) return { formattedUrl: '' };
+
+  const meta = WALLET_METADATA_MAP[walletId];
+  const encodedUri = encodeURIComponent(uri);
+
+  let universalUrl: string | undefined;
+  let nativeUrl: string | undefined;
+
+  if (meta?.redirects?.universal) {
+    const u = meta.redirects.universal;
+    const separator = u.includes('?') ? '&' : u.endsWith('/wc') || u.endsWith('/') ? '?' : '/wc?';
+    universalUrl = `${u}${separator}uri=${encodedUri}`;
+  }
+
+  if (meta?.redirects?.native) {
+    const n = meta.redirects.native;
+    const separator = n.endsWith('://') ? '' : n.endsWith('/') ? '' : '/';
+    nativeUrl = `${n}${separator}wc?uri=${encodedUri}`;
+  }
+
+  const isIOS =
+    typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  const formattedUrl = isIOS ? universalUrl || nativeUrl || uri : universalUrl || nativeUrl || uri;
+
+  return {
+    universal: universalUrl,
+    native: nativeUrl,
+    formattedUrl,
+  };
+}
+
+/**
+ * Directly navigates to the mobile wallet using universal link / deep link.
+ * Direct synchronous navigation avoids iOS Safari popup/redirect blocking.
+ */
+export function openMobileWallet(walletId: string, uri: string): void {
+  if (!isMobileDevice() || isInAppBrowser()) return;
+
+  const { formattedUrl } = getWalletRedirectUrls(walletId, uri);
+  if (!formattedUrl) return;
+
+  try {
+    window.location.href = formattedUrl;
+  } catch (err) {
+    console.warn('[WalletService] Failed to open mobile wallet:', err);
+  }
+}
 
 export function getRequestExpiry(minutes = 2): number {
   return Math.floor(Date.now() / 1000) + minutes * 60;

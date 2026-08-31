@@ -1,4 +1,4 @@
-import { Info } from 'lucide-react';
+import { Info, Share2 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
@@ -18,6 +18,7 @@ import { useProfilePortfolio } from '../../../walletconnect/hooks/useProfilePort
 import { useWalletConnect } from '../../../walletconnect/hooks/useWalletConnect';
 import { CustomDatePicker } from '../CustomDatePicker';
 import StellarPnlChart from './StellarPnlChart';
+import { StellarSharePnlModal } from './StellarSharePnlModal';
 import UnifiedAssets from './UnifiedAssets';
 
 const getStellarAssetIcon = (assetStr: string) => {
@@ -29,7 +30,7 @@ const getStellarAssetIcon = (assetStr: string) => {
 
 const StellarPortfolioUI: React.FC = () => {
   const { stellarTotal } = useProfilePortfolio();
-  const { connectedWallets } = useWalletConnect();
+  const { connectedWallets, openModal } = useWalletConnect();
   const stellarWallet = connectedWallets[WalletType.STELLAR];
   const connectedAddress = stellarWallet?.address || '';
   const navigate = useNavigate();
@@ -52,7 +53,9 @@ const StellarPortfolioUI: React.FC = () => {
   };
 
   const [stellarPnlData, setStellarPnlData] = useState<any>(null);
-  const [loadingStellarPnl, setLoadingStellarPnl] = useState(false);
+  const [loadingStellarPnl, setLoadingStellarPnl] = useState(
+    () => !!(urlAddress || connectedAddress)
+  );
   const [stellarPnlError, setStellarPnlError] = useState<string | null>(null);
 
   const isMobile = useIsMobile();
@@ -64,6 +67,7 @@ const StellarPortfolioUI: React.FC = () => {
 
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const isDateRangeActive = stellarTimeframe === 'custom' && !!(fromDate && toDate);
 
   const getStellarDateRange = useCallback(() => {
@@ -350,63 +354,83 @@ const StellarPortfolioUI: React.FC = () => {
   if (!stellarAddress) {
     return (
       <div className="w-full max-w-[100vw] flex items-center justify-center min-h-[600px] py-12 px-4">
-        <div className="w-full max-w-[600px] min-h-[400px] flex flex-col items-center justify-center bg-[var(--color-bg-secondary)] rounded-[2rem] p-8 sm:p-12 text-center relative overflow-hidden shadow-lg border border-white/5">
-          <div className="absolute top-0 left-0 right-0 h-48 w-full overflow-hidden z-0">
-            <img
-              src="/5ed91b71e3c44c41b4e5274b67ba6ba6.png"
-              alt="Stellar Portfolio"
-              className="w-full h-full object-cover object-center opacity-80"
-            />
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[var(--color-bg-secondary)]/80 to-[var(--color-bg-secondary)] z-10" />
-          </div>
+        <div className="relative w-full max-w-[620px] p-[2px] rounded-[2.5rem] overflow-hidden shadow-[0_0_35px_-5px_rgba(59,130,246,0.3)]">
+          <div className="absolute -inset-[200%] animate-[spin_7s_linear_infinite] bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0%,#3b82f6_20%,#93c5fd_30%,#ffffff_35%,transparent_38%,transparent_50%,#3b82f6_70%,#93c5fd_80%,#ffffff_85%,transparent_88%)] will-change-transform opacity-90" />
 
-          <div className="relative z-20 mt-20 flex flex-col items-center w-full">
-            <h2 className="text-2xl sm:text-3xl font-black text-[var(--color-text-primary)] tracking-tight mb-3">
-              Stellar Portfolio Tracker
-            </h2>
-            <p className="text-[var(--color-text-secondary)] text-[13px] sm:text-sm leading-relaxed mb-10 max-w-sm">
-              It seems you're not connected with us, but no worries! You can still explore your
-              portfolio by entering a Stellar address below.
-            </p>
-            <form
-              onSubmit={e => {
-                e.preventDefault();
-                const val = new FormData(e.currentTarget).get('address') as string;
-                if (val) handleSetManualAddress(val.trim());
-              }}
-              className="w-full max-w-lg flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mt-4"
-            >
-              <div className="relative flex-1">
-                <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-[var(--color-text-secondary)]">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <circle cx="11" cy="11" r="8"></circle>
-                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                  </svg>
-                </div>
-                <input
-                  name="address"
-                  type="text"
-                  placeholder="Enter Stellar address (G...)"
-                  className="w-full h-full bg-[var(--color-bg-primary)] border border-white/5 rounded-2xl py-4 pl-12 pr-5 text-base text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] focus:outline-none focus:border-white/10 transition-all"
-                />
-              </div>
-              <button
-                type="submit"
-                className="px-8 py-4 bg-brand text-white rounded-2xl text-base font-bold hover:bg-brand-primary/90 transition-all shadow-sm w-full sm:w-auto flex-shrink-0"
+          <div className="relative z-10 w-full min-h-[400px] flex flex-col items-center justify-center bg-[var(--color-bg-secondary)] rounded-[2.4rem] p-8 sm:p-12 text-center overflow-hidden border border-[var(--color-border)]">
+            <div className="absolute top-0 left-0 right-0 h-48 w-full overflow-hidden z-0 pointer-events-none">
+              <img
+                src="/5ed91b71e3c44c41b4e5274b67ba6ba6.png"
+                alt="Stellar Portfolio"
+                className="w-full h-full object-cover object-center opacity-70"
+              />
+              <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[var(--color-bg-secondary)]/80 to-[var(--color-bg-secondary)] z-10" />
+            </div>
+
+            <div className="relative z-20 mt-16 flex flex-col items-center w-full">
+              <h2 className="text-2xl sm:text-3xl font-black text-[var(--color-text-primary)] tracking-tight mb-2">
+                Stellar Portfolio Tracker
+              </h2>
+              <p className="text-[var(--color-text-secondary)] text-[13px] sm:text-sm leading-relaxed mb-8 max-w-md">
+                Connect your Stellar wallet or enter any public Stellar address below to explore
+                trading analytics, asset PnL, and performance charts.
+              </p>
+
+              <form
+                onSubmit={e => {
+                  e.preventDefault();
+                  const val = new FormData(e.currentTarget).get('address') as string;
+                  if (val) handleSetManualAddress(val.trim());
+                }}
+                className="w-full flex flex-col sm:flex-row items-stretch sm:items-center gap-3"
               >
-                Track Portfolio
+                <div className="relative flex-1">
+                  <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-[var(--color-text-secondary)]">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <circle cx="11" cy="11" r="8"></circle>
+                      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                  </div>
+                  <input
+                    name="address"
+                    type="text"
+                    placeholder="Enter Stellar address (G...)"
+                    className="w-full h-full bg-[var(--color-bg-primary)] border border-[var(--color-border)] rounded-2xl py-3.5 pl-12 pr-5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-secondary)] focus:outline-none focus:border-blue-500 transition-all font-mono"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="px-6 py-3.5 bg-[var(--color-brand-primary)] text-white rounded-2xl text-sm font-bold hover:opacity-90 transition-all shadow-md w-full sm:w-auto flex-shrink-0 cursor-pointer"
+                >
+                  Track Portfolio
+                </button>
+              </form>
+
+              <div className="flex items-center gap-4 my-5 w-full">
+                <div className="flex-1 h-[1px] bg-[var(--color-border)]" />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-secondary)]">
+                  or
+                </span>
+                <div className="flex-1 h-[1px] bg-[var(--color-border)]" />
+              </div>
+
+              <button
+                onClick={openModal}
+                className="w-full py-3.5 px-5 rounded-2xl bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] hover:border-blue-500/50 hover:bg-[color-mix(in_srgb,var(--color-brand-primary)_6%,transparent)] text-sm font-bold text-[var(--color-text-primary)] transition-all flex items-center justify-center gap-2 cursor-pointer group"
+              >
+                Connect Stellar Wallet
               </button>
-            </form>
+            </div>
           </div>
         </div>
       </div>
@@ -414,7 +438,7 @@ const StellarPortfolioUI: React.FC = () => {
   }
 
   const headerControls = (
-    <div className="flex flex-wrap items-center justify-between gap-4 w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-4 sm:p-5 rounded-3xl shadow-sm">
+    <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 w-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl shadow-sm">
       {/* Identity (Left) */}
       <div className="flex-shrink-0 mr-auto pr-2 flex flex-col justify-center">
         <div className="flex items-center gap-2 sm:gap-3">
@@ -588,9 +612,17 @@ const StellarPortfolioUI: React.FC = () => {
         {stellarPnlData && !stellarPnlError && (
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setIsShareModalOpen(true)}
+              disabled={loadingStellarPnl}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-all font-bold text-xs border border-blue-500/20 disabled:opacity-50 h-[34px] cursor-pointer"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              Share PnL
+            </button>
+            <button
               onClick={handleOpenCostBasis}
               disabled={loadingCostBasisDetails || loadingStellarPnl}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 transition-all font-bold text-xs border border-emerald-500/20 disabled:opacity-50 h-[34px]"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 transition-all font-bold text-xs border border-emerald-500/20 disabled:opacity-50 h-[34px] cursor-pointer"
             >
               {loadingCostBasisDetails ? (
                 <div className="w-3.5 h-3.5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
@@ -615,7 +647,7 @@ const StellarPortfolioUI: React.FC = () => {
             <button
               onClick={handleExportReport}
               disabled={loadingCostBasisDetails || loadingStellarPnl}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-all font-bold text-xs border border-purple-500/20 disabled:opacity-50 h-[34px]"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-all font-bold text-xs border border-purple-500/20 disabled:opacity-50 h-[34px] cursor-pointer"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -641,14 +673,14 @@ const StellarPortfolioUI: React.FC = () => {
   );
 
   const chartSection = (
-    <>
-      <div className="flex flex-col gap-4 sm:gap-6">
-        <StellarPnlChart
-          disposals={[...(stellarPnlData?.disposals || [])].reverse()}
-          totalUnrealized={stellarPnlData?.totalUnrealized ?? 0}
-        />
-      </div>
-    </>
+    <div className="flex flex-col gap-4 sm:gap-6">
+      <StellarPnlChart
+        chart={stellarPnlData?.chart}
+        disposals={[...(stellarPnlData?.disposals || [])].reverse()}
+        totalUnrealized={stellarPnlData?.totalUnrealized ?? 0}
+        totalRealized={stellarPnlData?.totalRealized}
+      />
+    </div>
   );
 
   const tablesSection = (
@@ -917,63 +949,93 @@ const StellarPortfolioUI: React.FC = () => {
   );
 
   const netWorthSection = (
-    <>
-      {/* Combined Balance & Allocation Card */}
-      <div className="rounded-3xl bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-4 sm:p-6 relative overflow-hidden shadow-sm flex flex-col justify-between">
-        <div>
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-1.5">
-              <Tooltip
-                content={
-                  isViewingPublicAddress
-                    ? 'Combined value of tracked positions.'
-                    : 'Total value of all assets combined with net PnL impact.'
-                }
-                position="top"
-                unstyled
-              >
-                <Info className="w-3.5 h-3.5 text-muted hover:text-[var(--color-text-primary)] transition-colors" />
-              </Tooltip>
-              <span className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-                {isViewingPublicAddress ? 'Tracked Portfolio Value' : 'Total Net Worth'}
-              </span>
-            </div>
-            <span
-              className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                (stellarPnlData?.totalPnL || 0) >= 0
-                  ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                  : 'bg-rose-500/10 text-rose-500 border-rose-500/20'
-              }`}
+    <div className="rounded-3xl bg-[var(--color-bg-secondary)] border border-[var(--color-border)] p-4 sm:p-6 relative overflow-hidden shadow-sm flex flex-col justify-between group">
+      {/* Subtle dynamic ambient glow */}
+      <div
+        className={`absolute -top-12 -right-12 w-44 h-44 rounded-full blur-3xl pointer-events-none opacity-25 transition-all ${
+          (stellarPnlData?.totalPnL ?? 0) >= 0 ? 'bg-emerald-500' : 'bg-rose-500'
+        }`}
+      />
+
+      <div className="relative z-10">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-1.5">
+            <Tooltip
+              content={
+                isViewingPublicAddress
+                  ? 'Combined value of tracked positions.'
+                  : 'Total value of all assets combined with net PnL impact.'
+              }
+              position="top"
+              unstyled
             >
-              {(stellarPnlData?.totalPnL || 0) >= 0 ? '+' : ''}$
-              {Math.abs(stellarPnlData?.totalPnL || 0).toLocaleString('en-US', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}{' '}
-              Net PnL
+              <Info className="w-3.5 h-3.5 text-muted hover:text-[var(--color-text-primary)] transition-colors" />
+            </Tooltip>
+            <span className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+              {isViewingPublicAddress ? 'Tracked Portfolio Value' : 'Total Net Worth'}
             </span>
           </div>
-          <div className="mt-6">
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-4xl font-black text-[var(--color-text-primary)] tracking-tighter">
-                $
-                {(isViewingPublicAddress
-                  ? stellarPnlData?.positions?.reduce(
-                      (sum: number, pos: any) => sum + (pos.currentValue || 0),
-                      0
-                    ) || 0
-                  : stellarTotal
-                ).toLocaleString('en-US', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </span>
-              <span className="text-sm text-brand-primary font-bold">USD</span>
-            </div>
+          <span
+            className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+              (stellarPnlData?.totalPnL ?? 0) >= 0
+                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                : 'bg-rose-500/10 text-rose-500 border-rose-500/20'
+            }`}
+          >
+            {(stellarPnlData?.totalPnL ?? 0) >= 0 ? '+' : ''}$
+            {Math.abs(stellarPnlData?.totalPnL ?? 0).toLocaleString('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}{' '}
+            Net PnL
+          </span>
+        </div>
+        <div className="mt-4 sm:mt-6">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-3xl sm:text-4xl font-black text-[var(--color-text-primary)] tracking-tighter">
+              $
+              {(isViewingPublicAddress
+                ? stellarPnlData?.positions?.reduce(
+                    (sum: number, pos: any) => sum + (pos.currentValue || 0),
+                    0
+                  ) ||
+                  (stellarPnlData?.totalPortfolioValue ?? 0)
+                : stellarTotal || stellarPnlData?.totalPortfolioValue || 0
+              ).toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </span>
+            <span className="text-xs sm:text-sm text-brand-primary font-bold">USD</span>
           </div>
         </div>
+
+        {/* Quick Crypto Metric Chips */}
+        {stellarPnlData && (
+          <div className="flex flex-wrap items-center gap-1.5 mt-4 pt-3 border-t border-[var(--color-border)]">
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] text-[10px] font-medium text-[var(--color-text-secondary)]">
+              <span>Realized:</span>
+              <span
+                className={`font-bold ${(stellarPnlData?.totalRealized ?? 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}
+              >
+                {(stellarPnlData?.totalRealized ?? 0) >= 0 ? '+' : ''}$
+                {Math.abs(stellarPnlData?.totalRealized ?? 0).toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] text-[10px] font-medium text-[var(--color-text-secondary)]">
+              <span>Unrealized:</span>
+              <span className="font-bold text-[var(--color-text-primary)]">
+                ${(stellarPnlData?.totalUnrealized ?? 0).toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[var(--color-bg-tertiary)] border border-[var(--color-border)] text-[10px] font-medium text-[var(--color-text-secondary)]">
+              <span>Win Rate:</span>
+              <span className="font-bold text-purple-400">{stellarPnlData?.winRate ?? 0}%</span>
+            </div>
+          </div>
+        )}
       </div>
-    </>
+    </div>
   );
 
   const tradeOutcomeAnalysisSection = (
@@ -1206,7 +1268,9 @@ const StellarPortfolioUI: React.FC = () => {
               Math.max(0, (Math.abs(asset.totalAssetPnl) / totalAbsPnl) * 100)
             );
             const isPositive = asset.totalAssetPnl >= 0;
-            const colorClass = isPositive ? 'bg-emerald-500' : 'bg-rose-500';
+            const colorClass = isPositive
+              ? 'bg-gradient-to-r from-emerald-500 to-teal-400 shadow-[0_0_8px_rgba(16,185,129,0.3)]'
+              : 'bg-gradient-to-r from-rose-500 to-pink-500 shadow-[0_0_8px_rgba(244,63,94,0.3)]';
             return (
               <div key={asset.asset} className="flex flex-col gap-1.5">
                 <div className="flex justify-between items-center text-xs">
@@ -1234,7 +1298,7 @@ const StellarPortfolioUI: React.FC = () => {
                     })}
                   </span>
                 </div>
-                <div className="w-full h-2 bg-[var(--color-bg-tertiary)] rounded-full overflow-hidden">
+                <div className="w-full h-2.5 bg-[var(--color-bg-tertiary)] rounded-full overflow-hidden p-0.5 border border-[var(--color-border)]">
                   <div
                     className={`h-full ${colorClass} rounded-full transition-all duration-1000`}
                     style={{ width: `${pct}%` }}
@@ -1470,7 +1534,7 @@ const StellarPortfolioUI: React.FC = () => {
       <div className="relative flex flex-col gap-4 lg:gap-6 w-full max-w-[1600px] mx-auto pb-24 pt-2 sm:pt-4 px-3 sm:px-4 lg:px-6 min-h-screen font-sans">
         {headerControls}
 
-        {stellarPnlError || (!stellarPnlData && !loadingStellarPnl) ? (
+        {stellarPnlError ? (
           <div className="flex flex-col flex-1 items-center justify-center p-4 mt-8 sm:mt-12">
             <div className="w-full max-w-2xl flex flex-col items-center justify-center bg-rose-500/5 rounded-[2.5rem] border border-rose-500/20 p-8 sm:p-12 text-center min-h-[300px] shadow-sm">
               <div className="w-16 h-16 rounded-full bg-rose-500/10 flex items-center justify-center mb-6">
@@ -1495,17 +1559,65 @@ const StellarPortfolioUI: React.FC = () => {
                 Portfolio Analysis Unavailable
               </h2>
               <p className="text-rose-500/80 text-sm sm:text-base font-medium max-w-md leading-relaxed">
-                {stellarPnlError ||
-                  'Sorry, we are not able to fetch data. It seems your wallet is not active or another error occurred.'}
+                {stellarPnlError}
               </p>
             </div>
           </div>
+        ) : !stellarPnlData ||
+          ((!stellarPnlData.trades || stellarPnlData.trades.length === 0) &&
+            (!stellarPnlData.positions || stellarPnlData.positions.length === 0) &&
+            (!stellarPnlData.rawCount || stellarPnlData.rawCount === 0)) ? (
+          <div className="flex flex-col gap-6 w-full mt-4">
+            <div className="w-full flex flex-col items-center justify-center bg-[var(--color-bg-secondary)] rounded-3xl border border-[var(--color-border)] p-8 sm:p-12 text-center shadow-sm">
+              <div className="w-16 h-16 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mb-4 text-blue-400">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="30"
+                  height="30"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-[var(--color-text-primary)] mb-2">
+                No Trading Activity Found
+              </h3>
+              <p className="text-[var(--color-text-secondary)] text-sm max-w-md mb-6 leading-relaxed">
+                We couldn't find any swap or trade history for this Stellar account in the selected
+                timeframe. Try choosing a wider date range or view your wallet assets below.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {(['1m', '2m', '3m'] as const).map(tf => (
+                  <button
+                    key={tf}
+                    onClick={() => setStellarTimeframe(tf)}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                      stellarTimeframe === tf
+                        ? 'bg-[var(--color-brand-primary)] text-white'
+                        : 'bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] border border-[var(--color-border)]'
+                    }`}
+                  >
+                    View {tf.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {assetsList}
+          </div>
         ) : isMobile ? (
-          <div className="flex flex-col gap-4 w-full">
+          <div className="flex flex-col gap-3.5 w-full">
             {netWorthSection}
-            {tradeOutcomeAnalysisSection}
-            {tradingTimelineSection}
             {chartSection}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 w-full">
+              {tradeOutcomeAnalysisSection}
+              {tradingTimelineSection}
+            </div>
             {assetAllocationSection}
             {detailedMetricsSection}
             {portfolioDiagnosticsSection}
@@ -1568,6 +1680,18 @@ const StellarPortfolioUI: React.FC = () => {
         error={exportError}
         onRetry={() =>
           handleStartExport(exportTimeframe, exportFromDate, exportToDate, exportIsCustom)
+        }
+      />
+
+      <StellarSharePnlModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        address={stellarAddress}
+        totalPnL={stellarPnlData?.totalRealized ?? stellarPnlData?.totalPnL ?? 0}
+        winRate={stellarPnlData?.winRate ?? 0}
+        bestTrade={stellarPnlData?.bestTrade}
+        timeframe={
+          stellarTimeframe === 'custom' ? `${fromDate || ''} - ${toDate || ''}` : stellarTimeframe
         }
       />
     </>

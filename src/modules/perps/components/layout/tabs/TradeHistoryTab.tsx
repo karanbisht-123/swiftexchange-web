@@ -1,6 +1,8 @@
 import React, { useCallback, useRef, useState } from 'react';
 
-import { useTradeHistory } from '../../../adapters/aster/hooks/useTradeHistory';
+import { useTradeHistory as useAsterTradeHistory } from '../../../adapters/aster/hooks/useTradeHistory';
+import { useHyperliquidTradeHistory } from '../../../adapters/hyperliquid/hooks/useHyperliquidTradeHistory';
+import { useExchangeManager } from '../../../core/ExchangeManager';
 
 interface Props {
   signer: any;
@@ -22,12 +24,15 @@ function formatDate(timestamp: number): string {
 }
 
 export const TradeHistoryTab: React.FC<Props> = ({ signer, userAddr, asterSymbol }) => {
+  const currentExchange = useExchangeManager(state => state.currentExchange);
   const [hideOtherSymbols, setHideOtherSymbols] = useState(false);
-  const { trades, isLoading, isLoadingMore, hasMore, loadMore } = useTradeHistory(
-    signer,
-    userAddr,
-    hideOtherSymbols ? asterSymbol : null
-  );
+
+  const asterHook = useAsterTradeHistory(signer, userAddr, hideOtherSymbols ? asterSymbol : null);
+
+  const hlHook = useHyperliquidTradeHistory(userAddr, hideOtherSymbols ? asterSymbol : null);
+
+  const { trades, isLoading, isLoadingMore, hasMore, loadMore } =
+    currentExchange === 'hyperliquid' ? hlHook : asterHook;
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const handleScroll = useCallback(() => {
