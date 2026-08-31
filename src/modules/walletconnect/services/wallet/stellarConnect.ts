@@ -1,6 +1,7 @@
 import { WalletConnectModal } from '@walletconnect/modal';
 
 import { sendCustomNotification } from '../../../../service/notificationService';
+import { isMobileDevice } from '../../../../utils/walletConnectUtils';
 import { WALLETCONNECT_PROJECT_ID, getStellarConfig } from '../../config/chains';
 import { WALLET_METADATA_MAP } from '../../constants/Wallet';
 import { setupWalletConnectListeners } from './eventListeners';
@@ -116,6 +117,9 @@ export async function connectStellarWalletConnectSingle(
     themeMode: 'dark',
     explorerRecommendedWalletIds: [
       'a4604022bf9199ca6d762c5663d8a6186a9ca4b607b9dcb29bcb81054d6f1091', // SwiftEx Wallet
+      '76a3d548a08cf402f5c7d021f24fd2881d767084b387a5325df88bc3d4b6f21b', // Lobstr
+      '997a355c8f682468706a76cff1b004a7115f505fb962dac54b6e9b442dd1c380', // Freighter
+      'aee5083aac025c4c3f1c9afc31ea89dbddca0b1c248195bef469fc4886ae3ab2', //HOt Walet
     ],
   });
   ctx.modals.set('stellar', modal);
@@ -139,7 +143,10 @@ export async function connectStellarWalletConnectSingle(
     });
 
     provider.on('display_uri', (uri: string) => {
-      modal.openModal({ uri });
+      ctx.openMobileDeepLink(walletId, uri);
+      if (!isMobileDevice() || walletId === 'walletconnect') {
+        modal.openModal({ uri });
+      }
       const token = localStorage.getItem('device_token');
       if (token) {
         sendCustomNotification(token, {

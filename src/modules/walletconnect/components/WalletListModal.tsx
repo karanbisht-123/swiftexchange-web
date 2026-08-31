@@ -1,12 +1,23 @@
-import { ArrowLeft, Check, ShieldCheck, Sparkles, Wallet, X } from 'lucide-react';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ArrowLeft,
+  Check,
+  Copy,
+  ExternalLink,
+  ShieldCheck,
+  Sparkles,
+  Wallet,
+  X,
+} from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ROUTES } from '../../../constants/routes';
 import router from '../../../routes';
+import { formatWalletDeepLink, openMobileWallet } from '../../../utils/walletConnectUtils';
 import { useAsterAgent } from '../../perps/adapters/aster/hooks/useAsterAgent';
 import { useHyperliquidAgent } from '../../perps/adapters/hyperliquid/hooks/useHyperliquidAgent';
 import { useExchangeManager } from '../../perps/core/ExchangeManager';
 import { EVM_WALLETS, STELLAR_WALLETS, type WalletConfig } from '../constants/Wallet';
+import { useInstalledWallets } from '../hooks/useWalletConnect';
 import { type WalletType, useWalletStore } from '../store/walletConnectStore';
 
 const WALLETCONNECT_ICON =
@@ -25,6 +36,7 @@ export const WalletListModal: React.FC = () => {
     isAuthenticating,
     authError,
     authenticateEvm,
+    pairingUri,
   } = useWalletStore();
 
   const asterAgent = useAsterAgent();
@@ -35,11 +47,50 @@ export const WalletListModal: React.FC = () => {
   const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
   const [disconnectingType, setDisconnectingType] = useState<WalletType | null>(null);
   const [viewMode, setViewMode] = useState<'onboarding' | 'wallets'>('wallets');
+  const [copiedUri, setCopiedUri] = useState(false);
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
   );
   const [error, setError] = useState<string | null>(null);
   const connectTimeoutRef = useRef<number | null>(null);
+
+  const activeConnectingWalletId = useMemo(() => {
+    if (!connectingWallet) return null;
+    if (connectingWallet === 'unified-wc') return 'walletconnect';
+    if (connectingWallet === 'unified-swiftex') return 'swiftex';
+    if (connectingWallet.startsWith('evm-')) return connectingWallet.replace('evm-', '');
+    if (connectingWallet.startsWith('stellar-')) return connectingWallet.replace('stellar-', '');
+    return connectingWallet;
+  }, [connectingWallet]);
+
+  const activeConnectingConfig = useMemo(() => {
+    if (!activeConnectingWalletId) return null;
+    return (
+      [...EVM_WALLETS, ...STELLAR_WALLETS].find(w => w.id === activeConnectingWalletId) || {
+        id: activeConnectingWalletId,
+        name: activeConnectingWalletId === 'walletconnect' ? 'WalletConnect' : 'Wallet',
+        icon: WALLETCONNECT_ICON,
+        type: 'evm' as any,
+      }
+    );
+  }, [activeConnectingWalletId]);
+
+  const activeDeepLink = useMemo(() => {
+    if (!activeConnectingWalletId || !pairingUri) return null;
+    return formatWalletDeepLink(activeConnectingWalletId, pairingUri);
+  }, [activeConnectingWalletId, pairingUri]);
+
+  const handleCopyUri = useCallback(() => {
+    if (!pairingUri) return;
+    navigator.clipboard.writeText(pairingUri);
+    setCopiedUri(true);
+    setTimeout(() => setCopiedUri(false), 2000);
+  }, [pairingUri]);
+
+  const handleOpenWalletApp = useCallback(() => {
+    if (!activeConnectingWalletId || !pairingUri) return;
+    openMobileWallet(activeConnectingWalletId, pairingUri);
+  }, [activeConnectingWalletId, pairingUri]);
 
   const evmConnected = !!connectedWallets.evm;
   const stellarConnected = !!connectedWallets.stellar;
@@ -302,6 +353,8 @@ export const WalletListModal: React.FC = () => {
     ]
   );
 
+  const installedWallets = useInstalledWallets();
+
   const renderWalletCard = useCallback(
     ({
       id,
@@ -311,6 +364,8 @@ export const WalletListModal: React.FC = () => {
       isConnecting,
       onClick,
       disabled,
+      isInstalled,
+      variant = 'grid',
     }: {
       id: string;
       name: string;
@@ -319,69 +374,148 @@ export const WalletListModal: React.FC = () => {
       isConnecting: boolean;
       onClick: () => void;
       disabled: boolean;
-    }) => (
-      <button
-        key={id}
-        onClick={onClick}
-        disabled={disabled}
-        style={{
-          borderColor: 'var(--color-border)',
-          background: 'var(--color-bg-tertiary)',
-        }}
-        className="flex flex-col items-center justify-center gap-2 p-2.5 rounded-2xl border hover:border-[var(--color-brand-primary)] hover:bg-[color-mix(in_srgb,var(--color-brand-primary)_8%,transparent)] hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative aspect-square"
-      >
-        {badge && (
-          <span className="absolute top-1.5 right-1.5 text-[7px] px-1 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 font-bold border border-emerald-500/25 uppercase tracking-wider leading-none">
-            {badge}
-          </span>
-        )}
-
-        {isConnecting && (
-          <div
+      isInstalled?: boolean;
+      variant?: 'grid' | 'unified';
+    }) => {
+      if (variant === 'unified') {
+        return (
+          <button
+            key={id}
+            onClick={onClick}
+            disabled={disabled}
             style={{
-              background: 'color-mix(in srgb, var(--color-bg-secondary) 85%, transparent)',
+              borderColor: 'color-mix(in srgb, #3b82f6 35%, var(--color-border))',
+              background: 'color-mix(in srgb, var(--color-bg-secondary) 88%, #3b82f6 6%)',
             }}
-            className="absolute inset-0 flex items-center justify-center rounded-2xl backdrop-blur-sm z-10"
+            className="flex items-center gap-3 p-3 rounded-2xl border hover:border-blue-400 hover:shadow-[0_0_18px_rgba(59,130,246,0.3)] hover:bg-[color-mix(in_srgb,var(--color-bg-secondary)_75%,#3b82f6_12%)] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group relative w-full text-left"
           >
+            {isConnecting && (
+              <div
+                style={{
+                  background: 'color-mix(in srgb, var(--color-bg-secondary) 85%, transparent)',
+                }}
+                className="absolute inset-0 flex items-center justify-center rounded-2xl backdrop-blur-sm z-10"
+              >
+                <div
+                  style={{
+                    borderColor: '#3b82f6',
+                    borderTopColor: 'transparent',
+                  }}
+                  className="w-5 h-5 border-2 rounded-full animate-spin"
+                />
+              </div>
+            )}
+
+            <div
+              style={{ background: 'var(--color-bg-tertiary)' }}
+              className="w-12 h-12 rounded-xl flex items-center justify-center p-1 border border-blue-500/30 shadow-sm group-hover:scale-105 group-hover:border-blue-400 transition-all flex-shrink-0"
+            >
+              <img
+                src={icon}
+                alt={name}
+                className="w-10 h-10 object-contain rounded-lg"
+                onError={e => {
+                  e.currentTarget.style.display = 'none';
+                  const p = e.currentTarget.parentElement;
+                  if (p) {
+                    p.textContent = name[0];
+                    p.style.color = 'var(--color-text-muted)';
+                    p.style.fontWeight = '700';
+                    p.style.fontSize = '1.1rem';
+                  }
+                }}
+              />
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-1.5">
+                <span
+                  style={{ color: 'var(--color-text-primary)' }}
+                  className="text-xs font-bold truncate group-hover:text-blue-300 transition-colors"
+                >
+                  {name}
+                </span>
+                {badge && (
+                  <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/40 uppercase tracking-wider leading-none shadow-[0_0_8px_rgba(59,130,246,0.35)] flex-shrink-0">
+                    {badge}
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-blue-300/80 font-medium truncate mt-0.5">
+                EVM + Stellar Dual
+              </p>
+            </div>
+          </button>
+        );
+      }
+
+      // Icon-first grid card with big icon and reduced padding
+      return (
+        <button
+          key={id}
+          onClick={onClick}
+          disabled={disabled}
+          style={{
+            borderColor: 'var(--color-border)',
+            background: 'var(--color-bg-tertiary)',
+          }}
+          className="flex flex-col items-center justify-center gap-2 p-2.5 rounded-2xl border hover:border-[var(--color-brand-primary)] hover:bg-[color-mix(in_srgb,var(--color-brand-primary)_8%,transparent)] hover:shadow-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed group relative aspect-square"
+        >
+          {isConnecting && (
             <div
               style={{
-                borderColor: 'var(--color-brand-primary)',
-                borderTopColor: 'transparent',
+                background: 'color-mix(in srgb, var(--color-bg-secondary) 85%, transparent)',
               }}
-              className="w-5 h-5 border-2 rounded-full animate-spin"
-            />
+              className="absolute inset-0 flex items-center justify-center rounded-2xl backdrop-blur-sm z-10"
+            >
+              <div
+                style={{
+                  borderColor: 'var(--color-brand-primary)',
+                  borderTopColor: 'transparent',
+                }}
+                className="w-5 h-5 border-2 rounded-full animate-spin"
+              />
+            </div>
+          )}
+
+          <div className="relative flex items-center justify-center">
+            <div
+              style={{ background: 'var(--color-bg-secondary)' }}
+              className="w-14 h-14 rounded-2xl flex items-center justify-center p-1 border border-[var(--color-border)] shadow-sm group-hover:scale-105 group-hover:border-[var(--color-brand-primary)]/50 transition-all flex-shrink-0"
+            >
+              <img
+                src={icon}
+                alt={name}
+                className="w-11 h-11 object-contain rounded-xl"
+                onError={e => {
+                  e.currentTarget.style.display = 'none';
+                  const p = e.currentTarget.parentElement;
+                  if (p) {
+                    p.textContent = name[0];
+                    p.style.color = 'var(--color-text-muted)';
+                    p.style.fontWeight = '700';
+                    p.style.fontSize = '1.2rem';
+                  }
+                }}
+              />
+            </div>
+            {isInstalled && (
+              <span
+                className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-[var(--color-bg-secondary)] shadow-sm"
+                title="Installed"
+              />
+            )}
           </div>
-        )}
 
-        <div
-          style={{ background: 'var(--color-bg-secondary)' }}
-          className="w-10 h-10 rounded-2xl flex items-center justify-center p-1.5 border border-[var(--color-border)] shadow-sm group-hover:scale-105 transition-transform flex-shrink-0"
-        >
-          <img
-            src={icon}
-            alt={name}
-            className="w-full h-full object-contain rounded-xl"
-            onError={e => {
-              e.currentTarget.style.display = 'none';
-              const p = e.currentTarget.parentElement;
-              if (p) {
-                p.textContent = name[0];
-                p.style.color = 'var(--color-text-muted)';
-                p.style.fontWeight = '700';
-                p.style.fontSize = '1rem';
-              }
-            }}
-          />
-        </div>
-
-        <span
-          style={{ color: 'var(--color-text-primary)' }}
-          className="text-[11px] font-medium text-center leading-tight line-clamp-1 group-hover:text-[var(--color-brand-primary)] transition-colors px-1 w-full"
-        >
-          {name}
-        </span>
-      </button>
-    ),
+          <span
+            style={{ color: 'var(--color-text-primary)' }}
+            className="text-[11px] font-semibold text-center leading-tight line-clamp-1 group-hover:text-[var(--color-brand-primary)] transition-colors px-1 w-full"
+          >
+            {name}
+          </span>
+        </button>
+      );
+    },
     []
   );
 
@@ -390,18 +524,21 @@ export const WalletListModal: React.FC = () => {
       <div className="grid grid-cols-4 gap-2.5">
         {wallets.map(wallet => {
           const key = `${wallet.type}-${wallet.id}`;
+          const isInstalled = installedWallets.includes(wallet.id);
           return renderWalletCard({
             id: key,
             name: wallet.name,
             icon: wallet.icon,
+            isInstalled,
             isConnecting: connectingWallet === key,
             onClick: () => handleWalletClick(wallet),
             disabled,
+            variant: 'grid',
           });
         })}
       </div>
     ),
-    [connectingWallet, handleWalletClick, renderWalletCard]
+    [connectingWallet, handleWalletClick, renderWalletCard, installedWallets]
   );
 
   const renderOnboardingView = () => {
@@ -568,7 +705,7 @@ export const WalletListModal: React.FC = () => {
           background: 'var(--color-bg-secondary)',
           borderColor: 'var(--color-border)',
         }}
-        className={`w-full md:w-[440px] rounded-t-3xl md:rounded-3xl shadow-2xl max-h-[92vh] flex flex-col border ${
+        className={`w-full md:w-[480px] rounded-t-3xl md:rounded-3xl shadow-2xl max-h-[92vh] flex flex-col border ${
           isMobile ? 'animate-slide-up' : 'animate-fade-in'
         }`}
         onClick={e => e.stopPropagation()}
@@ -678,35 +815,49 @@ export const WalletListModal: React.FC = () => {
               {(!evmConnected || !stellarConnected) && (
                 <div className="space-y-5">
                   {!evmConnected && !stellarConnected && (
-                    <div className="space-y-2.5">
-                      <div>
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--color-text-primary)]">
-                          Unified Multi-Chain
-                        </h3>
-                        <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mt-0.5">
+                    <div className="relative p-[1.5px] rounded-2xl overflow-hidden shadow-[0_0_28px_-4px_rgba(59,130,246,0.28)]">
+                      <div className="absolute -inset-[150%] animate-[spin_7s_linear_infinite] bg-[conic-gradient(from_0deg_at_50%_50%,transparent_0%,rgba(59,130,246,0.05)_15%,rgba(96,165,250,0.85)_35%,rgba(147,197,253,1)_45%,rgba(99,102,241,0.7)_55%,rgba(59,130,246,0.05)_75%,transparent_100%)] opacity-95 will-change-transform" />
+                      <div
+                        style={{
+                          background:
+                            'color-mix(in srgb, var(--color-bg-secondary) 95%, #1e3a8a 5%)',
+                        }}
+                        className="relative rounded-2xl p-3.5 space-y-3"
+                      >
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-blue-300">
+                            Unified Multi-Chain
+                          </h3>
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/40 uppercase tracking-wider shadow-[0_0_10px_rgba(59,130,246,0.3)]">
+                            Recommended
+                          </span>
+                        </div>
+                        <p style={{ color: 'var(--color-text-muted)' }} className="text-xs">
                           Connect EVM & Stellar simultaneously in a single session
                         </p>
-                      </div>
 
-                      <div className="grid grid-cols-4 gap-2.5">
-                        {renderWalletCard({
-                          id: 'unified-swiftex',
-                          name: 'SwiftEx Wallet',
-                          icon: '/logo.png',
-                          badge: 'REC',
-                          isConnecting: connectingWallet === 'unified-swiftex',
-                          onClick: handleSwiftExUnifiedConnect,
-                          disabled: isAnyActionInProgress,
-                        })}
+                        <div className="grid grid-cols-2 gap-2.5 pt-0.5">
+                          {renderWalletCard({
+                            id: 'unified-swiftex',
+                            name: 'SwiftEx Wallet',
+                            icon: '/logo.png',
+                            badge: 'REC',
+                            isConnecting: connectingWallet === 'unified-swiftex',
+                            onClick: handleSwiftExUnifiedConnect,
+                            disabled: isAnyActionInProgress,
+                            variant: 'unified',
+                          })}
 
-                        {renderWalletCard({
-                          id: 'unified-wc',
-                          name: 'WalletConnect',
-                          icon: WALLETCONNECT_ICON,
-                          isConnecting: isUnifiedConnecting,
-                          onClick: handleUnifiedConnect,
-                          disabled: isAnyActionInProgress,
-                        })}
+                          {renderWalletCard({
+                            id: 'unified-wc',
+                            name: 'WalletConnect',
+                            icon: WALLETCONNECT_ICON,
+                            isConnecting: isUnifiedConnecting,
+                            onClick: handleUnifiedConnect,
+                            disabled: isAnyActionInProgress,
+                            variant: 'unified',
+                          })}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -775,26 +926,110 @@ export const WalletListModal: React.FC = () => {
         {connectingWallet && !isSigning && (
           <div
             style={{ background: 'color-mix(in srgb, var(--color-bg-secondary) 96%, transparent)' }}
-            className="absolute inset-0 flex items-center justify-center rounded-t-3xl md:rounded-3xl backdrop-blur-sm z-20"
+            className="absolute inset-0 flex items-center justify-center rounded-t-3xl md:rounded-3xl backdrop-blur-sm z-20 p-6"
           >
-            <div className="text-center px-6">
-              <div
-                style={{ borderColor: 'var(--color-brand-primary)', borderTopColor: 'transparent' }}
-                className="inline-block w-8 h-8 border-3 rounded-full animate-spin mb-3"
-              />
-              <p
+            <div className="text-center w-full max-w-xs flex flex-col items-center">
+              <div className="relative mb-4">
+                <div
+                  style={{
+                    background: 'var(--color-bg-tertiary)',
+                    borderColor: 'var(--color-border)',
+                  }}
+                  className="w-16 h-16 rounded-2xl flex items-center justify-center border shadow-md p-2"
+                >
+                  {activeConnectingConfig?.icon ? (
+                    <img
+                      src={activeConnectingConfig.icon}
+                      alt={activeConnectingConfig.name}
+                      className="w-full h-full object-contain rounded-xl"
+                      onError={e => {
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <Wallet className="w-8 h-8 text-[var(--color-brand-primary)]" />
+                  )}
+                </div>
+                <div
+                  style={{
+                    borderColor: 'var(--color-brand-primary)',
+                    borderTopColor: 'transparent',
+                  }}
+                  className="absolute -inset-1.5 border-2 rounded-2xl animate-spin pointer-events-none"
+                />
+              </div>
+
+              <h4
                 style={{ color: 'var(--color-text-primary)' }}
-                className="font-semibold text-sm mb-1"
+                className="font-bold text-base mb-1"
               >
-                Connecting...
+                {activeConnectingConfig
+                  ? `Connecting to ${activeConnectingConfig.name}`
+                  : 'Connecting Wallet...'}
+              </h4>
+
+              <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mb-5">
+                {isMobile
+                  ? 'Please approve the connection request in your mobile wallet.'
+                  : 'Scan the QR code or approve the connection request in your wallet.'}
               </p>
-              <p style={{ color: 'var(--color-text-muted)' }} className="text-xs mb-4">
-                {isMobile ? 'Approve in your wallet app' : 'Scan QR code or approve in wallet'}
-              </p>
+
+              {isMobile && activeConnectingWalletId !== 'walletconnect' && (
+                <div className="w-full space-y-2.5 mb-4">
+                  {activeDeepLink ? (
+                    <a
+                      href={activeDeepLink}
+                      onClick={handleOpenWalletApp}
+                      style={{ background: 'var(--color-brand-primary)', color: '#fff' }}
+                      className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5 shadow-md"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Open in {activeConnectingConfig?.name || 'Wallet'}</span>
+                    </a>
+                  ) : (
+                    <button
+                      disabled
+                      style={{
+                        background: 'var(--color-bg-tertiary)',
+                        color: 'var(--color-text-muted)',
+                      }}
+                      className="w-full py-2.5 px-4 rounded-xl text-xs font-medium border border-[var(--color-border)] flex items-center justify-center gap-2 opacity-60"
+                    >
+                      <div className="w-3.5 h-3.5 border-2 border-[var(--color-brand-primary)] border-t-transparent rounded-full animate-spin" />
+                      <span>Generating link...</span>
+                    </button>
+                  )}
+
+                  {pairingUri && (
+                    <button
+                      onClick={handleCopyUri}
+                      style={{
+                        background: 'var(--color-bg-tertiary)',
+                        color: 'var(--color-text-secondary)',
+                        borderColor: 'var(--color-border)',
+                      }}
+                      className="w-full py-2 px-3 rounded-xl border text-[11px] font-medium hover:opacity-80 transition-opacity flex items-center justify-center gap-1.5"
+                    >
+                      {copiedUri ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-emerald-400">Pairing Link Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copy Pairing Link</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              )}
+
               <button
                 onClick={handleModalClose}
                 style={{ color: 'var(--color-text-muted)', background: 'var(--color-bg-tertiary)' }}
-                className="px-3.5 py-1.5 rounded-xl text-xs hover:opacity-80 transition-opacity"
+                className="px-4 py-1.5 rounded-xl text-xs hover:opacity-80 transition-opacity"
               >
                 Cancel
               </button>

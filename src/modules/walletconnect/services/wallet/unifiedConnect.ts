@@ -1,6 +1,7 @@
 import { WalletConnectModal } from '@walletconnect/modal';
 
 import { sendCustomNotification } from '../../../../service/notificationService';
+import { isMobileDevice } from '../../../../utils/walletConnectUtils';
 import {
   WALLETCONNECT_PROJECT_ID,
   buildUnifiedNamespaces,
@@ -76,7 +77,9 @@ export async function connectUnified(
 
       provider.on('display_uri', (uri: string) => {
         ctx.openMobileDeepLink(walletId, uri);
-        modal!.openModal({ uri });
+        if (!isMobileDevice() || walletId === 'walletconnect') {
+          modal!.openModal({ uri });
+        }
         const token = localStorage.getItem('device_token');
         if (token) {
           sendCustomNotification(token, {
