@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import BigNumber from 'bignumber.js';
 import type { Signer } from 'ethers';
 
 import { useNotificationStore } from '../../../../../store/notificationStore';
@@ -36,11 +37,13 @@ export function useUserDataStream(signer: Signer | null, userAddr: string | null
   const applyAccountUpdate = (a: any) => {
     if (Array.isArray(a.B)) {
       a.B.forEach((b: any) => {
+        const wbBn = new BigNumber(b.wb || '0');
+        const cwBn = new BigNumber(b.cw || '0');
         useAccountStore.getState().updateBalance({
           asset: b.a,
           total: b.wb,
           available: b.cw,
-          locked: String(parseFloat(b.wb) - parseFloat(b.cw)),
+          locked: wbBn.minus(cwBn).toString(),
           marginBalance: b.cw,
         });
       });
@@ -49,7 +52,7 @@ export function useUserDataStream(signer: Signer | null, userAddr: string | null
     if (Array.isArray(a.P)) {
       a.P.forEach((p: any) => {
         const symbol = (p.s as string).replace('USDT', '-USDT');
-        if (parseFloat(p.pa) === 0) {
+        if (new BigNumber(p.pa || '0').isZero()) {
           usePositionStore.getState().removePosition(symbol);
         } else {
           // get existing position to preserve missing fields like leverage if Aster doesn't send them
@@ -128,7 +131,7 @@ export function useUserDataStream(signer: Signer | null, userAddr: string | null
 
       if (title) {
         useNotificationStore.getState().showToast({
-          type: type === 'error' ? 'SYSTEM' : 'DYDX', // DYDX type maps to an exchange icon in our config
+          type: type === 'error' ? 'SYSTEM' : 'DYDX',
           title,
           message,
         });
@@ -171,7 +174,7 @@ export function useUserDataStream(signer: Signer | null, userAddr: string | null
         orderId: o.i,
         price: o.L,
         qty: o.l,
-        quoteQty: String(parseFloat(o.L || '0') * parseFloat(o.l || '0')),
+        quoteQty: new BigNumber(o.L || '0').times(new BigNumber(o.l || '0')).toString(),
         realizedPnl: o.rp || '0',
         side: o.S,
         positionSide: o.ps,
@@ -180,7 +183,7 @@ export function useUserDataStream(signer: Signer | null, userAddr: string | null
       });
 
       // Real-time fee deduction sync
-      if (o.n && parseFloat(o.n) > 0) {
+      if (o.n && new BigNumber(o.n).gt(0)) {
         useHistoryStore.getState().addIncome({
           symbol: o.s,
           incomeType: 'COMMISSION',
@@ -194,7 +197,7 @@ export function useUserDataStream(signer: Signer | null, userAddr: string | null
       }
 
       // Real-time realized PnL sync
-      if (o.rp && parseFloat(o.rp) !== 0) {
+      if (o.rp && !new BigNumber(o.rp).isZero()) {
         useHistoryStore.getState().addIncome({
           symbol: o.s,
           incomeType: 'REALIZED_PNL',

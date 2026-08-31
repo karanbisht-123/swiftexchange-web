@@ -1,10 +1,12 @@
 import { ArrowLeft, Check, ShieldCheck, Sparkles, Wallet, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+
 import { ROUTES } from '../../../constants/routes';
-import { useAsterAgent } from '../../perps/adapters/aster/hooks/useAsterAgent';
 import router from '../../../routes';
+import { useAsterAgent } from '../../perps/adapters/aster/hooks/useAsterAgent';
+import { useHyperliquidAgent } from '../../perps/adapters/hyperliquid/hooks/useHyperliquidAgent';
+import { useExchangeManager } from '../../perps/core/ExchangeManager';
 import { EVM_WALLETS, STELLAR_WALLETS, type WalletConfig } from '../constants/Wallet';
-import { hasStoredAgentKey } from '../services/asterAgentKeyManager';
 import { type WalletType, useWalletStore } from '../store/walletConnectStore';
 
 const WALLETCONNECT_ICON =
@@ -26,6 +28,9 @@ export const WalletListModal: React.FC = () => {
   } = useWalletStore();
 
   const asterAgent = useAsterAgent();
+  const hyperliquidAgent = useHyperliquidAgent();
+  const currentExchange = useExchangeManager(s => s.currentExchange);
+  const activeAgent = currentExchange === 'hyperliquid' ? hyperliquidAgent : asterAgent;
 
   const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
   const [disconnectingType, setDisconnectingType] = useState<WalletType | null>(null);
@@ -181,7 +186,7 @@ export const WalletListModal: React.FC = () => {
     if (
       disconnectingType ||
       connectionStatus.evm?.state === 'signing' ||
-      asterAgent.deriveState === 'signing'
+      activeAgent.deriveState === 'signing'
     )
       return;
     if (connectingWallet) {
@@ -190,7 +195,7 @@ export const WalletListModal: React.FC = () => {
       setError(null);
     }
     closeModal();
-    if (hasStoredAgentKey() || asterAgent.isReady) {
+    if (activeAgent.isReady) {
       if (window.location.pathname !== ROUTES.TRADING_PERPS) {
         router.navigate(ROUTES.TRADING_PERPS);
       }
@@ -200,8 +205,8 @@ export const WalletListModal: React.FC = () => {
     connectingWallet,
     disconnectingType,
     connectionStatus,
-    asterAgent.deriveState,
-    asterAgent.isReady,
+    activeAgent.deriveState,
+    activeAgent.isReady,
   ]);
 
   const formatAddress = useCallback(
@@ -217,7 +222,7 @@ export const WalletListModal: React.FC = () => {
 
   const isAnyActionInProgress = connectingWallet !== null || disconnectingType !== null;
   const isSigning =
-    connectionStatus.evm?.state === 'signing' || asterAgent.deriveState === 'signing';
+    connectionStatus.evm?.state === 'signing' || activeAgent.deriveState === 'signing';
 
   const renderConnectedCard = useCallback(
     (type: WalletType) => {
@@ -563,8 +568,9 @@ export const WalletListModal: React.FC = () => {
           background: 'var(--color-bg-secondary)',
           borderColor: 'var(--color-border)',
         }}
-        className={`w-full md:w-[440px] rounded-t-3xl md:rounded-3xl shadow-2xl max-h-[92vh] flex flex-col border ${isMobile ? 'animate-slide-up' : 'animate-fade-in'
-          }`}
+        className={`w-full md:w-[440px] rounded-t-3xl md:rounded-3xl shadow-2xl max-h-[92vh] flex flex-col border ${
+          isMobile ? 'animate-slide-up' : 'animate-fade-in'
+        }`}
         onClick={e => e.stopPropagation()}
       >
         {isMobile && (

@@ -49,21 +49,33 @@ function applyLevelsToMap(map: Map<string, string>, levels: OrderBookLevel[]): v
 }
 
 function sortedBids(map: Map<string, string>, limit = 60): { price: string; size: string }[] {
-  const entries: { price: string; size: string; numPrice: number }[] = [];
-  for (const [price, size] of map.entries()) {
-    entries.push({ price, size, numPrice: Number(price) });
+  const entries: [string, number][] = [];
+  for (const price of map.keys()) {
+    entries.push([price, Number(price)]);
   }
-  entries.sort((a, b) => b.numPrice - a.numPrice);
-  return entries.slice(0, limit).map(({ price, size }) => ({ price, size }));
+  entries.sort((a, b) => b[1] - a[1]);
+
+  const result: { price: string; size: string }[] = [];
+  for (let i = 0; i < Math.min(limit, entries.length); i++) {
+    const priceStr = entries[i][0];
+    result.push({ price: priceStr, size: map.get(priceStr)! });
+  }
+  return result;
 }
 
 function sortedAsks(map: Map<string, string>, limit = 60): { price: string; size: string }[] {
-  const entries: { price: string; size: string; numPrice: number }[] = [];
-  for (const [price, size] of map.entries()) {
-    entries.push({ price, size, numPrice: Number(price) });
+  const entries: [string, number][] = [];
+  for (const price of map.keys()) {
+    entries.push([price, Number(price)]);
   }
-  entries.sort((a, b) => a.numPrice - b.numPrice);
-  return entries.slice(0, limit).map(({ price, size }) => ({ price, size }));
+  entries.sort((a, b) => a[1] - b[1]);
+
+  const result: { price: string; size: string }[] = [];
+  for (let i = 0; i < Math.min(limit, entries.length); i++) {
+    const priceStr = entries[i][0];
+    result.push({ price: priceStr, size: map.get(priceStr)! });
+  }
+  return result;
 }
 
 export const useOrderbookStore = create<OrderbookStoreState>((set, get) => ({

@@ -1,7 +1,10 @@
 import { useMemo } from 'react';
+
+import BigNumber from 'bignumber.js';
+
 import { useAccountStore } from '../core/stores/accountStore';
-import { usePositionStore } from '../core/stores/positionStore';
 import { useLeverageStore } from '../core/stores/leverageStore';
+import { usePositionStore } from '../core/stores/positionStore';
 import { useTickerStore } from '../core/stores/tickerStore';
 
 export function useTradeCalculations(
@@ -18,54 +21,60 @@ export function useTradeCalculations(
 
   const multiAssetsMargin = useAccountStore(state => state.multiAssetsMargin);
 
-  const parsedSize = parseFloat(inputSize) || 0;
-  const currentPrice = parseFloat(assetCtxByMarket[symbol]?.markPx || '0');
-  
+  const parsedSize = new BigNumber(inputSize || '0');
+  const currentPrice = new BigNumber(assetCtxByMarket[symbol]?.markPx || '0');
+
   // Wallet Balance
   const walletBalance = useMemo(() => {
     if (!multiAssetsMargin) {
       // In Single-Asset Mode, your buying power is only the settlement currency (USDT)
       const quoteAsset = symbol.split('-')[1] || 'USDT';
       const quoteBal = balances[quoteAsset];
-      return quoteBal ? parseFloat(quoteBal.total) : 0;
+      return quoteBal ? new BigNumber(quoteBal.total).toNumber() : 0;
     }
 
     // In Multi-Asset Mode, it's the total equity across all supported assets
     return Object.values(balances).reduce((acc, b) => {
-      let price = 1;
+      let price = new BigNumber(1);
       if (b.asset !== 'USDT' && b.asset !== 'USDC') {
-        const markPrice = assetCtxByMarket[`${b.asset}-USDT`]?.markPx || assetCtxByMarket[`${b.asset}USDT`]?.markPx;
-        if (markPrice) price = parseFloat(markPrice);
-        else price = 0;
+        const markPrice =
+          assetCtxByMarket[`${b.asset}-USDT`]?.markPx || assetCtxByMarket[`${b.asset}USDT`]?.markPx;
+        if (markPrice) price = new BigNumber(markPrice);
+        else price = new BigNumber(0);
       }
-      return acc + (parseFloat(b.total) * price);
+      return acc + new BigNumber(b.total).times(price).toNumber();
     }, 0);
   }, [balances, assetCtxByMarket, multiAssetsMargin, symbol]);
 
   // Max Position Size Calculation (0% to 100% slider bounds)
   const maxPossibleSize = useMemo(() => {
-    if (currentPrice === 0 || walletBalance <= 0) return 0;
+    if (currentPrice.lte(0) || walletBalance <= 0) return 0;
     // Apply a slight safety buffer (e.g. 99%) so we don't immediately liquidate on fees
-    const maxNotional = walletBalance * leverage * 0.99;
-    return sizeAsset === 'quote' ? maxNotional : maxNotional / currentPrice;
+    const maxNotional = new BigNumber(walletBalance).times(leverage).times(0.99);
+    return sizeAsset === 'quote'
+      ? maxNotional.toNumber()
+      : maxNotional.div(currentPrice).toNumber();
   }, [walletBalance, leverage, currentPrice, sizeAsset]);
 
   // Order Cost (Required Margin)
   const orderCost = useMemo(() => {
-    if (currentPrice <= 0 || parsedSize <= 0) return 0;
-    
+    if (currentPrice.lte(0) || parsedSize.lte(0)) return 0;
+
     // If input is in Quote asset (USDT), then parsedSize is the notional value.
     // If input is in Base asset (BTC), then parsedSize * currentPrice is the notional value.
-    const notional = sizeAsset === 'quote' ? parsedSize : parsedSize * currentPrice;
-    
-    return notional / leverage;
+    const notional = sizeAsset === 'quote' ? parsedSize : parsedSize.times(currentPrice);
+
+    return notional.div(leverage).toNumber();
   }, [currentPrice, parsedSize, leverage, sizeAsset]);
 
   // --- CROSS MARGIN CALCULATIONS ---
   // Cross Account Equity = walletBalance + sum(unrealizedPnL of all cross positions)
   const crossAccountEquity = useMemo(() => {
     const crossPositions = Object.values(positions).filter(p => p.marginType === 'cross');
-    const totalPnl = crossPositions.reduce((acc, p) => acc + parseFloat(p.unrealizedPnl || '0'), 0);
+    const totalPnl = crossPositions.reduce(
+      (acc, p) => acc + new BigNumber(p.unrealizedPnl || '0').toNumber(),
+      0
+    );
     return walletBalance + totalPnl;
   }, [positions, walletBalance]);
 
@@ -73,52 +82,54 @@ export function useTradeCalculations(
   // MM_i = positionNotional_i * maintMarginRatio_i - cum_i
   const totalMaintenanceMargin = useMemo(() => {
     const crossPositions = Object.values(positions).filter(p => p.marginType === 'cross');
-    
+
     return crossPositions.reduce((acc, p) => {
       const symNoDash = p.symbol.replace('-', '');
       const brackets = bracketsBySymbol[symNoDash];
       if (!brackets || brackets.length === 0) return acc; // No bracket data, can't calc
 
-      const notional = Math.abs(parseFloat(p.size)) * parseFloat(p.markPrice || '0');
-      
+      const notional = new BigNumber(p.size).abs().times(new BigNumber(p.markPrice || '0'));
+
       // Find the appropriate bracket for the notional
-      const bracket = brackets.find(b => notional <= b.notionalCap) || brackets[brackets.length - 1];
-      
-      const mm = (notional * bracket.maintMarginRatio) - bracket.cum;
-      return acc + Math.max(0, mm);
+      const bracket =
+        brackets.find(b => notional.lte(b.notionalCap)) || brackets[brackets.length - 1];
+
+      const mm = notional.times(bracket.maintMarginRatio).minus(bracket.cum);
+      return acc + (mm.gt(0) ? mm.toNumber() : 0);
     }, 0);
   }, [positions, bracketsBySymbol]);
 
   // Cross Margin Ratio
-  const crossMarginRatio = crossAccountEquity > 0 
-    ? (totalMaintenanceMargin / crossAccountEquity) * 100 
-    : 0;
+  const crossMarginRatio =
+    crossAccountEquity > 0 ? (totalMaintenanceMargin / crossAccountEquity) * 100 : 0;
 
   // --- ISOLATED MARGIN CALCULATIONS (Estimate for the new order) ---
   // Isolated Liq Price = Entry Price - (Entry Price / Leverage) + MMR * Entry Price (For LONG)
   // Actually, MMR depends on notional.
   const estimatedIsolatedLiqPrice = useMemo(() => {
-    if (currentPrice === 0 || parsedSize === 0 || marginType !== 'isolated') return { long: null, short: null };
-    
+    if (currentPrice.lte(0) || parsedSize.lte(0) || marginType !== 'isolated')
+      return { long: null, short: null };
+
     const symNoDash = symbol.replace('-', '');
     const brackets = bracketsBySymbol[symNoDash];
-    const notional = sizeAsset === 'quote' ? parsedSize : parsedSize * currentPrice;
-    
+    const notional = sizeAsset === 'quote' ? parsedSize : parsedSize.times(currentPrice);
+
     let mmr = 0.005; // Fallback 0.5%
     if (brackets && brackets.length > 0) {
-      const bracket = brackets.find(b => notional <= b.notionalCap) || brackets[brackets.length - 1];
+      const bracket =
+        brackets.find(b => notional.lte(b.notionalCap)) || brackets[brackets.length - 1];
       mmr = bracket.maintMarginRatio;
     }
 
-    // Rough formula. For exact Binance formula:
-    // Long Liq = (Margin - Cum - Entry * Size) / (Size * (MMR - 1))
-    // Simplification for UI preview:
-    const longLiq = currentPrice - (currentPrice / leverage) + (mmr * currentPrice);
-    const shortLiq = currentPrice + (currentPrice / leverage) - (mmr * currentPrice);
-    
+    const mmrBn = new BigNumber(mmr);
+    const levBn = new BigNumber(leverage);
+
+    const longLiq = currentPrice.minus(currentPrice.div(levBn)).plus(mmrBn.times(currentPrice));
+    const shortLiq = currentPrice.plus(currentPrice.div(levBn)).minus(mmrBn.times(currentPrice));
+
     return {
-      long: Math.max(0, longLiq),
-      short: Math.max(0, shortLiq)
+      long: longLiq.gt(0) ? longLiq.toNumber() : 0,
+      short: shortLiq.gt(0) ? shortLiq.toNumber() : 0,
     };
   }, [symbol, currentPrice, parsedSize, marginType, leverage, bracketsBySymbol]);
 
@@ -130,6 +141,6 @@ export function useTradeCalculations(
     totalMaintenanceMargin,
     crossMarginRatio,
     estimatedIsolatedLiqPrice,
-    currentPrice
+    currentPrice: currentPrice.toNumber(),
   };
 }

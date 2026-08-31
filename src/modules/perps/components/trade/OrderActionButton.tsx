@@ -1,6 +1,9 @@
 import React from 'react';
+
 import { useWalletStore } from '../../../walletconnect/store/walletConnectStore';
 import { useAsterAgent } from '../../adapters/aster/hooks/useAsterAgent';
+import { useHyperliquidAgent } from '../../adapters/hyperliquid/hooks/useHyperliquidAgent';
+import { useExchangeManager } from '../../core/ExchangeManager';
 
 interface OrderActionButtonProps {
   onSubmit: (side: 'BUY' | 'SELL') => void;
@@ -24,7 +27,11 @@ export const OrderActionButton: React.FC<OrderActionButtonProps> = ({
   const isWalletConnected = useWalletStore(state => Object.keys(state.connectedWallets).length > 0);
   const openWalletModal = useWalletStore(state => state.openModal);
 
-  const { isReady: isAsterReady, deriveAgentKey, deriveState } = useAsterAgent();
+  const asterAgent = useAsterAgent();
+  const hyperliquidAgent = useHyperliquidAgent();
+  const currentExchange = useExchangeManager(s => s.currentExchange);
+  const activeAgent = currentExchange === 'hyperliquid' ? hyperliquidAgent : asterAgent;
+  const { isReady: isAgentReady, deriveAgentKey, deriveState } = activeAgent;
   const hasFunds = walletBalance > 0;
 
   if (!isWalletConnected) {
@@ -39,7 +46,7 @@ export const OrderActionButton: React.FC<OrderActionButtonProps> = ({
     );
   }
 
-  if (!isAsterReady) {
+  if (!isAgentReady) {
     return (
       <button
         type="button"

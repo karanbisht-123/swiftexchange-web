@@ -1,6 +1,8 @@
 import React, { useCallback, useRef, useState } from 'react';
 
-import { useOrderHistory } from '../../../adapters/aster/hooks/useOrderHistory';
+import { useOrderHistory as useAsterOrderHistory } from '../../../adapters/aster/hooks/useOrderHistory';
+import { useHyperliquidOrderHistory } from '../../../adapters/hyperliquid/hooks/useHyperliquidOrderHistory';
+import { useExchangeManager } from '../../../core/ExchangeManager';
 
 interface Props {
   signer: any;
@@ -22,12 +24,15 @@ function formatDate(timestamp: number): string {
 }
 
 export const OrderHistoryTab: React.FC<Props> = ({ signer, userAddr, asterSymbol }) => {
+  const currentExchange = useExchangeManager(state => state.currentExchange);
   const [hideOtherSymbols, setHideOtherSymbols] = useState(false);
-  const { orders, isLoading, isLoadingMore, hasMore, loadMore } = useOrderHistory(
-    signer,
-    userAddr,
-    hideOtherSymbols ? asterSymbol : null
-  );
+
+  const asterHook = useAsterOrderHistory(signer, userAddr, hideOtherSymbols ? asterSymbol : null);
+
+  const hlHook = useHyperliquidOrderHistory(userAddr, hideOtherSymbols ? asterSymbol : null);
+
+  const { orders, isLoading, isLoadingMore, hasMore, loadMore } =
+    currentExchange === 'hyperliquid' ? hlHook : asterHook;
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const handleScroll = useCallback(() => {
