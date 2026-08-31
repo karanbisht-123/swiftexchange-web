@@ -1,16 +1,17 @@
 import React, { useEffect } from 'react';
+
 import { type NetworkType } from '../config/chains';
 import { useWalletStore } from '../store/walletConnectStore';
 
 const NetworkSwitch: React.FC = () => {
   const network = useWalletStore(state => state.network);
-  const setNetwork = useWalletStore(state => state.setNetwork); useEffect(() => {
+  const setNetwork = useWalletStore(state => state.setNetwork);
+  useEffect(() => {
     const storedNetwork = localStorage.getItem('network');
     if (!storedNetwork) {
       localStorage.setItem('network', network);
     }
   }, [network]);
-
 
   const handleNetworkChange = async (newNetwork: NetworkType) => {
     if (newNetwork === network) return;
@@ -32,9 +33,9 @@ const NetworkSwitch: React.FC = () => {
         <option value="mainnet" className="bg-(--color-bg-primary) text-(--color-text-primary)">
           Mainnet
         </option>
-        {/* <option value="testnet" className="bg-(--color-bg-primary) text-(--color-text-primary)">
+        <option value="testnet" className="bg-(--color-bg-primary) text-(--color-text-primary)">
           Testnet
-        </option> */}
+        </option>
       </select>
     </div>
   );
