@@ -2,74 +2,117 @@ import React, { useEffect, useRef, useState } from 'react';
 
 import { AreaSeries, ColorType, type ISeriesApi, type Time, createChart } from 'lightweight-charts';
 
-interface StellarPnlChartProps {
-  disposals: any[];
-  totalUnrealized?: number;
+export interface StellarChartPoint {
+  date: string;
+  realizedPnl: number;
+  holdingsValue?: number;
 }
 
-const StellarPnlChart: React.FC<StellarPnlChartProps> = ({ disposals, totalUnrealized = 0 }) => {
+export interface StellarChartData {
+  from?: string;
+  to?: string;
+  granularity?: string;
+  points?: StellarChartPoint[];
+}
+
+interface StellarPnlChartProps {
+  chart?: StellarChartData | null;
+  disposals?: any[];
+  totalUnrealized?: number;
+  totalRealized?: number;
+}
+
+const StellarPnlChart: React.FC<StellarPnlChartProps> = ({
+  chart,
+  disposals = [],
+  totalUnrealized = 0,
+  totalRealized,
+}) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null);
 
+  const [activeMetric, setActiveMetric] = useState<'pnl' | 'holdings'>('pnl');
   const [hasData, setHasData] = useState(true);
-  const [totalCumulativePnl, setTotalCumulativePnl] = useState(0);
+  const [metricValue, setMetricValue] = useState(0);
+
+  const hasHoldingsPoints = Boolean(
+    chart?.points && chart.points.some(p => (p.holdingsValue ?? 0) > 0)
+  );
 
   useEffect(() => {
-    if ((!disposals || disposals.length === 0) && totalUnrealized === 0) {
+    let chartPoints: { time: Time; value: number }[] = [];
+
+    if (chart?.points && chart.points.length > 0) {
+      if (activeMetric === 'holdings') {
+        chartPoints = chart.points.map(p => ({
+          time: p.date as Time,
+          value: p.holdingsValue ?? 0,
+        }));
+        const lastVal = chartPoints[chartPoints.length - 1]?.value ?? 0;
+        setMetricValue(lastVal);
+      } else {
+        chartPoints = chart.points.map(p => ({
+          time: p.date as Time,
+          value: p.realizedPnl,
+        }));
+        const lastVal =
+          totalRealized !== undefined
+            ? totalRealized
+            : (chartPoints[chartPoints.length - 1]?.value ?? 0);
+        setMetricValue(lastVal + totalUnrealized);
+      }
+    } else if (disposals && disposals.length > 0) {
+      const dailyPnl: Record<string, number> = {};
+      disposals.forEach(d => {
+        if (d.date && typeof d.pnl === 'number') {
+          if (!dailyPnl[d.date]) dailyPnl[d.date] = 0;
+          dailyPnl[d.date] += d.pnl;
+        }
+      });
+
+      const sortedDates = Object.keys(dailyPnl).sort();
+      let cumulative = 0;
+      chartPoints = sortedDates.map(date => {
+        cumulative += dailyPnl[date];
+        return { time: date as Time, value: cumulative };
+      });
+
+      const today = new Date().toISOString().split('T')[0];
+      const finalValue = cumulative + totalUnrealized;
+      if (chartPoints.length === 0 || chartPoints[chartPoints.length - 1].time !== today) {
+        chartPoints.push({ time: today as Time, value: finalValue });
+      } else {
+        chartPoints[chartPoints.length - 1].value = finalValue;
+      }
+      setMetricValue(finalValue);
+    }
+
+    if (chartPoints.length === 0) {
       setHasData(false);
       return;
     }
     setHasData(true);
 
-    // 1. Aggregate Realized PnL by date
-    const dailyPnl: Record<string, number> = {};
-    disposals?.forEach(d => {
-      if (d.date && typeof d.pnl === 'number') {
-        if (!dailyPnl[d.date]) dailyPnl[d.date] = 0;
-        dailyPnl[d.date] += d.pnl;
-      }
-    });
-
-    // 2. Sort dates and calculate cumulative PnL
-    const sortedDates = Object.keys(dailyPnl).sort();
-    let cumulative = 0;
-    const chartData = sortedDates.map(date => {
-      cumulative += dailyPnl[date];
-      return { time: date as Time, value: cumulative };
-    });
-
-    // 3. Append Current Total PnL (Realized + Unrealized)
-    const today = new Date().toISOString().split('T')[0];
-    const finalValue = cumulative + totalUnrealized;
-
-    // Only append if it's a new day or if we have no chart data yet
-    if (chartData.length === 0 || chartData[chartData.length - 1].time !== today) {
-      chartData.push({ time: today as Time, value: finalValue });
-    } else {
-      chartData[chartData.length - 1].value = finalValue;
-    }
-
-    setTotalCumulativePnl(finalValue);
-
-    // Ensure we have at least one data point
-    if (chartData.length === 0) {
-      setHasData(false);
-      return;
-    }
-
-    // 3. Initialize chart
     if (chartContainerRef.current) {
+      if (chartRef.current) {
+        try {
+          chartRef.current.remove();
+        } catch {
+          // ignore
+        }
+      }
+
       const handleResize = () => {
         if (chartRef.current && chartContainerRef.current) {
           chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
         }
       };
 
-      const chart = createChart(chartContainerRef.current, {
+      const chartInstance = createChart(chartContainerRef.current, {
         layout: {
           background: { type: ColorType.Solid, color: 'transparent' },
-          textColor: '#9ca3af', // text-[var(--color-text-secondary)]
+          textColor: '#9ca3af',
         },
         grid: {
           vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
@@ -89,14 +132,20 @@ const StellarPnlChart: React.FC<StellarPnlChartProps> = ({ disposals, totalUnrea
         height: 280,
       });
 
-      chartRef.current = chart;
+      chartRef.current = chartInstance;
 
-      const isPositive = cumulative >= 0;
-      const lineColor = isPositive ? '#10b981' : '#f43f5e'; // emerald-500 or rose-500
-      const topColor = isPositive ? 'rgba(16, 185, 129, 0.3)' : 'rgba(244, 63, 94, 0.3)';
-      const bottomColor = isPositive ? 'rgba(16, 185, 129, 0.0)' : 'rgba(244, 63, 94, 0.0)';
+      const isPositive = metricValue >= 0;
+      const lineColor =
+        activeMetric === 'holdings' ? '#3b82f6' : isPositive ? '#10b981' : '#f43f5e';
+      const topColor =
+        activeMetric === 'holdings'
+          ? 'rgba(59, 130, 246, 0.3)'
+          : isPositive
+            ? 'rgba(16, 185, 129, 0.3)'
+            : 'rgba(244, 63, 94, 0.3)';
+      const bottomColor = 'rgba(0, 0, 0, 0)';
 
-      const areaSeries = chart.addSeries(AreaSeries, {
+      const areaSeries = chartInstance.addSeries(AreaSeries, {
         lineColor,
         topColor,
         bottomColor,
@@ -108,26 +157,52 @@ const StellarPnlChart: React.FC<StellarPnlChartProps> = ({ disposals, totalUnrea
         },
       });
 
-      areaSeries.setData(chartData);
-      chart.timeScale().fitContent();
+      areaSeries.setData(chartPoints);
+      chartInstance.timeScale().fitContent();
       seriesRef.current = areaSeries;
 
       window.addEventListener('resize', handleResize);
 
       return () => {
         window.removeEventListener('resize', handleResize);
-        chart.remove();
+        chartInstance.remove();
       };
     }
-  }, [disposals]);
+  }, [chart, disposals, totalUnrealized, totalRealized, activeMetric, metricValue]);
 
   return (
     <div className="bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-3xl p-4 sm:p-6 shadow-sm flex flex-col">
       <div className="flex justify-between items-start mb-6">
         <div>
-          <h3 className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight">
-            Cumulative Realized PnL
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-bold text-[var(--color-text-primary)] tracking-tight">
+              {activeMetric === 'holdings' ? 'Portfolio Value' : 'Cumulative Realized PnL'}
+            </h3>
+            {hasHoldingsPoints && (
+              <div className="flex items-center bg-[var(--color-bg-tertiary)] rounded-lg p-0.5 border border-[var(--color-border)] ml-2">
+                <button
+                  onClick={() => setActiveMetric('pnl')}
+                  className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-colors ${
+                    activeMetric === 'pnl'
+                      ? 'bg-[var(--color-brand-primary)] text-white'
+                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
+                  }`}
+                >
+                  PnL
+                </button>
+                <button
+                  onClick={() => setActiveMetric('holdings')}
+                  className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-colors ${
+                    activeMetric === 'holdings'
+                      ? 'bg-[var(--color-brand-primary)] text-white'
+                      : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
+                  }`}
+                >
+                  Value
+                </button>
+              </div>
+            )}
+          </div>
           <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5 font-medium">
             performance over time
           </p>
@@ -135,10 +210,16 @@ const StellarPnlChart: React.FC<StellarPnlChartProps> = ({ disposals, totalUnrea
         {hasData && (
           <div className="text-right">
             <span
-              className={`text-xl font-black ${totalCumulativePnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}
+              className={`text-xl font-black ${
+                activeMetric === 'holdings'
+                  ? 'text-[var(--color-text-primary)]'
+                  : metricValue >= 0
+                    ? 'text-emerald-500'
+                    : 'text-rose-500'
+              }`}
             >
-              {totalCumulativePnl >= 0 ? '+' : ''}
-              {totalCumulativePnl.toLocaleString('en-US', {
+              {activeMetric !== 'holdings' && metricValue >= 0 ? '+' : ''}
+              {metricValue.toLocaleString('en-US', {
                 style: 'currency',
                 currency: 'USD',
                 minimumFractionDigits: 4,
@@ -164,7 +245,7 @@ const StellarPnlChart: React.FC<StellarPnlChartProps> = ({ disposals, totalUnrea
             />
           </svg>
           <span className="text-sm font-bold text-[var(--color-text-secondary)]">
-            No historical disposals to chart
+            No historical data to chart
           </span>
         </div>
       ) : (

@@ -1,9 +1,6 @@
-
-
+import { openMobileWallet } from '../../../../utils/walletConnectUtils';
 import { type NetworkType } from '../../config/chains';
-import { WALLET_METADATA_MAP } from '../../constants/Wallet';
-
-
+import { useWalletStore } from '../../store/walletConnectStore';
 import { disconnect, disconnectAll } from './disconnect';
 import { connectChainWallet } from './evmConnect';
 import {
@@ -16,7 +13,6 @@ import { signSiweMessage, signStellarChallenge } from './signing';
 import { connectStellar } from './stellarConnect';
 import type {
   ConnectionState,
-
   UnifiedConnectionResult,
   WalletServiceContext,
   WalletSession,
@@ -87,36 +83,14 @@ class WalletService {
     });
   }
 
-
   private openMobileDeepLink(walletId: string, uri: string): void {
-    if (!/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return;
-
-    const isInAppBrowser =
-      (typeof window !== 'undefined' && !!(window as any).ethereum) ||
-      /Trust|MetaMask|Keplr|Freighter|LOBSTR/i.test(navigator.userAgent);
-    if (isInAppBrowser) {
-      console.log('[WalletService] In-app browser detected, skipping deep link redirect');
-      return;
+    try {
+      useWalletStore.getState().setPairingUri(uri);
+      useWalletStore.getState().setConnectingWalletId(walletId);
+    } catch {
+      // ignore
     }
-
-    const meta = WALLET_METADATA_MAP[walletId];
-    if (!meta || !meta.redirects) return;
-
-    const { native, universal } = meta.redirects;
-    let link = '';
-    if (universal) {
-      link = `${universal}?uri=${encodeURIComponent(uri)}`;
-    } else if (native) {
-      const separator = native.endsWith('://') ? '' : '/';
-      link = `${native}${separator}wc?uri=${encodeURIComponent(uri)}`;
-    }
-
-    if (link) {
-      console.log(`[WalletService] Redirecting to ${walletId} via:`, link);
-      setTimeout(() => {
-        window.location.href = link;
-      }, 100);
-    }
+    openMobileWallet(walletId, uri);
   }
 
   // ---------------------------------------------------------------------------
@@ -174,7 +148,6 @@ class WalletService {
   async connectStellar(walletId: string): Promise<WalletSession> {
     return connectStellar(this.ctx, walletId);
   }
-
 
   // ---------------------------------------------------------------------------
   // Signing pass-throughs
@@ -254,7 +227,6 @@ class WalletService {
   isConnected(type: WalletType): boolean {
     return this.ctx.sessions.has(type);
   }
-
 
   isExtensionInstalled(walletId: string): boolean {
     return isExtensionInstalled(this.ctx, walletId);

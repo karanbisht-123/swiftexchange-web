@@ -30,6 +30,7 @@ export const ExchangeTopBar: React.FC = () => {
   const symbol = useMarketStore(state => state.selectedSymbol);
   const assetCtx = useTickerStore(state => state.assetCtxByMarket[symbol]);
   const currentExchange = useExchangeManager(state => state.currentExchange);
+  const setExchange = useExchangeManager(state => state.setExchange);
 
   // Mark price from backend ticker; fall back to orderbook mid-price if unavailable
   const markPxFromTicker = parseFloat(assetCtx?.markPx || '0');
@@ -229,19 +230,18 @@ export const ExchangeTopBar: React.FC = () => {
             </div>
           </div>
         </div>
-        {/* <div className="flex items-center pl-4 shrink-0 z-10 bg-secondary h-full ml-2">
-
+        <div className="flex items-center pl-4 shrink-0 z-10 bg-secondary h-full ml-2">
           <div className="flex items-center gap-4 pl-4 border-l border-color h-full">
             <select
               value={currentExchange}
-              onChange={(e) => exchangeManager.setExchange(e.target.value as ExchangeName)}
+              onChange={e => setExchange(e.target.value as 'aster' | 'hyperliquid')}
               className="bg-tertiary text-primary text-[11px] font-medium border border-color rounded-md px-3 py-1.5 outline-none cursor-pointer hover:border-brand/50 transition-colors"
             >
               <option value="aster">Aster V3</option>
               <option value="hyperliquid">Hyperliquid</option>
             </select>
           </div>
-        </div> */}
+        </div>
       </div>
 
       <MarketSelectorModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />

@@ -513,15 +513,19 @@ export function useLargeOrder({ userAddress }: UseLargeOrderProps) {
         });
 
         setFromToken(prev => {
-          if (!prev) return prev;
-          const usedAmount = isBuy ? parseFloat(quote!.total) : parseFloat(quote!.amount);
+          if (!prev || !quote) return prev;
+          const usedAmount = isBuy
+            ? parseFloat(quote.total || '0')
+            : parseFloat(quote.amount || '0');
           const newBalance = Math.max(0, parseFloat(prev.balance || '0') - usedAmount);
           return { ...prev, balance: newBalance.toFixed(7) };
         });
 
         setToToken(prev => {
-          if (!prev) return prev;
-          const receivedAmount = isBuy ? parseFloat(quote!.amount) : parseFloat(quote!.total);
+          if (!prev || !quote) return prev;
+          const receivedAmount = isBuy
+            ? parseFloat(quote.amount || '0')
+            : parseFloat(quote.total || '0');
           const newBalance = parseFloat(prev.balance || '0') + receivedAmount;
           return { ...prev, balance: newBalance.toFixed(7) };
         });

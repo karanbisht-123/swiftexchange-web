@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { sendCustomNotification } from '../../service/notificationService';
 import {
@@ -112,6 +112,82 @@ describe('walletConnectUtils', () => {
       expect(provider.client.request).toHaveBeenCalledWith(
         expect.objectContaining({ chainId: 'eip155:137' })
       );
+    });
+  });
+
+  describe('isMobileDevice & isInAppBrowser', () => {
+    const originalUserAgent = navigator.userAgent;
+
+    afterEach(() => {
+      Object.defineProperty(navigator, 'userAgent', {
+        value: originalUserAgent,
+        configurable: true,
+      });
+    });
+
+    it('detects iPhone / Android user agents as mobile', async () => {
+      const { isMobileDevice } = await import('../walletConnectUtils');
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)',
+        configurable: true,
+      });
+      expect(isMobileDevice()).toBe(true);
+    });
+
+    it('detects desktop user agents as non-mobile', async () => {
+      const { isMobileDevice } = await import('../walletConnectUtils');
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+        configurable: true,
+      });
+      expect(isMobileDevice()).toBe(false);
+    });
+
+    it('detects in-app browsers', async () => {
+      const { isInAppBrowser } = await import('../walletConnectUtils');
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 TrustWallet/Android',
+        configurable: true,
+      });
+      expect(isInAppBrowser()).toBe(true);
+    });
+  });
+
+  describe('formatWalletDeepLink & getWalletRedirectUrls', () => {
+    const testUri = 'wc:7f6e3c2d-test@2?relay-protocol=irn&symKey=abc123xyz';
+
+    it('formats Trust Wallet universal link correctly', async () => {
+      const { formatWalletDeepLink } = await import('../walletConnectUtils');
+      const link = formatWalletDeepLink('trust', testUri);
+      expect(link).toBe(`https://link.trustwallet.com/wc?uri=${encodeURIComponent(testUri)}`);
+    });
+
+    it('formats MetaMask universal link correctly', async () => {
+      const { formatWalletDeepLink } = await import('../walletConnectUtils');
+      const link = formatWalletDeepLink('metamask', testUri);
+      expect(link).toBe(`https://metamask.app.link/wc?uri=${encodeURIComponent(testUri)}`);
+    });
+
+    it('formats Rainbow universal link correctly', async () => {
+      const { formatWalletDeepLink } = await import('../walletConnectUtils');
+      const link = formatWalletDeepLink('rainbow', testUri);
+      expect(link).toBe(`https://rnbwapp.com/wc?uri=${encodeURIComponent(testUri)}`);
+    });
+
+    it('returns raw URI for unknown or generic walletconnect id', async () => {
+      const { formatWalletDeepLink } = await import('../walletConnectUtils');
+      const link = formatWalletDeepLink('walletconnect', testUri);
+      expect(link).toBe(testUri);
+    });
+
+    it('returns both universal and native URLs in getWalletRedirectUrls', async () => {
+      const { getWalletRedirectUrls } = await import('../walletConnectUtils');
+      const urls = getWalletRedirectUrls('trust', testUri);
+      expect(urls.universal).toBe(
+        `https://link.trustwallet.com/wc?uri=${encodeURIComponent(testUri)}`
+      );
+      expect(urls.native).toBe(`trust://wc?uri=${encodeURIComponent(testUri)}`);
+      expect(urls.formattedUrl).toBeDefined();
     });
   });
 });

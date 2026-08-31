@@ -48,6 +48,8 @@ export interface WalletState {
   isDisconnecting: boolean;
   sessionLastPingAt: Partial<Record<WalletType, number>>;
   session: any;
+  pairingUri: string | null;
+  connectingWalletId: string | null;
 
   isAuthenticated: boolean;
   isAuthenticating: boolean;
@@ -55,7 +57,6 @@ export interface WalletState {
   authenticatedChain: 'evm' | 'stellar' | null;
   linkedChains: ('evm' | 'stellar')[];
   tradingAuthEnabled: boolean;
-
 }
 
 interface WalletActions {
@@ -71,6 +72,8 @@ interface WalletActions {
   isConnected: (type: WalletType) => boolean;
   isConnecting: (type: WalletType) => boolean;
   updateSessionPing: (type: WalletType) => void;
+  setPairingUri: (uri: string | null) => void;
+  setConnectingWalletId: (walletId: string | null) => void;
 
   authenticateEvm: () => Promise<void>;
   authenticateStellar: () => Promise<void>;
@@ -109,6 +112,8 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     isDisconnecting: false,
     sessionLastPingAt: {},
     session: null,
+    pairingUri: null,
+    connectingWalletId: null,
 
     isAuthenticated: false,
     isAuthenticating: false,
@@ -117,12 +122,15 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     linkedChains: [],
     tradingAuthEnabled: getInitialTradingAuth(),
 
-
+    setPairingUri: (uri: string | null) => set({ pairingUri: uri }),
+    setConnectingWalletId: (walletId: string | null) => set({ connectingWalletId: walletId }),
 
     connectWallet: async (type, walletId) => {
       if (get().connectedWallets[type] || get().isConnecting(type)) return;
 
       set(state => ({
+        pairingUri: null,
+        connectingWalletId: walletId,
         connectionStatus: {
           ...state.connectionStatus,
           [type]: { state: 'connecting' },
@@ -154,6 +162,8 @@ export const useWalletStore = create<WalletState & WalletActions>()(
             [type]: { state: 'connected' },
           },
           session: rawSession,
+          pairingUri: null,
+          connectingWalletId: null,
         }));
 
         if (type === 'evm') {
@@ -161,6 +171,8 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         }
       } catch (error: any) {
         set(state => ({
+          pairingUri: null,
+          connectingWalletId: null,
           connectionStatus: {
             ...state.connectionStatus,
             [type]: {
@@ -176,6 +188,8 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     connectUnified: async walletId => {
       if (get().isConnecting('evm') || get().isConnecting('stellar')) return;
       set(state => ({
+        pairingUri: null,
+        connectingWalletId: walletId,
         connectionStatus: {
           ...state.connectionStatus,
           evm: { state: 'connecting' },
@@ -223,6 +237,8 @@ export const useWalletStore = create<WalletState & WalletActions>()(
           connectedWallets: { ...state.connectedWallets, ...walletUpdates },
           connectionStatus: { ...state.connectionStatus, ...statusUpdates },
           session: rawSession,
+          pairingUri: null,
+          connectingWalletId: null,
         }));
 
         if (result.evm) {
@@ -230,6 +246,8 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         }
       } catch (error: any) {
         set(state => ({
+          pairingUri: null,
+          connectingWalletId: null,
           connectionStatus: {
             ...state.connectionStatus,
             evm: {
@@ -241,8 +259,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         throw error;
       }
     },
-
-
 
     authenticateEvm: async () => {
       const evm = get().connectedWallets.evm;
@@ -440,8 +456,8 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         const hasWallets = Object.keys(remainingWallets).length > 0;
         const nextRawSession = hasWallets
           ? walletService.getProvider('evm')?.session ||
-          walletService.getProvider('stellar')?.session ||
-          null
+            walletService.getProvider('stellar')?.session ||
+            null
           : null;
         return {
           connectedWallets: remainingWallets,
@@ -569,7 +585,13 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     openModal: () => {
       set({ isModalOpen: true });
     },
-    closeModal: () => set({ isModalOpen: false, isAuthenticating: false }),
+    closeModal: () =>
+      set({
+        isModalOpen: false,
+        isAuthenticating: false,
+        pairingUri: null,
+        connectingWalletId: null,
+      }),
 
     isConnected: type => !!get().connectedWallets[type],
     isConnecting: type =>
@@ -584,8 +606,6 @@ export const useWalletStore = create<WalletState & WalletActions>()(
     checkSessionHealth: async () => {
       return walletService.checkSessionHealth();
     },
-
-
   }))
 );
 
@@ -609,8 +629,8 @@ export const initWalletListener = async () => {
             const hasWallets = Object.keys(remainingWallets).length > 0;
             const nextRawSession = hasWallets
               ? walletService.getProvider('evm')?.session ||
-              walletService.getProvider('stellar')?.session ||
-              null
+                walletService.getProvider('stellar')?.session ||
+                null
               : null;
             return {
               connectedWallets: remainingWallets,
@@ -699,5 +719,3 @@ export const selectConnectionStatus = (type: WalletType) => (state: WalletState)
 
 export const selectIsAnyWalletConnected = (state: WalletState) =>
   Object.keys(state.connectedWallets).length > 0;
-
-

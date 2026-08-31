@@ -31,7 +31,6 @@ export const EVM_WALLETS: WalletConfig[] = [
     icon: 'https://play-lh.googleusercontent.com/cd5BevWohRqLwsI2_i3k4YIVtcO57cIZCs6l20H1Hcdj0P2rFEcX_7QtgKbTM3Sn_A',
     type: WalletType.EVM,
   },
-
   {
     id: 'rainbow',
     name: 'Rainbow',
@@ -50,16 +49,15 @@ export const STELLAR_WALLETS: WalletConfig[] = [
   {
     id: 'swiftex',
     name: 'SwiftEx Wallet',
-    icon: '/logo.avif',
+    icon: '/logo.png',
     type: WalletType.STELLAR,
   },
   {
     id: 'lobstr',
-    name: 'LOBSTR ',
+    name: 'LOBSTR',
     icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRr4vU2tmIUuPEaeD2fPRDIgbC4ZcqfNzQR3Q&s',
     type: WalletType.STELLAR,
   },
-
   {
     id: 'freighter',
     name: 'FREIGHTER',

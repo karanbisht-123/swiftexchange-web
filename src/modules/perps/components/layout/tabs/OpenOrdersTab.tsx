@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 
 import { useOrders } from '../../../adapters/aster/hooks/useOrders';
+import { useExchangeManager } from '../../../core/ExchangeManager';
 import { useOrderStore } from '../../../core/stores/orderStore';
 
 interface Props {
@@ -13,6 +14,7 @@ export const OpenOrdersTab: React.FC<Props> = ({ signer, userAddr }) => {
   const displayOrders = Object.values(orders).filter(
     o => o.status === 'new' || o.status === 'partially_filled'
   );
+  const currentExchange = useExchangeManager(state => state.currentExchange);
   const { cancel } = useOrders(signer, userAddr);
 
   const [cancelingId, setCancelingId] = useState<string | null>(null);
@@ -71,13 +73,17 @@ export const OpenOrdersTab: React.FC<Props> = ({ signer, userAddr }) => {
                 </td>
                 <td className="px-2.5 py-1.5 text-secondary uppercase">{o.status}</td>
                 <td className="px-2.5 py-1.5 text-right">
-                  <button
-                    onClick={() => handleCancel(o.symbol.replace('-', ''), o.id)}
-                    disabled={cancelingId === o.id}
-                    className="text-[10px] bg-tertiary hover:bg-hover px-2 py-0.5 rounded text-primary disabled:opacity-50 transition-colors"
-                  >
-                    {cancelingId === o.id ? '...' : 'Cancel'}
-                  </button>
+                  {currentExchange === 'aster' ? (
+                    <button
+                      onClick={() => handleCancel(o.symbol.replace('-', ''), o.id)}
+                      disabled={cancelingId === o.id}
+                      className="text-[10px] bg-tertiary hover:bg-hover px-2 py-0.5 rounded text-primary disabled:opacity-50 transition-colors"
+                    >
+                      {cancelingId === o.id ? '...' : 'Cancel'}
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-muted">Not Available</span>
+                  )}
                 </td>
               </tr>
             ))

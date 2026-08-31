@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import BigNumber from 'bignumber.js';
 import type { Signer } from 'ethers';
 
 import { useAccountStore } from '../../../core/stores/accountStore';
@@ -48,17 +49,18 @@ export function useAsterDataSync(signer: Signer | null, userAddr: string | null)
 
         if (!isMounted) return;
 
-        const mappedBalances = (accountInfo.assets || []).map((a: any) => ({
-          asset: a.asset,
-          total: a.walletBalance,
-          available: a.availableBalance || a.crossWalletBalance || '0',
-          locked: String(
-            parseFloat(a.walletBalance || '0') -
-              parseFloat(a.availableBalance || a.crossWalletBalance || '0')
-          ),
-          marginBalance: a.marginBalance || a.crossWalletBalance || a.walletBalance || '0',
-          unrealizedPnl: a.unrealizedProfit || '0',
-        }));
+        const mappedBalances = (accountInfo.assets || []).map((a: any) => {
+          const walletBal = new BigNumber(a.walletBalance || '0');
+          const availBal = new BigNumber(a.availableBalance || a.crossWalletBalance || '0');
+          return {
+            asset: a.asset,
+            total: a.walletBalance,
+            available: a.availableBalance || a.crossWalletBalance || '0',
+            locked: walletBal.minus(availBal).toString(),
+            marginBalance: a.marginBalance || a.crossWalletBalance || a.walletBalance || '0',
+            unrealizedPnl: a.unrealizedProfit || '0',
+          };
+        });
 
         const mappedPositions = (positionRisk || [])
           .map(p => {
@@ -70,7 +72,7 @@ export function useAsterDataSync(signer: Signer | null, userAddr: string | null)
               markPrice: p.markPrice,
               liquidationPrice: p.liquidationPrice,
               unrealizedPnl: p.unRealizedProfit,
-              leverage: parseFloat(p.leverage),
+              leverage: new BigNumber(p.leverage || '0').toNumber(),
               marginType:
                 p.marginType?.toLowerCase() === 'isolated'
                   ? ('isolated' as const)
@@ -78,7 +80,7 @@ export function useAsterDataSync(signer: Signer | null, userAddr: string | null)
               isolatedMargin: p.isolatedMargin || '0',
             };
           })
-          .filter(p => parseFloat(p.size) !== 0);
+          .filter(p => !new BigNumber(p.size || '0').isZero());
 
         const mappedOrders = (openOrdersResponse || []).map(o => {
           const symbol = o.symbol.replace('USDT', '-USDT');

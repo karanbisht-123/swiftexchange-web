@@ -17,6 +17,10 @@ export const useWalletConnect = () => {
   const network = useWalletStore(state => state.network);
   const isRestoringSession = useWalletStore(state => state.isRestoringSession);
   const session = useWalletStore(state => state.session);
+  const pairingUri = useWalletStore(state => state.pairingUri);
+  const connectingWalletId = useWalletStore(state => state.connectingWalletId);
+  const setPairingUri = useWalletStore(state => state.setPairingUri);
+  const setConnectingWalletId = useWalletStore(state => state.setConnectingWalletId);
 
   const isAuthenticated = useWalletStore(state => state.isAuthenticated);
   const isAuthenticating = useWalletStore(state => state.isAuthenticating);
@@ -115,6 +119,11 @@ export const useWalletConnect = () => {
 
     isConnected,
     isConnecting,
+
+    pairingUri,
+    connectingWalletId,
+    setPairingUri,
+    setConnectingWalletId,
 
     getProvider,
     getWalletInfo,
@@ -266,5 +275,3 @@ export const useWalletConnectionStatus = (type: WalletType) => {
     [status, isConnected, isConnecting, type]
   );
 };
-
-
