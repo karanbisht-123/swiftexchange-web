@@ -56,52 +56,69 @@ const Topbar: React.FC = () => {
   }, [disconnectAll, navigate]);
 
   return (
-    <header className="sticky top-0 z-50 h-[60px] mb-1 w-full max-w-full  bg-primary border-b border-color backdrop-blur-md flex items-center justify-between px-2 sm:px-4 overflow-x-clip">
-      <div className="flex items-center gap-1.5 sm:gap-2 select-none h-full min-w-0 shrink">
+    <header className="sticky top-0 z-50 h-14 w-full bg-[var(--color-bg-primary)]/85 backdrop-blur-xl border-b border-[var(--color-border)]/50 flex items-center justify-between px-3 sm:px-5 select-none transition-colors">
+      {/* Left side: Hamburger on mobile + Brand / Quick Navigation */}
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink">
         <button
           id="hamburger-btn"
           onClick={() => window.dispatchEvent(new CustomEvent('sidebar:toggle'))}
-          className="lg:hidden p-1.5 sm:p-2 rounded-xl text-(--color-text-secondary) hover:text-(--color-text-primary) hover:bg-(--color-bg-tertiary) transition-colors shrink-0 cursor-pointer"
+          className="lg:hidden p-1.5 rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] transition-colors shrink-0 cursor-pointer"
+          aria-label="Toggle Navigation"
         >
-          <Menu size={20} />
+          <Menu size={18} />
         </button>
 
-        {/* {isPerpsView && (
-          <div className="hidden lg:flex items-center gap-4 ml-4 h-full">
-            {[
-              { key: 'trade', label: 'Trade' },
-              { key: 'markets', label: 'Markets' },
-              { key: 'portfolio', label: 'Portfolio' },
-            ].map(tab => (
+        {/* Quick Exchange Nav Pills (Desktop) */}
+        <div className="hidden md:flex items-center gap-1 bg-[var(--color-bg-tertiary)]/50 p-0.5 rounded-lg border border-[var(--color-border)]/30 text-xs font-medium">
+          {[
+            { label: 'Spot', href: ROUTES.TRADING_STELLAR },
+            { label: 'Perps', href: ROUTES.TRADING_PERPS, badge: '20x' },
+            { label: 'Swap', href: ROUTES.TRADING_EVM_SWAP },
+            { label: 'Markets', href: ROUTES.MARKETS },
+          ].map(tab => {
+            const isActive = loc.pathname === tab.href;
+            return (
               <button
-                key={tab.key}
-                onClick={() => navigate(`${ROUTES.TRADING_PERPS}?view=${tab.key}`)}
-                className="relative flex items-center h-full px-2 font-medium text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                key={tab.href}
+                onClick={() => navigate(tab.href)}
+                className={`relative px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                  isActive
+                    ? 'bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] shadow-sm font-semibold'
+                    : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-primary)]/40'
+                }`}
               >
-                {tab.label}
+                <span>{tab.label}</span>
+                {tab.badge && (
+                  <span className="text-[8px] font-mono px-1 rounded bg-amber-500/20 text-amber-400 font-bold leading-tight">
+                    {tab.badge}
+                  </span>
+                )}
               </button>
-            ))}
-          </div>
-        )} */}
+            );
+          })}
+        </div>
       </div>
 
-      <div className="flex items-center gap-1.5 sm:gap-2 lg:gap-4 shrink-0 min-w-0">
+      {/* Right side: Network Switch, Connect Wallet, Disconnect, Notifications, Theme */}
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         <NetworkSwitch />
+
         {isAnyWalletConnected ? (
-          <div className="flex items-center gap-1 sm:gap-1.5 lg:gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <ConnectWalletButton />
             <button
               onClick={handleDisconnectAll}
               disabled={isDisconnecting}
-              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-(--color-danger) text-white text-sm hover:opacity-90 transition cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-400 text-xs font-medium hover:bg-rose-500/20 transition-colors cursor-pointer disabled:opacity-50"
+              title="Disconnect all wallets"
             >
               {isDisconnecting ? (
                 <>
-                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Disconnecting...
+                  <span className="w-3 h-3 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+                  <span>Disconnecting</span>
                 </>
               ) : (
-                'Disconnect All'
+                'Disconnect'
               )}
             </button>
           </div>
@@ -114,12 +131,13 @@ const Topbar: React.FC = () => {
         {isAnyWalletConnected && (
           <button
             onClick={() => setGlobalPanelOpen(true)}
-            className="relative rounded-full p-1.5 sm:p-2 text-(--color-text-secondary) hover:bg-(--color-bg-tertiary) hover:text-(--color-text-primary) transition-colors cursor-pointer shrink-0"
+            className="relative rounded-lg p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors cursor-pointer shrink-0"
+            title="Notifications"
           >
-            <Bell size={18} className="sm:w-5 sm:h-5" />
+            <Bell size={17} />
             {unreadCount > 0 && (
-              <span className="absolute right-1 top-1 flex h-2 w-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
+              <span className="absolute right-1 top-1 flex h-2 w-2 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.7)]">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75"></span>
               </span>
             )}
           </button>

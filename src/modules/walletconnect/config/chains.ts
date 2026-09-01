@@ -25,6 +25,8 @@ export interface StellarChainConfig {
 
 export type NetworkType = 'mainnet' | 'testnet';
 
+export const IS_TESTNET_ENABLED = import.meta.env.VITE_ENABLE_TESTNET === 'true';
+
 export const getEVMChains = (network: NetworkType): EVMChainConfig[] => {
   const chains = getEvmChainsForNetwork(network);
 

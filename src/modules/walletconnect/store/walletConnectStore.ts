@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
-import { type NetworkType } from '../config/chains';
+import { IS_TESTNET_ENABLED, type NetworkType } from '../config/chains';
 import {
   buildSiweMessage,
   buildStellarChallenge,
@@ -82,6 +82,7 @@ interface WalletActions {
 }
 
 const getInitialNetwork = (): NetworkType => {
+  if (!IS_TESTNET_ENABLED) return 'mainnet';
   if (typeof window === 'undefined') return 'mainnet';
   try {
     const stored = localStorage.getItem('network');
@@ -525,8 +526,8 @@ export const useWalletStore = create<WalletState & WalletActions>()(
         const wallets: Partial<Record<WalletType, ConnectedWallet>> = {};
         const status: Partial<Record<WalletType, WalletConnectionStatus>> = {};
 
-        sessions.forEach(s => {
-          wallets[s.type] = {
+        sessions.forEach((s: any) => {
+          wallets[s.type as WalletType] = {
             type: s.type,
             walletId: s.walletId,
             address: s.type === 'evm' ? s.evmAddress! : s.stellarAddress!,
@@ -535,7 +536,7 @@ export const useWalletStore = create<WalletState & WalletActions>()(
             peerIcon: s.peerIcon,
             peerRedirect: s.peerRedirect,
           };
-          status[s.type] = { state: 'connected' };
+          status[s.type as WalletType] = { state: 'connected' };
         });
 
         const rawSession =
@@ -615,7 +616,7 @@ export const initWalletListener = async () => {
   if (listenerInitialized) return;
 
   try {
-    walletService.onStateChange((type, state) => {
+    walletService.onStateChange((type: WalletType, state: ConnectionState) => {
       try {
         if (state === 'disconnected' || state === 'failed') {
           useWalletStore.setState(prev => {

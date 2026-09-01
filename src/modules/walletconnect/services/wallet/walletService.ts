@@ -1,5 +1,5 @@
 import { openMobileWallet } from '../../../../utils/walletConnectUtils';
-import { type NetworkType } from '../../config/chains';
+import { IS_TESTNET_ENABLED, type NetworkType } from '../../config/chains';
 import { useWalletStore } from '../../store/walletConnectStore';
 import { disconnect, disconnectAll } from './disconnect';
 import { connectChainWallet } from './evmConnect';
@@ -51,6 +51,7 @@ class WalletService {
   // ---------------------------------------------------------------------------
 
   private loadNetwork(): NetworkType {
+    if (!IS_TESTNET_ENABLED) return 'mainnet';
     try {
       const stored = localStorage.getItem('network');
       return stored === 'testnet' ? 'testnet' : 'mainnet';
