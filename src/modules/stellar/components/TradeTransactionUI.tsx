@@ -170,8 +170,8 @@ const TradeTransactionUI = () => {
         .trade-new { animation: trade-slide-in 0.3s ease; }
       `}</style>
 
-      <div className="bg-secondary min-h-screen lg:rounded-2xl border border-white/5 lg:p-6">
-        <div className="flex items-center justify-between px-4 pt-4 pb-3 lg:px-0 lg:pt-0 lg:pb-0 lg:mb-8 border-b border-white/5 lg:border-0">
+      <div className="bg-[var(--color-bg-secondary)] rounded-2xl border border-[var(--color-border)]/60 p-4 lg:p-6 shadow-sm">
+        <div className="flex items-center justify-between pb-3 lg:pb-0 lg:mb-8 border-b border-[var(--color-border)]/40 lg:border-0">
           <h2 className="text-base font-bold text-text-primary lg:text-lg">Trade Transactions</h2>
           <div className="flex items-center gap-1 p-0.5 bg-primary rounded-lg lg:p-1">
             <button
@@ -243,9 +243,9 @@ const TradeTransactionUI = () => {
                         </td>
                       </tr>
                     ) : (
-                      activeOffers.map(offer => (
+                      activeOffers.map((offer, idx) => (
                         <tr
-                          key={offer.id}
+                          key={`${offer.id}-${idx}`}
                           className={`transition-colors border-b border-color hover:bg-primary/10 ${
                             removingOfferIds.has(offer.id)
                               ? 'opacity-40 pointer-events-none grayscale-[0.5]'
@@ -330,9 +330,9 @@ const TradeTransactionUI = () => {
                   </div>
                 ) : (
                   <div className="divide-y divide-white/5">
-                    {activeOffers.map(offer => (
+                    {activeOffers.map((offer, idx) => (
                       <div
-                        key={offer.id}
+                        key={`${offer.id}-${idx}`}
                         className={`px-4 py-3.5 transition-all duration-300 ${
                           removingOfferIds.has(offer.id)
                             ? 'opacity-40 grayscale-[0.5]'
@@ -459,9 +459,9 @@ const TradeTransactionUI = () => {
                         </td>
                       </tr>
                     ) : (
-                      completedTrades.map(trade => (
+                      completedTrades.map((trade, idx) => (
                         <tr
-                          key={trade.id}
+                          key={`${trade.id}-${idx}`}
                           className="border-b border-color hover:bg-primary/10 transition-colors"
                         >
                           <td className="px-6 py-3">
@@ -549,8 +549,8 @@ const TradeTransactionUI = () => {
                   </div>
                 ) : (
                   <div className="divide-y divide-white/5">
-                    {completedTrades.map(trade => (
-                      <div key={trade.id} className="px-4 py-3.5">
+                    {completedTrades.map((trade, idx) => (
+                      <div key={`${trade.id}-${idx}`} className="px-4 py-3.5">
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-1.5">
                             <span className="font-bold text-sm text-text-primary">

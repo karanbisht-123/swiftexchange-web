@@ -1125,7 +1125,7 @@ const EvmTransactionHistory: React.FC = () => {
     };
 
     return (
-      <div className="space-y-6 overflow-y-auto pb-4 lg:pb-0 custom-scrollbar pr-2">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <p className="text-xs text-muted">
@@ -1309,7 +1309,7 @@ const EvmTransactionHistory: React.FC = () => {
     const groupedTransactions = groups;
 
     return (
-      <div className="space-y-6 overflow-y-auto pb-4 lg:pb-0 custom-scrollbar pr-2">
+      <div className="space-y-4">
         {groupedTransactions.map((group, index) => (
           <div key={index} className="space-y-3">
             <h4 className="text-xs font-bold text-muted uppercase tracking-wider pl-1 sticky top-0 bg-secondary/90 backdrop-blur z-10 py-1">
@@ -1479,7 +1479,9 @@ const EvmTransactionHistory: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 relative items-start">
         <div
           className={`${
-            isStellarView ? 'col-span-1 lg:col-span-12' : 'lg:col-span-7 xl:col-span-8'
+            isStellarView
+              ? 'col-span-1 lg:col-span-12'
+              : 'lg:col-span-7 xl:col-span-8 lg:max-h-[calc(100vh-165px)] lg:overflow-y-auto pr-1 custom-scrollbar'
           } flex flex-col`}
         >
           {isStellarView ? (
@@ -1492,7 +1494,7 @@ const EvmTransactionHistory: React.FC = () => {
         </div>
 
         {!isStellarView && (
-          <div className="hidden lg:block lg:col-span-5 xl:col-span-4 sticky top-6 h-[calc(100vh-48px)]">
+          <div className="hidden lg:block lg:col-span-5 xl:col-span-4 sticky top-0 lg:max-h-[calc(100vh-165px)] overflow-y-auto custom-scrollbar">
             {selectedView === 'recent' && selectedLocalTx ? (
               <div className="h-full animate-in fade-in slide-in-from-right-4 duration-300">
                 <TransactionDetailsView

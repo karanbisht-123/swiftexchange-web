@@ -495,8 +495,8 @@ const AmmSwapUI = () => {
   );
 
   return (
-    <div className="flex flex-col lg:flex-row gap-1  lg:gap-4 h-full lg:p-0 overflow-y-auto lg:overflow-visible">
-      <div className="w-full h-[300px] bg-secondary lg:h-auto lg:flex-1 lg:rounded-xl overflow-hidden shrink-0 border border-color">
+    <div className="flex flex-col lg:flex-row gap-3 lg:gap-4 h-full overflow-y-auto lg:overflow-visible">
+      <div className="w-full h-[300px] bg-[var(--color-bg-secondary)] lg:h-auto lg:flex-1 rounded-2xl overflow-hidden shrink-0 border border-[var(--color-border)]/60 shadow-sm">
         <Suspense
           fallback={
             <div className="w-full h-full flex items-center justify-center bg-secondary">
@@ -508,7 +508,7 @@ const AmmSwapUI = () => {
         </Suspense>
       </div>
 
-      <div className="w-full lg:w-[450px] bg-secondary p-2 lg:p-6 lg:rounded-xl shrink-0 border border-color">
+      <div className="w-full lg:w-[450px] bg-[var(--color-bg-secondary)] p-4 sm:p-5 lg:p-6 rounded-2xl shrink-0 border border-[var(--color-border)]/60 shadow-sm">
         {/* <InfoBanner
           variant="warning"
           label="Beta:"
