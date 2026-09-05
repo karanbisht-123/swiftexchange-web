@@ -1,4 +1,3 @@
-/* eslint-disable react-refresh/only-export-components */
 import { type FC, type ReactNode, createContext, useContext, useMemo, useReducer } from 'react';
 
 export type ActionType = 'SEND' | 'RECEIVE' | 'BRIDGE' | 'SWAP';
@@ -77,6 +76,7 @@ export const AssetSelectorProvider: FC<{ children: ReactNode }> = ({ children })
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAssetSelectorModal(): AssetSelectorState & AssetSelectorDispatch {
   const state = useContext(StateContext);
   const dispatch = useContext(DispatchContext);
@@ -86,6 +86,7 @@ export function useAssetSelectorModal(): AssetSelectorState & AssetSelectorDispa
   return { ...state, ...dispatch };
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAssetSelectorDispatch(): AssetSelectorDispatch {
   const dispatch = useContext(DispatchContext);
   if (!dispatch) {

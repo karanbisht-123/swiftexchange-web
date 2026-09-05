@@ -1,4 +1,3 @@
-/* eslint-disable react-refresh/only-export-components */
 import React, { useEffect, useRef } from 'react';
 
 import { useNotificationStore } from '../../../store/notificationStore';
@@ -11,6 +10,7 @@ import { CHAINS } from '../utils/assetmanagement/chains';
 import { getEVMNetworkConfig } from '../utils/evmUtils';
 import { rpcManager } from '../utils/rpcProvider';
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const PUBLIC_TX_CHEKER: Record<string, string> = {
   ETH: `https://eth.blockscout.com/api/v2/transactions/`,
   BSC: `https://bsc.blockscout.com/api/v2/transactions/`,
@@ -22,6 +22,7 @@ export const PUBLIC_TX_CHEKER: Record<string, string> = {
   BASE: `https://base.blockscout.com/api/v2/transactions/`,
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const checkTxStatus = async (txHash: string, chain: string) => {
   const baseUrl = PUBLIC_TX_CHEKER[chain];
   if (!baseUrl) return null;

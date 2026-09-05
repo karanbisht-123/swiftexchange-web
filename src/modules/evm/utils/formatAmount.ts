@@ -30,7 +30,7 @@ export const formatTxAmount = (
         return result.toFixed(6).replace(/\.?0+$/, '') || '0';
       }
     } catch {
-      // Ignore parsing errors and fall through
+      // Fall through to tx.value parsing if rawContract BigInt parsing fails
     }
   }
 
