@@ -1,4 +1,5 @@
-import coinsData from "../../../data/assets/coins.json"
+import coinsData from '../../../data/assets/coins.json';
+
 interface CoinData {
   id: string;
   symbol: string;

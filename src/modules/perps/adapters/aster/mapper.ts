@@ -1,4 +1,4 @@
-import type { Market, OrderBook, Trade, Candle } from '../../core/models';
+import type { Candle, Market, OrderBook, Trade } from '../../core/models';
 import type { AssetCtx } from '../../core/stores/tickerStore';
 
 export class AsterMapper {

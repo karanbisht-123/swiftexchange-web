@@ -1,4 +1,4 @@
-import { ASTER_ENDPOINTS, ASTER_REST_URL, ASTER_BAPI_URL, BAPI_ENDPOINTS } from '../constants';
+import { ASTER_BAPI_URL, ASTER_ENDPOINTS, ASTER_REST_URL, BAPI_ENDPOINTS } from '../constants';
 
 export interface FundingRateData {
   symbol: string;
@@ -15,7 +15,10 @@ export interface FundingInfoData {
   fundingFeeFloor: number;
 }
 
-export async function getFundingRates(symbol: string, limit: number = 336): Promise<FundingRateData[]> {
+export async function getFundingRates(
+  symbol: string,
+  limit: number = 336
+): Promise<FundingRateData[]> {
   const url = `${ASTER_BAPI_URL}${BAPI_ENDPOINTS.FUNDING_HISTORY}`;
   const response = await fetch(url, {
     method: 'POST',
@@ -26,8 +29,8 @@ export async function getFundingRates(symbol: string, limit: number = 336): Prom
       symbol: symbol,
       page: 1,
       rows: limit,
-      sourceCode: "astherus"
-    })
+      sourceCode: 'astherus',
+    }),
   });
   if (!response.ok) {
     throw new Error(`Failed to fetch funding rates: ${response.statusText}`);
@@ -73,10 +76,10 @@ export async function getSymbolAthl(coin: string): Promise<any> {
 }
 
 export async function getFundingInfo(symbol?: string): Promise<FundingInfoData[]> {
-  const url = symbol 
+  const url = symbol
     ? `${ASTER_REST_URL}${ASTER_ENDPOINTS.FUNDING_INFO}?symbol=${symbol}`
     : `${ASTER_REST_URL}${ASTER_ENDPOINTS.FUNDING_INFO}`;
-    
+
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to fetch funding info: ${response.statusText}`);
@@ -86,12 +89,12 @@ export async function getFundingInfo(symbol?: string): Promise<FundingInfoData[]
 
 export async function getBrackets(): Promise<any[]> {
   const url = `${ASTER_BAPI_URL}${BAPI_ENDPOINTS.BRACKETS}`;
-  const response = await fetch(url, { 
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     },
-    body: JSON.stringify({})
+    body: JSON.stringify({}),
   });
   if (!response.ok) {
     throw new Error(`Failed to fetch brackets: ${response.statusText}`);

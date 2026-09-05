@@ -949,5 +949,3 @@ export function exportStellarReport(stellar: StellarExportData): void {
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   );
 }
-
-

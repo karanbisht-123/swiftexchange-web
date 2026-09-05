@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  createListenKey,
-  keepaliveListenKey,
-  deleteListenKey,
-  LISTEN_KEY_KEEPALIVE_MS,
-} from '../api/listenKey';
 
 import type { Signer } from 'ethers';
 
+import {
+  LISTEN_KEY_KEEPALIVE_MS,
+  createListenKey,
+  deleteListenKey,
+  keepaliveListenKey,
+} from '../api/listenKey';
 
-export function useListenKey(signer: Signer | null, userAddr: string | null): {
+export function useListenKey(
+  signer: Signer | null,
+  userAddr: string | null
+): {
   listenKey: string | null;
   error: Error | null;
   refresh: () => Promise<void>;
@@ -42,7 +45,7 @@ export function useListenKey(signer: Signer | null, userAddr: string | null): {
   const refresh = useCallback(async () => {
     if (!active || !signer || !userAddr) return;
     try {
-      await deleteListenKey(signer, userAddr).catch(() => { });
+      await deleteListenKey(signer, userAddr).catch(() => {});
       const key = await createListenKey(signer, userAddr);
       setListenKey(key);
       setError(null);
@@ -57,15 +60,17 @@ export function useListenKey(signer: Signer | null, userAddr: string | null): {
 
     let cancelled = false;
 
-    createListenKey(signer, userAddr).then((key) => {
-      if (cancelled) return;
-      setListenKey(key);
-      setError(null);
-      startKeepalive();
-    }).catch((e) => {
-      if (cancelled) return;
-      setError(e instanceof Error ? e : new Error(String(e)));
-    });
+    createListenKey(signer, userAddr)
+      .then(key => {
+        if (cancelled) return;
+        setListenKey(key);
+        setError(null);
+        startKeepalive();
+      })
+      .catch(e => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e : new Error(String(e)));
+      });
 
     return () => {
       cancelled = true;

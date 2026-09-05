@@ -11,7 +11,6 @@ import {
   purgeAgentKey,
   restoreAgentWallet,
 } from '../../../../walletconnect/services/asterAgentKeyManager';
-
 import { walletService } from '../../../../walletconnect/services/walletService';
 import { useWalletStore } from '../../../../walletconnect/store/walletConnectStore';
 

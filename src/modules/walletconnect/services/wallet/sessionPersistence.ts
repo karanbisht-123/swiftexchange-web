@@ -1,6 +1,5 @@
 import { getStellarConfig } from '../../config/chains';
 import { WALLET_METADATA_MAP } from '../../constants/Wallet';
-
 import { setupEVMListeners, setupWalletConnectListeners } from './eventListeners';
 import { resolveEvmProvider } from './providerRegistry';
 import { getOrCreateProvider } from './providerRegistry';

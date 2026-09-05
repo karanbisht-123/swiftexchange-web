@@ -1,9 +1,9 @@
+import { PerpEvent, perpEventBus } from '../../core/events';
+import { orderBookStore } from '../../core/stores/orderbookStore';
+import { useTickerStore } from '../../core/stores/tickerStore';
+import { tradeStore } from '../../core/stores/tradeStore';
 import { WebSocketManager } from '../../core/websocket/manager';
 import { HyperliquidMapper } from './mapper';
-import { orderBookStore } from '../../core/stores/orderbookStore';
-import { tradeStore } from '../../core/stores/tradeStore';
-import { useTickerStore } from '../../core/stores/tickerStore';
-import { perpEventBus, PerpEvent } from '../../core/events';
 
 export class HyperliquidWebSocket extends WebSocketManager {
   constructor() {
@@ -59,12 +59,18 @@ export class HyperliquidWebSocket extends WebSocketManager {
 
   public subscribeCandles(coin: string, interval: string): void {
     const topicId = `candle:${coin}:${interval}`;
-    this.subscribe(topicId, { method: 'subscribe', subscription: { type: 'candle', coin, interval } });
+    this.subscribe(topicId, {
+      method: 'subscribe',
+      subscription: { type: 'candle', coin, interval },
+    });
   }
 
   public unsubscribeCandles(coin: string, interval: string): void {
     const topicId = `candle:${coin}:${interval}`;
-    this.unsubscribe(topicId, { method: 'unsubscribe', subscription: { type: 'candle', coin, interval } });
+    this.unsubscribe(topicId, {
+      method: 'unsubscribe',
+      subscription: { type: 'candle', coin, interval },
+    });
   }
 
   protected handleMessage(event: MessageEvent): void {
@@ -75,7 +81,12 @@ export class HyperliquidWebSocket extends WebSocketManager {
 
       if (data.channel === 'l2Book' && data.data) {
         const mappedBook = HyperliquidMapper.mapOrderBook(data.data);
-        orderBookStore.applySnapshot(mappedBook.symbol, mappedBook.bids, mappedBook.asks, mappedBook.updateId ?? data.data.time ?? 0);
+        orderBookStore.applySnapshot(
+          mappedBook.symbol,
+          mappedBook.bids,
+          mappedBook.asks,
+          mappedBook.updateId ?? data.data.time ?? 0
+        );
       }
 
       if (data.channel === 'trades' && data.data) {

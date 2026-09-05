@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-
 import { ethers } from 'ethers';
 
 import { WalletType } from '../../walletconnect/constants/Wallet';
@@ -12,7 +11,7 @@ import {
   removeLocalTransaction,
   updateLocalTransactionStatus,
 } from '../service/localTransactionService';
-;
+
 export type TransactionStatus = 'pending' | 'success' | 'failed';
 
 export interface LocalTransactionWithStatus extends LocalTransaction {
@@ -33,8 +32,6 @@ interface UseLocalTransactionsReturn {
 
 const REFRESH_INTERVAL = 30000;
 
-
-
 export const useLocalTransactions = (): UseLocalTransactionsReturn => {
   const { getProvider } = useWalletConnect();
   const connectedWallets = useWalletStore(state => state.connectedWallets);
@@ -43,11 +40,7 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
   const evmWallet = connectedWallets[WalletType.EVM];
   const stellarWallet = connectedWallets[WalletType.STELLAR];
 
-
-  const currentAddresses = [
-    evmWallet?.address,
-    stellarWallet?.address,
-  ].filter(Boolean) as string[];
+  const currentAddresses = [evmWallet?.address, stellarWallet?.address].filter(Boolean) as string[];
 
   const currentAddress = currentAddresses[0];
 
@@ -73,11 +66,12 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
         let blockNumber: number | undefined;
         let gasUsed: string | undefined;
         let destinationHash: string | undefined;
-        let fromAddress: string | undefined = tx.from;
-        let toAddress: string | undefined = tx.to;
+        const fromAddress: string | undefined = tx.from;
+        const toAddress: string | undefined = tx.to;
 
         const providerUpper = tx.provider?.toUpperCase();
-        const isBypassed = !tx.provider ||
+        const isBypassed =
+          !tx.provider ||
           providerUpper === 'UNISWAP' ||
           providerUpper === 'EVMTX' ||
           providerUpper === 'ONEINCH' ||
@@ -110,7 +104,6 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
           // Keeping code for future use.
           return { ...tx, status: tx.status || 'pending' };
         } else {
-
           const provider = getProvider(WalletType.EVM);
           if (provider) {
             try {
@@ -133,11 +126,20 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
                           const steps = skipData.transfer_sequence || [];
                           const lastStep = steps[steps.length - 1];
                           const lastStepDetails = lastStep
-                            ? (lastStep[Object.keys(lastStep).find(k => k.endsWith('_transfer')) ?? ''] ?? lastStep)
+                            ? (lastStep[
+                                Object.keys(lastStep).find(k => k.endsWith('_transfer')) ?? ''
+                              ] ?? lastStep)
                             : null;
                           const pkt = lastStepDetails?.packet_txs ?? lastStepDetails?.txs;
-                          destinationHash = pkt?.receive_tx?.tx_hash || pkt?.acknowledge_tx?.tx_hash || pkt?.receive_tx?.txHash || pkt?.acknowledge_tx?.txHash;
-                        } else if (skipData.state === 'STATE_COMPLETED_ERROR' || skipData.state === 'STATE_ABANDONED') {
+                          destinationHash =
+                            pkt?.receive_tx?.tx_hash ||
+                            pkt?.acknowledge_tx?.tx_hash ||
+                            pkt?.receive_tx?.txHash ||
+                            pkt?.acknowledge_tx?.txHash;
+                        } else if (
+                          skipData.state === 'STATE_COMPLETED_ERROR' ||
+                          skipData.state === 'STATE_ABANDONED'
+                        ) {
                           newStatus = 'failed';
                         } else {
                           newStatus = 'pending';
@@ -149,7 +151,6 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
                       console.warn('Skip-specific detail fetch failed:', skipErr);
                       newStatus = 'pending';
                     }
-
                   }
                 }
               } else {
@@ -162,8 +163,21 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
           }
         }
 
-        if (newStatus !== tx.status || destinationHash !== tx.destinationHash || fromAddress !== tx.from || toAddress !== tx.to) {
-          updateLocalTransactionStatus(tx.hash, newStatus, blockNumber, gasUsed, destinationHash, fromAddress, toAddress);
+        if (
+          newStatus !== tx.status ||
+          destinationHash !== tx.destinationHash ||
+          fromAddress !== tx.from ||
+          toAddress !== tx.to
+        ) {
+          updateLocalTransactionStatus(
+            tx.hash,
+            newStatus,
+            blockNumber,
+            gasUsed,
+            destinationHash,
+            fromAddress,
+            toAddress
+          );
         }
 
         return {
@@ -205,14 +219,19 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
     }
   }, [fetchTransactionStatus, currentAddress, currentNetwork]);
 
-  const refreshTransaction = useCallback(async (hash: string) => {
-    const localTxs = getLocalTransactions(currentAddresses, currentNetwork);
-    const tx = localTxs.find(t => t.hash.toLowerCase() === hash.toLowerCase());
-    if (tx) {
-      const updatedTx = await fetchTransactionStatus(tx);
-      setTransactions(prev => prev.map(t => t.hash.toLowerCase() === hash.toLowerCase() ? updatedTx : t));
-    }
-  }, [fetchTransactionStatus, currentAddress, currentNetwork]);
+  const refreshTransaction = useCallback(
+    async (hash: string) => {
+      const localTxs = getLocalTransactions(currentAddresses, currentNetwork);
+      const tx = localTxs.find(t => t.hash.toLowerCase() === hash.toLowerCase());
+      if (tx) {
+        const updatedTx = await fetchTransactionStatus(tx);
+        setTransactions(prev =>
+          prev.map(t => (t.hash.toLowerCase() === hash.toLowerCase() ? updatedTx : t))
+        );
+      }
+    },
+    [fetchTransactionStatus, currentAddress, currentNetwork]
+  );
 
   const refresh = useCallback(() => {
     loadTransactions();
@@ -228,8 +247,10 @@ export const useLocalTransactions = (): UseLocalTransactionsReturn => {
   }, [loadTransactions]);
 
   useEffect(() => {
-    const hasPending = transactions.some(tx =>
-      tx.status === 'pending' || (tx.type === 'bridge' && tx.status !== 'failed' && !tx.destinationHash)
+    const hasPending = transactions.some(
+      tx =>
+        tx.status === 'pending' ||
+        (tx.type === 'bridge' && tx.status !== 'failed' && !tx.destinationHash)
     );
 
     if (hasPending && !intervalRef.current) {

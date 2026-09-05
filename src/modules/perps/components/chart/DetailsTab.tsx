@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from 'react';
+
+import {
+  getBrackets,
+  getRealTimeFundingRate,
+  getSymbolAthl,
+  getSymbolDetail,
+} from '../../adapters/aster/api/funding';
 import { useMarketStore } from '../../core/stores/marketStore';
-import { getSymbolDetail, getSymbolAthl, getBrackets, getRealTimeFundingRate } from '../../adapters/aster/api/funding';
 import { CoinIcon } from '../ui/CoinIcon';
 import FundingChart from './FundingChart';
 
@@ -20,7 +26,11 @@ function formatSupply(num: number, symbol: string): string {
   return num.toFixed(2) + ' ' + symbol;
 }
 
-const TokenInfoView: React.FC<{ symbol: string; coin: string; data: any; athlData: any }> = ({ symbol, data, athlData }) => {
+const TokenInfoView: React.FC<{ symbol: string; coin: string; data: any; athlData: any }> = ({
+  symbol,
+  data,
+  athlData,
+}) => {
   const metrics = data.metrics || {};
   const quote = metrics.quote?.USD || {};
 
@@ -55,9 +65,14 @@ const TokenInfoView: React.FC<{ symbol: string; coin: string; data: any; athlDat
             <div className="flex flex-col">
               <div className="flex items-center gap-2">
                 <span className="text-xl font-bold">{data.name}</span>
-                <span className="bg-tertiary text-muted text-xs px-1.5 py-0.5 rounded font-medium">#{data.cmc_rank || '--'}</span>
+                <span className="bg-tertiary text-muted text-xs px-1.5 py-0.5 rounded font-medium">
+                  #{data.cmc_rank || '--'}
+                </span>
               </div>
-              <span className="text-muted text-xs">{data.name} · Launched {data.date_added ? new Date(data.date_added).toISOString().split('T')[0] : '--'}</span>
+              <span className="text-muted text-xs">
+                {data.name} · Launched{' '}
+                {data.date_added ? new Date(data.date_added).toISOString().split('T')[0] : '--'}
+              </span>
             </div>
           </div>
 
@@ -68,7 +83,21 @@ const TokenInfoView: React.FC<{ symbol: string; coin: string; data: any; athlDat
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 bg-tertiary hover:bg-hover px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="2" y1="12" x2="22" y2="12"></line>
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+              </svg>
               Website
             </a>
             <a
@@ -77,7 +106,21 @@ const TokenInfoView: React.FC<{ symbol: string; coin: string; data: any; athlDat
               rel="noopener noreferrer"
               className="flex items-center gap-1.5 bg-tertiary hover:bg-hover px-3 py-1.5 rounded-md text-xs font-medium transition-colors"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <line x1="10" y1="14" x2="21" y2="3"></line>
+              </svg>
               Explorer
             </a>
           </div>
@@ -92,18 +135,23 @@ const TokenInfoView: React.FC<{ symbol: string; coin: string; data: any; athlDat
         <div className="flex gap-4 mb-8">
           <div className="flex-1 bg-secondary rounded-xl p-4 border border-color">
             <span className="text-muted text-xs block mb-2">All-time High</span>
-            <span className="text-success text-lg font-bold block mb-1">${ath.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+            <span className="text-success text-lg font-bold block mb-1">
+              ${ath.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+            </span>
             <span className="text-muted text-[10px]">{athDate}</span>
           </div>
           <div className="flex-1 bg-secondary rounded-xl p-4 border border-color">
             <span className="text-muted text-xs block mb-2">All-time Low</span>
-            <span className="text-danger text-lg font-bold block mb-1">${atl.toLocaleString(undefined, { maximumFractionDigits: 6 })}</span>
+            <span className="text-danger text-lg font-bold block mb-1">
+              ${atl.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+            </span>
             <span className="text-muted text-[10px]">{atlDate}</span>
           </div>
         </div>
 
         <p className="text-[#6c757d] text-[10px] leading-relaxed">
-          The above data is provided by CoinMarketCap for informational purposes only and does not constitute investment advice of any kind.
+          The above data is provided by CoinMarketCap for informational purposes only and does not
+          constitute investment advice of any kind.
         </p>
       </div>
 
@@ -140,7 +188,9 @@ const TokenInfoView: React.FC<{ symbol: string; coin: string; data: any; athlDat
           </div>
           <div className="flex items-center justify-between">
             <span className="text-muted text-sm">Circulation Rate</span>
-            <span className="text-success font-semibold">{circRate > 0 ? circRate.toFixed(2) + '%' : '--'}</span>
+            <span className="text-success font-semibold">
+              {circRate > 0 ? circRate.toFixed(2) + '%' : '--'}
+            </span>
           </div>
         </div>
       </div>
@@ -202,14 +252,21 @@ const LeverageMarginView: React.FC<{ symbol: string }> = ({ symbol }) => {
           <div>Maintenance Amount(USDT)</div>
         </div>
         {brackets.map((b: any) => (
-          <div key={b.bracketSeq} className="grid grid-cols-5 text-sm py-3 px-2 hover:bg-secondary/50 rounded transition-colors items-center">
+          <div
+            key={b.bracketSeq}
+            className="grid grid-cols-5 text-sm py-3 px-2 hover:bg-secondary/50 rounded transition-colors items-center"
+          >
             <div className="font-medium text-primary">{b.bracketSeq}</div>
             <div className="text-primary font-mono text-[13px]">
               {b.bracketNotionalFloor.toLocaleString()} - {b.bracketNotionalCap.toLocaleString()}
             </div>
             <div className="text-primary font-medium">{b.maxOpenPosLeverage}X</div>
-            <div className="text-primary font-mono">{(b.bracketMaintenanceMarginRate * 100).toFixed(2)} %</div>
-            <div className="text-primary font-mono">{b.cumFastMaintenanceAmount.toLocaleString()}</div>
+            <div className="text-primary font-mono">
+              {(b.bracketMaintenanceMarginRate * 100).toFixed(2)} %
+            </div>
+            <div className="text-primary font-mono">
+              {b.cumFastMaintenanceAmount.toLocaleString()}
+            </div>
           </div>
         ))}
       </div>
@@ -267,7 +324,9 @@ const FundingHistoryView: React.FC<{ symbol: string }> = ({ symbol }) => {
         <button
           onClick={() => setActiveTab('realtime')}
           className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
-            activeTab === 'realtime' ? 'bg-secondary text-primary border border-color' : 'text-muted hover:text-primary'
+            activeTab === 'realtime'
+              ? 'bg-secondary text-primary border border-color'
+              : 'text-muted hover:text-primary'
           }`}
         >
           Real-Time Funding Rate
@@ -275,7 +334,9 @@ const FundingHistoryView: React.FC<{ symbol: string }> = ({ symbol }) => {
         <button
           onClick={() => setActiveTab('history')}
           className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
-            activeTab === 'history' ? 'bg-secondary text-primary border border-color' : 'text-muted hover:text-primary'
+            activeTab === 'history'
+              ? 'bg-secondary text-primary border border-color'
+              : 'text-muted hover:text-primary'
           }`}
         >
           Funding Rate History
@@ -301,17 +362,22 @@ const FundingHistoryView: React.FC<{ symbol: string }> = ({ symbol }) => {
                   <td className="py-4 font-medium">{data.symbol} Perpetual</td>
                   <td className="py-4">{data.fundingIntervalHours}h</td>
                   <td className="py-4 font-mono">{formatCountdown(data.nextFundingTime)}</td>
-                  <td className="py-4 font-mono text-primary">{(parseFloat(data.lastFundingRate) * 100).toFixed(4)}%</td>
-                  <td className="py-4 font-mono text-primary">{(parseFloat(data.interestRate) * 100).toFixed(4)}%</td>
                   <td className="py-4 font-mono text-primary">
-                    {(data.fundingFeeCap * 100).toFixed(2)}% / {(data.fundingFeeFloor * 100).toFixed(2)}%
+                    {(parseFloat(data.lastFundingRate) * 100).toFixed(4)}%
+                  </td>
+                  <td className="py-4 font-mono text-primary">
+                    {(parseFloat(data.interestRate) * 100).toFixed(4)}%
+                  </td>
+                  <td className="py-4 font-mono text-primary">
+                    {(data.fundingFeeCap * 100).toFixed(2)}% /{' '}
+                    {(data.fundingFeeFloor * 100).toFixed(2)}%
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
         )}
-        
+
         {/* We place FundingChart below the table when Real-Time is active, or as the main view when History is active */}
         <div className="flex-1 min-h-[300px] border border-color rounded-xl overflow-hidden bg-secondary">
           <FundingChart />
@@ -345,10 +411,7 @@ export const DetailsTab: React.FC<DetailsTabProps> = ({ activeChartTab, onChartT
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [detail, athl] = await Promise.all([
-          getSymbolDetail(coin),
-          getSymbolAthl(coin)
-        ]);
+        const [detail, athl] = await Promise.all([getSymbolDetail(coin), getSymbolAthl(coin)]);
         setData(detail);
         setAthlData(athl);
       } catch (e) {
@@ -360,30 +423,26 @@ export const DetailsTab: React.FC<DetailsTabProps> = ({ activeChartTab, onChartT
     fetchData();
   }, [coin, activeSubTab]);
 
-  const tabs: SubTab[] = [
-    'Token Information',
-  'Leverage & Margin',
-    'Funding History'
-  ];
+  const tabs: SubTab[] = ['Token Information', 'Leverage & Margin', 'Funding History'];
 
   return (
     <div className="w-full h-full bg-secondary flex flex-col min-h-0 min-w-0 max-h-full max-w-full">
       {activeChartTab && onChartTabChange && (
         <div className="flex items-center justify-end px-4 py-1.5 border-b border-color bg-secondary shrink-0 z-50">
           <div className="flex items-center gap-3 text-[11px] text-muted">
-            <button 
+            <button
               onClick={() => onChartTabChange('price')}
               className={`transition-colors hover:text-primary ${activeChartTab === 'price' ? 'text-primary font-medium' : ''}`}
             >
               Chart
             </button>
-            <button 
+            <button
               onClick={() => onChartTabChange('depth')}
               className={`transition-colors hover:text-primary ${activeChartTab === 'depth' ? 'text-primary font-medium' : ''}`}
             >
               Depth
             </button>
-            <button 
+            <button
               onClick={() => onChartTabChange('details')}
               className={`transition-colors hover:text-primary ${activeChartTab === 'details' ? 'text-primary font-medium' : ''}`}
             >
@@ -392,17 +451,18 @@ export const DetailsTab: React.FC<DetailsTabProps> = ({ activeChartTab, onChartT
           </div>
         </div>
       )}
-      
+
       {/* Scrollable Container */}
       <div className="flex items-center gap-6 px-4 h-11 border-b border-color shrink-0 overflow-x-auto bg-primary">
         {tabs.map(tab => (
           <button
             key={tab}
             onClick={() => setActiveSubTab(tab)}
-            className={`h-full text-[11px] whitespace-nowrap px-1 transition-colors ${activeSubTab === tab
+            className={`h-full text-[11px] whitespace-nowrap px-1 transition-colors ${
+              activeSubTab === tab
                 ? 'text-primary font-medium border-b-2 border-brand'
                 : 'text-muted hover:text-primary'
-              }`}
+            }`}
           >
             {tab}
           </button>
@@ -411,8 +471,8 @@ export const DetailsTab: React.FC<DetailsTabProps> = ({ activeChartTab, onChartT
 
       {/* Content Area */}
       <div className="flex-1 overflow-hidden relative bg-primary">
-        {activeSubTab === 'Token Information' && (
-          loading ? (
+        {activeSubTab === 'Token Information' &&
+          (loading ? (
             <div className="flex flex-col h-full w-full justify-center items-center">
               <span className="text-muted text-sm">Loading details...</span>
             </div>
@@ -422,16 +482,11 @@ export const DetailsTab: React.FC<DetailsTabProps> = ({ activeChartTab, onChartT
             </div>
           ) : (
             <TokenInfoView symbol={symbol} coin={coin} data={data} athlData={athlData} />
-          )
-        )}
+          ))}
 
-        {activeSubTab === 'Leverage & Margin' && (
-          <LeverageMarginView symbol={symbol} />
-        )}
+        {activeSubTab === 'Leverage & Margin' && <LeverageMarginView symbol={symbol} />}
 
-        {activeSubTab === 'Funding History' && (
-          <FundingHistoryView symbol={symbol} />
-        )}
+        {activeSubTab === 'Funding History' && <FundingHistoryView symbol={symbol} />}
 
         {activeSubTab === 'Trading Parameters' && (
           <div className="flex flex-col h-full w-full justify-center items-center">

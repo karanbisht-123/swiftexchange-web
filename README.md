@@ -91,12 +91,12 @@
 
 ## 🌐 Supported Networks
 
-| Network      | Features                                  | Status    |
-| ------------ | ------------------------------------------ | --------- |
-| **Ethereum** | Swaps, Transfers, Bridging, Aster Perps    | ✅ Active |
-| **BNB Chain**| Swaps, Transfers, Bridging, Aster Perps    | ✅ Active |
-| **Arbitrum** | Aster Perps                                | ✅ Active |
-| **Stellar**  | AMM Swaps, Order Book Trading, Trustlines  | ✅ Active |
+| Network       | Features                                  | Status    |
+| ------------- | ----------------------------------------- | --------- |
+| **Ethereum**  | Swaps, Transfers, Bridging, Aster Perps   | ✅ Active |
+| **BNB Chain** | Swaps, Transfers, Bridging, Aster Perps   | ✅ Active |
+| **Arbitrum**  | Aster Perps                               | ✅ Active |
+| **Stellar**   | AMM Swaps, Order Book Trading, Trustlines | ✅ Active |
 
 ---
 
@@ -266,37 +266,37 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 ### Frontend
 
 | Technology            | Purpose                                  |
-| ---------------------- | ----------------------------------------- |
-| **React 18**           | UI framework with concurrent features     |
-| **Vite 5**              | Lightning-fast build tool and dev server  |
-| **TypeScript**          | Type-safe development                     |
-| **Tailwind CSS**        | Utility-first styling                     |
-| **@tailwindcss/vite**   | Native Tailwind integration for Vite      |
+| --------------------- | ---------------------------------------- |
+| **React 18**          | UI framework with concurrent features    |
+| **Vite 5**            | Lightning-fast build tool and dev server |
+| **TypeScript**        | Type-safe development                    |
+| **Tailwind CSS**      | Utility-first styling                    |
+| **@tailwindcss/vite** | Native Tailwind integration for Vite     |
 
 ### Blockchain Integration
 
-| Library                  | Purpose                          |
-| -------------------------- | --------------------------------- |
-| **WalletConnect v2**       | Multi-wallet connection protocol  |
-| **Ethers.js**               | EVM blockchain interaction        |
-| **@stellar/stellar-sdk**   | Stellar network operations        |
+| Library                        | Purpose                                          |
+| ------------------------------ | ------------------------------------------------ |
+| **WalletConnect v2**           | Multi-wallet connection protocol                 |
+| **Ethers.js**                  | EVM blockchain interaction                       |
+| **@stellar/stellar-sdk**       | Stellar network operations                       |
 | **Aster REST / WebSocket API** | Perpetual trading, order books, and account data |
 
 ### State & Real-Time Data
 
 | Tool          | Purpose                                   |
-| ------------- | ------------------------------------------ |
-| **Zustand**   | Lightweight state management               |
-| **WebSocket** | Real-time market data and account updates  |
+| ------------- | ----------------------------------------- |
+| **Zustand**   | Lightweight state management              |
+| **WebSocket** | Real-time market data and account updates |
 
 ### Development Tools
 
 | Tool                           | Purpose                                     |
-| -------------------------------- | ---------------------------------------------- |
-| **vite-plugin-node-polyfills**   | Node.js polyfills for browser compatibility    |
-| **vite-plugin-remove-console**   | Remove console logs in production builds       |
-| **ESLint**                       | Code linting                                    |
-| **Prettier**                     | Code formatting                                 |
+| ------------------------------ | ------------------------------------------- |
+| **vite-plugin-node-polyfills** | Node.js polyfills for browser compatibility |
+| **vite-plugin-remove-console** | Remove console logs in production builds    |
+| **ESLint**                     | Code linting                                |
+| **Prettier**                   | Code formatting                             |
 
 ### Backend Services
 

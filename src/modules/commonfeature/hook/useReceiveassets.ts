@@ -266,8 +266,7 @@ export const useReceiveAssets = () => {
     isAddressValid,
     isConnected: Object.keys(connectedWallets).length > 0,
     isWalletTypeConnected:
-      !!currentAsset &&
-      !!connectedWallets[currentAsset.walletType as WalletType],
+      !!currentAsset && !!connectedWallets[currentAsset.walletType as WalletType],
     handleCopy,
     handleShare,
     copyFeedback,

@@ -1,10 +1,16 @@
 import React, { useEffect, useRef } from 'react';
-import { getLocalTransactions, updateLocalTransactionStatus, type LocalTransaction } from '../service/localTransactionService';
+
 import { useNotificationStore } from '../../../store/notificationStore';
+import {
+  type LocalTransaction,
+  getLocalTransactions,
+  updateLocalTransactionStatus,
+} from '../service/localTransactionService';
+import { CHAINS } from '../utils/assetmanagement/chains';
 import { getEVMNetworkConfig } from '../utils/evmUtils';
 import { rpcManager } from '../utils/rpcProvider';
-import { CHAINS } from '../utils/assetmanagement/chains';
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const PUBLIC_TX_CHEKER: Record<string, string> = {
   ETH: `https://eth.blockscout.com/api/v2/transactions/`,
   BSC: `https://bsc.blockscout.com/api/v2/transactions/`,
@@ -16,6 +22,7 @@ export const PUBLIC_TX_CHEKER: Record<string, string> = {
   BASE: `https://base.blockscout.com/api/v2/transactions/`,
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const checkTxStatus = async (txHash: string, chain: string) => {
   const baseUrl = PUBLIC_TX_CHEKER[chain];
   if (!baseUrl) return null;
@@ -23,12 +30,12 @@ export const checkTxStatus = async (txHash: string, chain: string) => {
     const res = await fetch(`${baseUrl}${txHash}`);
     if (!res.ok) return null;
     const data = await res.json();
-    if (data.status === "ok" || data.result === "success") {
+    if (data.status === 'ok' || data.result === 'success') {
       return { status: true, message: data.result, chain, reqStatus: data.status };
     } else {
       return { status: false, message: data.result, chain, reqStatus: data.status };
     }
-  } catch (err) {
+  } catch {
     return null;
   }
 };
@@ -60,12 +67,13 @@ export const TransactionMonitor: React.FC = () => {
 
       // Skip EVM/Uniswap/1inch/Rango monitoring as requested (poll status from backend, keeping code for future use)
       const providerUpper = tx.provider?.toUpperCase();
-      const isBypassed = !tx.provider || 
-        providerUpper === 'UNISWAP' || 
-        providerUpper === 'EVMTX' || 
-        providerUpper === 'ONEINCH' || 
-        providerUpper === 'ONEINCH_FUSION' || 
-        providerUpper === 'ONEINCH_FUSION_PLUS' || 
+      const isBypassed =
+        !tx.provider ||
+        providerUpper === 'UNISWAP' ||
+        providerUpper === 'EVMTX' ||
+        providerUpper === 'ONEINCH' ||
+        providerUpper === 'ONEINCH_FUSION' ||
+        providerUpper === 'ONEINCH_FUSION_PLUS' ||
         providerUpper === 'RANGO';
       if (isBypassed) {
         monitoredHashes.current.delete(tx.hash);
@@ -76,7 +84,9 @@ export const TransactionMonitor: React.FC = () => {
         let isSuccess = false;
         let isConfirmed = false;
 
-        const chainConfig = Object.values(CHAINS).find(c => c.chainId === tx.chainId || c.chainId === Number(tx.chainId));
+        const chainConfig = Object.values(CHAINS).find(
+          c => c.chainId === tx.chainId || c.chainId === Number(tx.chainId)
+        );
         const chainSymbol = chainConfig?.symbol === 'BNB' ? 'BSC' : chainConfig?.symbol;
 
         if (chainSymbol) {
@@ -89,16 +99,20 @@ export const TransactionMonitor: React.FC = () => {
 
         if (!isConfirmed) {
           const config = getEVMNetworkConfig(tx.chainId);
-          const receipt = await rpcManager.fetchWithFallback(tx.chainId, config.rpcUrls, async (provider) => {
-            let attempts = 0;
-            while (attempts < 60) {
-              const r = await provider.getTransactionReceipt(tx.hash);
-              if (r) return r;
-              await new Promise(res => setTimeout(res, 5000));
-              attempts++;
+          const receipt = await rpcManager.fetchWithFallback(
+            tx.chainId,
+            config.rpcUrls,
+            async provider => {
+              let attempts = 0;
+              while (attempts < 60) {
+                const r = await provider.getTransactionReceipt(tx.hash);
+                if (r) return r;
+                await new Promise(res => setTimeout(res, 5000));
+                attempts++;
+              }
+              return null;
             }
-            return null;
-          });
+          );
 
           if (receipt) {
             isConfirmed = true;

@@ -116,7 +116,7 @@ export async function resolveEvmProvider(
 
 /**
  * Scans the EIP-5749 providers[] array with spoofer-aware flag checks.
-  */
+ */
 function findInProvidersArray(providers: any[], walletId: string): any | null {
   switch (walletId) {
     case 'metamask':

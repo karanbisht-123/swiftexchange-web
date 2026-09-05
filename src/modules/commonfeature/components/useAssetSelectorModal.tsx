@@ -1,11 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useReducer,
-  useMemo,
-  type ReactNode,
-  type FC,
-} from 'react';
+import { type FC, type ReactNode, createContext, useContext, useMemo, useReducer } from 'react';
 
 export type ActionType = 'SEND' | 'RECEIVE' | 'BRIDGE' | 'SWAP';
 
@@ -34,9 +27,7 @@ interface AssetSelectorDispatch {
 const StateContext = createContext<AssetSelectorState | undefined>(undefined);
 const DispatchContext = createContext<AssetSelectorDispatch | undefined>(undefined);
 
-type Action =
-  | { type: 'OPEN'; actionType: ActionType; options?: OpenOptions }
-  | { type: 'CLOSE' };
+type Action = { type: 'OPEN'; actionType: ActionType; options?: OpenOptions } | { type: 'CLOSE' };
 
 const initialState: AssetSelectorState = {
   isOpen: false,
@@ -80,13 +71,12 @@ export const AssetSelectorProvider: FC<{ children: ReactNode }> = ({ children })
 
   return (
     <DispatchContext.Provider value={actions}>
-      <StateContext.Provider value={state}>
-        {children}
-      </StateContext.Provider>
+      <StateContext.Provider value={state}>{children}</StateContext.Provider>
     </DispatchContext.Provider>
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAssetSelectorModal(): AssetSelectorState & AssetSelectorDispatch {
   const state = useContext(StateContext);
   const dispatch = useContext(DispatchContext);
@@ -96,6 +86,7 @@ export function useAssetSelectorModal(): AssetSelectorState & AssetSelectorDispa
   return { ...state, ...dispatch };
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAssetSelectorDispatch(): AssetSelectorDispatch {
   const dispatch = useContext(DispatchContext);
   if (!dispatch) {

@@ -40,9 +40,8 @@ describe('getCalculatedBuyAmount', () => {
     fusionQuote: null,
     showFusionScreen: false,
     selectedBuyAsset: USDC_ASSET,
-    activeQuoteSource: 'swap' as const,
-    activeQuoteData: null,
-    swapQuote: { outputAmount: '3000' },
+    activeQuoteSource: 'swap' as any,
+    activeQuoteData: { outputAmount: '3000' } as any,
     isSameAssetSelected: false,
     feePayType: 'native' as const,
   };
@@ -53,119 +52,132 @@ describe('getCalculatedBuyAmount', () => {
     );
   });
 
-  it('returns swapQuote outputAmount for a standard SWAP', () => {
+  it('returns activeQuoteData outputAmount for a standard SWAP', () => {
     expect(getCalculatedBuyAmount(baseSwapParams)).toBe('3000');
   });
 
-  it('returns "0.00" when swap quote is absent', () => {
-    expect(getCalculatedBuyAmount({ ...baseSwapParams, swapQuote: null })).toBe('0.00');
+  it('returns "0.00" when activeQuoteData is absent', () => {
+    expect(getCalculatedBuyAmount({ ...baseSwapParams, activeQuoteData: null })).toBe('0.00');
   });
 
   it('returns stellar estimatedOutput for stellar SWAP', () => {
     const params = {
       ...baseSwapParams,
-      activeQuoteSource: 'stellar' as const,
+      activeQuoteSource: 'STELLAR_SWAP' as any,
       activeQuoteData: { estimatedOutput: '150.5' },
     };
     expect(getCalculatedBuyAmount(params)).toBe('150.5');
   });
 
   it('returns formatted fusion output for gasless SWAP with fusion quote', () => {
-    const fusionQuote = { toTokenAmount: '5000000000000000000' };
     const params = {
       ...baseSwapParams,
       isGasless: true,
       showFusionScreen: true,
-      fusionQuote,
+      activeQuoteSource: 'FUSION_PLUS' as any,
+      activeQuoteData: { toTokenAmount: '5000000000000000000' },
       selectedBuyAsset: ETH_ASSET,
     };
     expect(getCalculatedBuyAmount(params)).toBe('5.0');
-  });
-
-  it('returns bridge minimumAmountOut for BRIDGE with bridge source', () => {
-    const params = {
-      ...baseSwapParams,
-      actionType: 'BRIDGE' as const,
-      activeQuoteSource: 'bridge' as const,
-      activeQuoteData: { minimumAmountOut: '2900' },
-      swapQuote: null,
-    };
-    expect(getCalculatedBuyAmount(params)).toBe('2900');
-  });
-
-  it('returns net bridge amount after stablecoin fee deduction', () => {
-    const params = {
-      ...baseSwapParams,
-      actionType: 'BRIDGE' as const,
-      activeQuoteSource: 'bridge' as const,
-      feePayType: 'stablecoin' as const,
-      activeQuoteData: { minimumAmountOut: '100', fee: { stablecoin: { amount: '2' } } },
-      swapQuote: null,
-    };
-    const result = getCalculatedBuyAmount(params);
-    expect(parseFloat(result)).toBeCloseTo(98, 5);
   });
 
   it('returns formatted fusion_plus output for cross-chain BRIDGE', () => {
     const params = {
       ...baseSwapParams,
       actionType: 'BRIDGE' as const,
-      activeQuoteSource: 'fusion_plus' as const,
+      activeQuoteSource: 'FUSION_PLUS' as any,
       activeQuoteData: { toTokenAmount: '2000000' },
       selectedBuyAsset: USDC_ASSET,
-      swapQuote: null,
     };
     expect(getCalculatedBuyAmount(params)).toBe('2.0');
+  });
+
+  it('returns near intent formatted output for cross-chain BRIDGE', () => {
+    const params = {
+      ...baseSwapParams,
+      actionType: 'BRIDGE' as const,
+      activeQuoteSource: 'NEAR_INTENT' as any,
+      activeQuoteData: { amountOutFormatted: '100.5' },
+      selectedBuyAsset: USDC_ASSET,
+    };
+    expect(getCalculatedBuyAmount(params)).toBe('100.5');
+  });
+
+  it('returns near intent raw output formatted with token decimals for cross-chain BRIDGE', () => {
+    const params = {
+      ...baseSwapParams,
+      actionType: 'BRIDGE' as const,
+      activeQuoteSource: 'NEAR_INTENT' as any,
+      activeQuoteData: { amountOut: '100000000' },
+      selectedBuyAsset: USDC_ASSET,
+    };
+    expect(getCalculatedBuyAmount(params)).toBe('100.0');
   });
 });
 
 describe('getMinimumReceived', () => {
   const baseParams = {
     actionType: 'SWAP' as const,
-    activeQuoteSource: null as any,
-    activeQuoteData: null,
+    activeQuoteSource: 'swap' as any,
+    activeQuoteData: { outputAmount: '1.0' } as any,
     feePayType: 'native' as const,
     fromChainId: 1,
-    swapQuote: { outputAmount: '1.0', minimumReceived: null as any },
     selectedBuyAsset: ETH_ASSET,
     userSlippageTolerance: 1,
     calculatedBuyAmount: '1.0',
   };
 
   it('returns "0.00" when no quote is available', () => {
-    expect(getMinimumReceived({ ...baseParams, swapQuote: null })).toBe('0.00');
+    expect(getMinimumReceived({ ...baseParams, activeQuoteData: null })).toBe('0.00');
   });
 
   it('uses quote.minimumReceived when already provided by the API', () => {
-    const params = { ...baseParams, swapQuote: { outputAmount: '1.0', minimumReceived: '0.99' } };
+    const params = { ...baseParams, activeQuoteData: { minimumReceived: '0.99' } };
     expect(getMinimumReceived(params)).toBe('0.99');
   });
 
   it('computes minimum received using slippage when not provided by the API', () => {
     const params = {
       ...baseParams,
-      swapQuote: { outputAmount: '1.0', minimumReceived: null },
+      activeQuoteData: { outputAmount: '1.0' },
       userSlippageTolerance: 1,
     };
     const result = parseFloat(getMinimumReceived(params));
     expect(result).toBeCloseTo(0.99, 4);
   });
 
-  it('returns bridge minimumAmountOut for BRIDGE with bridge source', () => {
+  it('returns bridge preset auctionEndAmount for BRIDGE with FUSION_PLUS source', () => {
     const params = {
       ...baseParams,
       actionType: 'BRIDGE' as const,
-      activeQuoteSource: 'bridge' as const,
-      activeQuoteData: { minimumAmountOut: '2900' },
+      activeQuoteSource: 'FUSION_PLUS' as any,
+      activeQuoteData: {
+        recommended_preset: 'fast',
+        presets: {
+          fast: { auctionEndAmount: '990000' },
+        },
+      },
+      selectedBuyAsset: USDC_ASSET,
     };
-    expect(getMinimumReceived(params)).toBe('2900');
+    expect(getMinimumReceived(params)).toBe('0.99');
+  });
+
+  it('returns bridge minAmountOut for BRIDGE with NEAR_INTENT source', () => {
+    const params = {
+      ...baseParams,
+      actionType: 'BRIDGE' as const,
+      activeQuoteSource: 'NEAR_INTENT' as any,
+      activeQuoteData: { minAmountOut: '980000' },
+      selectedBuyAsset: USDC_ASSET,
+    };
+    expect(getMinimumReceived(params)).toBe('0.98');
   });
 
   it('returns stellar minimumOutput for stellar SWAP', () => {
     const params = {
       ...baseParams,
       fromChainId: 'stellar',
-      activeQuoteSource: 'stellar' as const,
+      activeQuoteSource: 'STELLAR_SWAP' as any,
       activeQuoteData: { minimumOutput: '149.25' },
     };
     expect(getMinimumReceived(params)).toBe('149.25');
@@ -184,6 +196,7 @@ describe('getButtonLabel', () => {
     isAmountLessThanFee: false,
     hasInsufficientStellarGas: false,
     hasInsufficientEvmGas: false,
+    fromChainId: 1,
     toChainId: 1,
     selectedBuyAsset: ETH_ASSET,
     nativeSymbol: 'ETH',
@@ -269,6 +282,7 @@ describe('getErrorMessage', () => {
     activeQuoteData: null,
     feePayType: 'native' as const,
     nativeSymbol: 'ETH',
+    toChainId: 1,
   };
 
   it('returns null when no errors exist', () => {

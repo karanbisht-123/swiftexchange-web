@@ -1,8 +1,9 @@
-import { useEffect, useState, useRef } from 'react';
-import { useCandleStore } from '../core/stores/candleStore';
-import { perpEventBus, PerpEvent } from '../core/events';
-import { useDynamicExchange } from './useDynamicExchange';
+import { useEffect, useRef, useState } from 'react';
+
+import { PerpEvent, perpEventBus } from '../core/events';
 import type { Candle } from '../core/models';
+import { useCandleStore } from '../core/stores/candleStore';
+import { useDynamicExchange } from './useDynamicExchange';
 
 function mapInterval(interval: string): string {
   const map: Record<string, string> = {
@@ -19,7 +20,7 @@ function mapInterval(interval: string): string {
     '1DAY': '1d',
     '3DAYS': '3d',
     '1WEEK': '1w',
-    '1MONTH': '1M'
+    '1MONTH': '1M',
   };
   return map[interval] || interval;
 }
@@ -27,15 +28,16 @@ function mapInterval(interval: string): string {
 export function useCandles(market: string, rawInterval: string) {
   const interval = mapInterval(rawInterval);
   const { client: exchange } = useDynamicExchange();
-  
-  const storeCandles = useCandleStore(state => state.candlesByMarketAndInterval[`${market}_${interval}`]) || [];
+
+  const storeCandles =
+    useCandleStore(state => state.candlesByMarketAndInterval[`${market}_${interval}`]) || [];
   const setCandles = useCandleStore(state => state.setCandles);
   const addLiveCandle = useCandleStore(state => state.addLiveCandle);
-  
+
   const [isLoading, setIsLoading] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   const hasMoreRef = useRef(true);
   const oldestTimeRef = useRef<number | null>(null);
 
@@ -47,7 +49,7 @@ export function useCandles(market: string, rawInterval: string) {
     hasMoreRef.current = true;
     oldestTimeRef.current = null;
     setIsLoading(true);
-    
+
     const coin = market.split('-')[0];
     if (exchange.subscribeCandles) {
       exchange.subscribeCandles(coin, interval);
@@ -102,26 +104,26 @@ export function useCandles(market: string, rawInterval: string) {
 
   const fetchMore = async () => {
     if (isFetchingMore || !hasMoreRef.current || !exchange || !oldestTimeRef.current) return;
-    
+
     setIsFetchingMore(true);
     try {
       const coin = market.split('-')[0];
       const endTime = oldestTimeRef.current - 1; // fetch right before our oldest candle
       const timeOffset = intervalToMs(interval) * 500;
       const startTime = endTime - timeOffset;
-      
+
       const adapter = (exchange as any).marketsApi || exchange;
       if (adapter && adapter.getCandles) {
-         const fetched = await adapter.getCandles(coin, interval, startTime, endTime);
-         if (!fetched || fetched.length === 0) {
-           hasMoreRef.current = false;
-         } else {
-           fetched.sort((a: Candle, b: Candle) => a.startedAtTime - b.startedAtTime);
-           const current = storeCandles;
-           const newCandles = [...fetched, ...current];
-           setCandles(market, interval, newCandles);
-           oldestTimeRef.current = fetched[0].startedAtTime;
-         }
+        const fetched = await adapter.getCandles(coin, interval, startTime, endTime);
+        if (!fetched || fetched.length === 0) {
+          hasMoreRef.current = false;
+        } else {
+          fetched.sort((a: Candle, b: Candle) => a.startedAtTime - b.startedAtTime);
+          const current = storeCandles;
+          const newCandles = [...fetched, ...current];
+          setCandles(market, interval, newCandles);
+          oldestTimeRef.current = fetched[0].startedAtTime;
+        }
       }
     } catch (e) {
       console.error('Fetch more error', e);
@@ -138,7 +140,7 @@ export function useCandles(market: string, rawInterval: string) {
     isLoading,
     isFetchingMore,
     error,
-    fetchMore
+    fetchMore,
   };
 }
 
@@ -146,11 +148,11 @@ function intervalToMs(interval: string): number {
   const unit = interval.slice(-1);
   const val = parseInt(interval.slice(0, -1));
   const msMap: Record<string, number> = {
-    'm': 60 * 1000,
-    'h': 60 * 60 * 1000,
-    'd': 24 * 60 * 60 * 1000,
-    'w': 7 * 24 * 60 * 60 * 1000,
-    'M': 30 * 24 * 60 * 60 * 1000,
+    m: 60 * 1000,
+    h: 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000,
+    w: 7 * 24 * 60 * 60 * 1000,
+    M: 30 * 24 * 60 * 60 * 1000,
   };
-  return val * (msMap[unit] || (60*1000));
+  return val * (msMap[unit] || 60 * 1000);
 }

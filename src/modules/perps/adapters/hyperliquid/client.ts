@@ -2,8 +2,8 @@ import type { PerpExchange } from '../../core/interfaces/exchange';
 import type { Market, OrderBook, Ticker } from '../../core/models';
 import { HyperliquidMarkets } from './markets';
 import { HyperliquidOrderBook } from './orderbook';
-import { HyperliquidWebSocket } from './websocket';
 import { HyperliquidSigner } from './signer';
+import { HyperliquidWebSocket } from './websocket';
 
 export class HyperliquidClient implements PerpExchange {
   private readonly marketsApi: HyperliquidMarkets;

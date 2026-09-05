@@ -1,8 +1,9 @@
-import { useState, useMemo, useEffect } from 'react';
-import { useWalletConnect, useWalletNetwork } from './useWalletConnect';
-import { useWalletAssets } from './useWalletAssets';
-import { portfolioUtils } from '../utils/portfolioUtils';
+import { useEffect, useMemo, useState } from 'react';
+
 import { type Asset } from '../store/portfolioStore';
+import { portfolioUtils } from '../utils/portfolioUtils';
+import { useWalletAssets } from './useWalletAssets';
+import { useWalletConnect, useWalletNetwork } from './useWalletConnect';
 
 export type PortfolioTab = 'total' | 'evm' | 'stellar';
 
@@ -22,7 +23,10 @@ export function useProfilePortfolio() {
 
   // Calculate totals
   const evmTotal = useMemo(() => portfolioUtils.calculateTotalUSD(evmAssets), [evmAssets]);
-  const stellarTotal = useMemo(() => portfolioUtils.calculateTotalUSD(stellarAssets), [stellarAssets]);
+  const stellarTotal = useMemo(
+    () => portfolioUtils.calculateTotalUSD(stellarAssets),
+    [stellarAssets]
+  );
   const grandTotal = useMemo(() => evmTotal + stellarTotal, [evmTotal, stellarTotal]);
 
   // Determine active cards based on connected wallets
@@ -58,8 +62,7 @@ export function useProfilePortfolio() {
   // Retrieve unique chains present in the currently selected tab's assets
   const availableChains = useMemo<ChainFilter[]>(() => {
     const currentTabAssets =
-      activeTab === 'total' ? assets :
-        activeTab === 'evm' ? evmAssets : stellarAssets;
+      activeTab === 'total' ? assets : activeTab === 'evm' ? evmAssets : stellarAssets;
 
     const chainsMap = new Map<string | number, string>();
     currentTabAssets.forEach(asset => {
@@ -121,5 +124,4 @@ export function useProfilePortfolio() {
     // Output
     filteredAssets,
   };
-
 }

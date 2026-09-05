@@ -1,25 +1,27 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
+
 import type { Signer } from 'ethers';
+
 import {
-  getAccountInfo,
-  getBalance,
-  getPositionRisk,
   changeLeverage,
   changeMarginType,
   changePositionMargin,
-  getLeverageBracket,
+  getAccountInfo,
+  getBalance,
   getIncomeHistory,
+  getLeverageBracket,
+  getPositionRisk,
   getUserTrades,
 } from '../api/account';
 import type {
   AsterAccountInfo,
   AsterBalance,
   AsterPositionRisk,
-  MarginType,
+  AsterUserTrade,
   GetIncomeHistoryParams,
   IncomeRecord,
+  MarginType,
   SymbolLeverageBracket,
-  AsterUserTrade,
 } from '../types/account';
 
 interface AsyncState<T> {
@@ -41,12 +43,15 @@ function useAsync<T>(): [AsyncState<T>, (p: Promise<T>) => Promise<T | undefined
       setState({ data, loading: false, error: null });
       return data;
     } catch (e) {
-      setState({ data: null, loading: false, error: e instanceof Error ? e : new Error(String(e)) });
+      setState({
+        data: null,
+        loading: false,
+        error: e instanceof Error ? e : new Error(String(e)),
+      });
     }
   }, []);
   return [state, run];
 }
-
 
 export function useAccount(signer: Signer | null, userAddr: string | null) {
   const [accountState, runAccount] = useAsync<AsterAccountInfo>();
@@ -66,40 +71,61 @@ export function useAccount(signer: Signer | null, userAddr: string | null) {
     return runBalances(getBalance(signer, userAddr));
   }, [signer, userAddr, runBalances]);
 
-  const fetchPositionRisk = useCallback((symbol?: string) => {
-    if (!signer || !userAddr) return;
-    return runPositions(getPositionRisk(signer, userAddr, symbol));
-  }, [signer, userAddr, runPositions]);
+  const fetchPositionRisk = useCallback(
+    (symbol?: string) => {
+      if (!signer || !userAddr) return;
+      return runPositions(getPositionRisk(signer, userAddr, symbol));
+    },
+    [signer, userAddr, runPositions]
+  );
 
-  const setLeverage = useCallback((symbol: string, leverage: number) => {
-    if (!signer || !userAddr) return;
-    return changeLeverage(signer, userAddr, symbol, leverage);
-  }, [signer, userAddr]);
+  const setLeverage = useCallback(
+    (symbol: string, leverage: number) => {
+      if (!signer || !userAddr) return;
+      return changeLeverage(signer, userAddr, symbol, leverage);
+    },
+    [signer, userAddr]
+  );
 
-  const setMarginType = useCallback((symbol: string, marginType: MarginType) => {
-    if (!signer || !userAddr) return;
-    return changeMarginType(signer, userAddr, symbol, marginType);
-  }, [signer, userAddr]);
+  const setMarginType = useCallback(
+    (symbol: string, marginType: MarginType) => {
+      if (!signer || !userAddr) return;
+      return changeMarginType(signer, userAddr, symbol, marginType);
+    },
+    [signer, userAddr]
+  );
 
-  const setPositionMargin = useCallback((symbol: string, amount: string, type: 1 | 2) => {
-    if (!signer || !userAddr) return;
-    return changePositionMargin(signer, userAddr, symbol, amount, type);
-  }, [signer, userAddr]);
+  const setPositionMargin = useCallback(
+    (symbol: string, amount: string, type: 1 | 2) => {
+      if (!signer || !userAddr) return;
+      return changePositionMargin(signer, userAddr, symbol, amount, type);
+    },
+    [signer, userAddr]
+  );
 
-  const fetchLeverageBrackets = useCallback((symbol?: string) => {
-    if (!signer || !userAddr) return;
-    return runBrackets(getLeverageBracket(signer, userAddr, symbol));
-  }, [signer, userAddr, runBrackets]);
+  const fetchLeverageBrackets = useCallback(
+    (symbol?: string) => {
+      if (!signer || !userAddr) return;
+      return runBrackets(getLeverageBracket(signer, userAddr, symbol));
+    },
+    [signer, userAddr, runBrackets]
+  );
 
-  const fetchIncomeHistory = useCallback((params?: GetIncomeHistoryParams) => {
-    if (!signer || !userAddr) return;
-    return runIncome(getIncomeHistory(signer, userAddr, params));
-  }, [signer, userAddr, runIncome]);
+  const fetchIncomeHistory = useCallback(
+    (params?: GetIncomeHistoryParams) => {
+      if (!signer || !userAddr) return;
+      return runIncome(getIncomeHistory(signer, userAddr, params));
+    },
+    [signer, userAddr, runIncome]
+  );
 
-  const fetchUserTrades = useCallback((symbol: string, opts?: Parameters<typeof getUserTrades>[3]) => {
-    if (!signer || !userAddr) return;
-    return runTrades(getUserTrades(signer, userAddr, symbol, opts));
-  }, [signer, userAddr, runTrades]);
+  const fetchUserTrades = useCallback(
+    (symbol: string, opts?: Parameters<typeof getUserTrades>[3]) => {
+      if (!signer || !userAddr) return;
+      return runTrades(getUserTrades(signer, userAddr, symbol, opts));
+    },
+    [signer, userAddr, runTrades]
+  );
 
   return {
     fetchAccountInfo,

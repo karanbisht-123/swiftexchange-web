@@ -1,9 +1,9 @@
 import type { PerpExchange } from '../../core/interfaces/exchange';
-import type { Market, OrderBook, Ticker, Candle } from '../../core/models';
-import { AsterWebSocket } from './websocket';
+import type { Candle, Market, OrderBook, Ticker } from '../../core/models';
+import { type AssetCtx, useTickerStore } from '../../core/stores/tickerStore';
+import { ASTER_ENDPOINTS, ASTER_REST_URL } from './constants';
 import { AsterMapper } from './mapper';
-import { ASTER_REST_URL, ASTER_ENDPOINTS } from './constants';
-import { useTickerStore, type AssetCtx } from '../../core/stores/tickerStore';
+import { AsterWebSocket } from './websocket';
 
 export class AsterClient implements PerpExchange {
   private wsClient: AsterWebSocket;
@@ -26,10 +26,7 @@ export class AsterClient implements PerpExchange {
       fetch(`${ASTER_REST_URL}${ASTER_ENDPOINTS.TICKER_24HR}`),
     ]);
 
-    const [infoData, tickerData] = await Promise.all([
-      infoResponse.json(),
-      tickerResponse.json(),
-    ]);
+    const [infoData, tickerData] = await Promise.all([infoResponse.json(), tickerResponse.json()]);
 
     if (!infoData || !infoData.symbols) return [];
 
@@ -51,7 +48,9 @@ export class AsterClient implements PerpExchange {
   public async getOrderBook(symbol: string): Promise<OrderBook> {
     const coin = this.extractCoinFromSymbol(symbol);
     const asterSymbol = `${coin}USDT`;
-    const response = await fetch(`${ASTER_REST_URL}${ASTER_ENDPOINTS.DEPTH}?symbol=${asterSymbol}&limit=100`);
+    const response = await fetch(
+      `${ASTER_REST_URL}${ASTER_ENDPOINTS.DEPTH}?symbol=${asterSymbol}&limit=100`
+    );
     const data = await response.json();
 
     return AsterMapper.mapOrderBook(symbol, data);
@@ -102,8 +101,11 @@ export class AsterClient implements PerpExchange {
     return data.map((k: any) => AsterMapper.mapCandle(uiSymbol, interval, k));
   }
 
-
-  private async signedFetch(endpoint: string, params: Record<string, string> = {}, method = 'GET'): Promise<any> {
+  private async signedFetch(
+    endpoint: string,
+    params: Record<string, string> = {},
+    method = 'GET'
+  ): Promise<any> {
     const query = new URLSearchParams(params);
     query.append('timestamp', Date.now().toString());
     query.append('signature', 'DUMMY_SIGNATURE');

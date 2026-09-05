@@ -1,4 +1,9 @@
-import type { PerpSigner, OrderPayload, CancelPayload, SignatureResponse } from '../../core/signing/signer';
+import type {
+  CancelPayload,
+  OrderPayload,
+  PerpSigner,
+  SignatureResponse,
+} from '../../core/signing/signer';
 
 /**
  * Hyperliquid implementation of PerpSigner.
@@ -22,7 +27,7 @@ export class HyperliquidSigner implements PerpSigner {
     console.log('[HyperliquidSigner] Signing order:', order);
     // 1. Convert our generic OrderPayload to HL's specific format (e.g. `sz`, `px`, `cloid`)
     // 2. Hash it and sign via EIP-712
-    
+
     return {
       signature: 'dummy_signature',
       payload: {
@@ -32,7 +37,7 @@ export class HyperliquidSigner implements PerpSigner {
         s: order.sz,
         r: order.reduceOnly,
         t: order.orderType,
-      }
+      },
     };
   }
 
@@ -40,13 +45,13 @@ export class HyperliquidSigner implements PerpSigner {
     console.log('[HyperliquidSigner] Signing cancel:', cancel);
     // 1. Convert our generic CancelPayload to HL's specific format
     // 2. Hash it and sign via EIP-712
-    
+
     return {
       signature: 'dummy_signature',
       payload: {
         a: cancel.assetId,
-        o: cancel.oid
-      }
+        o: cancel.oid,
+      },
     };
   }
 }

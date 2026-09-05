@@ -1,6 +1,7 @@
 import type { Signer } from 'ethers';
-import { signedRequest } from './auth';
+
 import { ASTER_ENDPOINTS } from '../constants';
+import { signedRequest } from './auth';
 
 // 55 minutes keepalive well before the 60-minute expiry window.
 export const LISTEN_KEY_KEEPALIVE_MS = 55 * 60 * 1000;

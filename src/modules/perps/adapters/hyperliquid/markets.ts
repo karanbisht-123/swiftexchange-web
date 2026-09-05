@@ -1,9 +1,9 @@
-import { HttpTransport } from '../../core/transport/http';
 import type { Market } from '../../core/models';
 import { marketStore } from '../../core/stores/marketStore';
+import { type AssetCtx, useTickerStore } from '../../core/stores/tickerStore';
+import { HttpTransport } from '../../core/transport/http';
 import { HyperliquidMapper } from './mapper';
 import type { HlMetaResponse } from './mapper';
-import { useTickerStore, type AssetCtx } from '../../core/stores/tickerStore';
 
 export class HyperliquidMarkets extends HttpTransport {
   constructor() {
@@ -43,14 +43,19 @@ export class HyperliquidMarkets extends HttpTransport {
       });
       useTickerStore.getState().setMultipleAssetCtxs(contexts);
     }
-    
+
     return mapped;
   }
 
   /**
    * Fetches historical candles (k-lines) for a specific coin.
    */
-  public async getCandles(coin: string, interval: string, startTime: number, endTime: number): Promise<import('../../core/models').Candle[]> {
+  public async getCandles(
+    coin: string,
+    interval: string,
+    startTime: number,
+    endTime: number
+  ): Promise<import('../../core/models').Candle[]> {
     const response = await this.post<any[]>('/info', {
       type: 'candleSnapshot',
       req: {
@@ -58,7 +63,7 @@ export class HyperliquidMarkets extends HttpTransport {
         interval,
         startTime,
         endTime,
-      }
+      },
     });
 
     return HyperliquidMapper.mapCandle(response);

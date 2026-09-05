@@ -126,7 +126,7 @@ describe('calculateMaxSwapAmount', () => {
       chainId: 1,
       actionType: 'BRIDGE',
       feePayType: 'native',
-      bridgeNativeFee: '0.005',
+      bridgeNativeFee: { amount: '0.005' } as any,
     });
     // With isGasless=true, network gas is 0, but bridge fee 0.005 ETH is still deducted: 1.0 - 0.005 = 0.995 ETH
     expect(result).toBe('0.995');
@@ -165,7 +165,7 @@ describe('calculateMaxSwapAmount', () => {
       chainId: 1,
       actionType: 'BRIDGE',
       feePayType: 'native',
-      bridgeNativeFee: '0.005',
+      bridgeNativeFee: { amount: '0.005' } as any,
     });
     // Default buffer 0.005 + 0.005 = 0.01 ETH -> 1.0 - 0.01 = 0.99 ETH
     expect(result).toBe('0.99');

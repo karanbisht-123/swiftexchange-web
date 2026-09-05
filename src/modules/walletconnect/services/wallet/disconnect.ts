@@ -1,4 +1,3 @@
-
 import { saveSession } from './sessionPersistence';
 import type { WalletServiceContext, WalletType } from './types';
 
@@ -138,5 +137,4 @@ export async function clearAppData(): Promise<void> {
   } catch (error) {
     console.error('[WalletService] Failed to clear IndexedDB:', error);
   }
-
 }

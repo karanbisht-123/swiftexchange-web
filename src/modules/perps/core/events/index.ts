@@ -13,7 +13,7 @@ export const PerpEvent = {
   ASSET_CTX_UPDATED: 'ASSET_CTX_UPDATED',
 } as const;
 
-export type PerpEvent = typeof PerpEvent[keyof typeof PerpEvent];
+export type PerpEvent = (typeof PerpEvent)[keyof typeof PerpEvent];
 
 export type EventCallback = (data?: any) => void;
 
@@ -48,7 +48,7 @@ export class EventBus {
   public emit(event: PerpEvent | string, data?: unknown): void {
     const callbacks = this.listeners.get(event);
     if (callbacks) {
-      callbacks.forEach((callback) => {
+      callbacks.forEach(callback => {
         try {
           callback(data);
         } catch (error) {
@@ -58,11 +58,9 @@ export class EventBus {
     }
   }
 
-
   public clear(): void {
     this.listeners.clear();
   }
 }
-
 
 export const perpEventBus = new EventBus();

@@ -14,10 +14,7 @@ export function setupEVMListeners(ctx: WalletServiceContext, provider: any): voi
     const session = ctx.sessions.get('evm');
     if (!session) return;
 
-
     session.evmAddress = accounts[0];
-
-
 
     ctx.sessions.set('evm', session);
     ctx.saveSession();
@@ -97,7 +94,7 @@ export function setupWalletConnectListeners(
       if (ctx.sessions.get(t)) ctx.emitState(t, 'connected');
     });
   });
-  provider.on('proposal_expire', () => { });
+  provider.on('proposal_expire', () => {});
   provider.on('disconnect', () => getBoundTypes().forEach(t => handleDisconnect(ctx, t)));
 }
 
@@ -151,7 +148,6 @@ export function handleAccountsChanged(
   const firstAccount = Array.isArray(accounts) ? accounts[0] : accounts;
   if (typeof firstAccount !== 'string') return;
 
-
   if (type === 'evm') {
     if (firstAccount.includes(':')) {
       const [, chainIdStr, address] = firstAccount.split(':');
@@ -160,7 +156,6 @@ export function handleAccountsChanged(
     } else {
       session.evmAddress = firstAccount;
     }
-
   } else if (type === 'stellar') {
     if (firstAccount.includes(':')) {
       const [, chainId, address] = firstAccount.split(':');

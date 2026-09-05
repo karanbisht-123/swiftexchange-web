@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { HyperliquidClient } from '../adapters/hyperliquid';
-import { AsterClient } from '../adapters/aster/client';
-import { marketStore, useMarketStore } from '../core/stores/marketStore';
-import { useExchangeManager } from '../core/ExchangeManager';
-import { useLeverageStore } from '../core/stores/leverageStore';
+
 import { getBrackets } from '../adapters/aster/api/funding';
+import { AsterClient } from '../adapters/aster/client';
+import { HyperliquidClient } from '../adapters/hyperliquid';
+import { useExchangeManager } from '../core/ExchangeManager';
 import type { PerpExchange } from '../core/interfaces/exchange';
+import { useLeverageStore } from '../core/stores/leverageStore';
+import { marketStore, useMarketStore } from '../core/stores/marketStore';
 
 export function useDynamicExchange() {
-  const currentExchange = useExchangeManager((state) => state.currentExchange);
+  const currentExchange = useExchangeManager(state => state.currentExchange);
   const clientRef = useRef<PerpExchange | null>(null);
   const [activeClient, setActiveClient] = useState<PerpExchange | null>(null);
 
@@ -39,23 +40,25 @@ export function useDynamicExchange() {
       if (cancelled) return;
 
       marketStore.setMarkets(markets);
-      
+
       if (currentExchange === 'aster') {
-        getBrackets().then(bracketsData => {
-          if (cancelled) return;
-          const bracketsMap: Record<string, any[]> = {};
-          bracketsData.forEach((lb: any) => {
-            bracketsMap[lb.symbol] = (lb.riskBrackets || []).map((rb: any) => ({
-              bracket: rb.bracketSeq,
-              initialLeverage: rb.maxOpenPosLeverage,
-              notionalCap: rb.bracketNotionalCap,
-              notionalFloor: rb.bracketNotionalFloor,
-              maintMarginRatio: rb.bracketMaintenanceMarginRate,
-              cum: rb.cumFastMaintenanceAmount,
-            }));
-          });
-          useLeverageStore.getState().setAllBrackets(bracketsMap);
-        }).catch(err => console.error('[useDynamicExchange] getBrackets failed:', err));
+        getBrackets()
+          .then(bracketsData => {
+            if (cancelled) return;
+            const bracketsMap: Record<string, any[]> = {};
+            bracketsData.forEach((lb: any) => {
+              bracketsMap[lb.symbol] = (lb.riskBrackets || []).map((rb: any) => ({
+                bracket: rb.bracketSeq,
+                initialLeverage: rb.maxOpenPosLeverage,
+                notionalCap: rb.bracketNotionalCap,
+                notionalFloor: rb.bracketNotionalFloor,
+                maintMarginRatio: rb.bracketMaintenanceMarginRate,
+                cum: rb.cumFastMaintenanceAmount,
+              }));
+            });
+            useLeverageStore.getState().setAllBrackets(bracketsMap);
+          })
+          .catch(err => console.error('[useDynamicExchange] getBrackets failed:', err));
       }
 
       if (markets.length === 0) return;
@@ -65,12 +68,12 @@ export function useDynamicExchange() {
       // 2. Match by base asset (e.g. ETH-USDC → ETH-USDT).
       // 3. Fall back to first available market.
       const currentSym = marketStore.getSelectedSymbol();
-      const symbolSet = new Set(markets.map((m) => m.symbol));
+      const symbolSet = new Set(markets.map(m => m.symbol));
 
       let nextSymbol = currentSym;
       if (!symbolSet.has(currentSym)) {
         const base = currentSym.split('-')[0];
-        const match = markets.find((m) => m.symbol.startsWith(base + '-'));
+        const match = markets.find(m => m.symbol.startsWith(base + '-'));
         nextSymbol = match ? match.symbol : markets[0].symbol;
       }
 
@@ -78,13 +81,13 @@ export function useDynamicExchange() {
       // redundant Zustand update + subscription trigger
       marketStore.setSelectedSymbol(nextSymbol);
       subscribeToSymbol(client, nextSymbol);
-      
+
       if (!cancelled) {
         setActiveClient(client);
       }
     };
 
-    init().catch((err) => {
+    init().catch(err => {
       if (!cancelled) console.error('[useDynamicExchange] init failed:', err);
     });
 
@@ -100,7 +103,7 @@ export function useDynamicExchange() {
   useEffect(() => {
     let prevSymbol = useMarketStore.getState().selectedSymbol;
 
-    const unsubscribe = useMarketStore.subscribe((state) => {
+    const unsubscribe = useMarketStore.subscribe(state => {
       const symbol = state.selectedSymbol;
       const client = clientRef.current;
       if (!client || symbol === prevSymbol) return;

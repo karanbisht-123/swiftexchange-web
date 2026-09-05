@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+
 import type { Trade } from '../models';
 
 const MAX_TRADES_PER_SYMBOL = 100;
@@ -19,7 +20,7 @@ export const useTradeStore = create<TradeStoreState>((set, get) => ({
 
     // Deduplicate by ID, keep newest first
     const seen = new Set<string>();
-    const deduped = combined.filter((t) => {
+    const deduped = combined.filter(t => {
       if (seen.has(t.id)) return false;
       seen.add(t.id);
       return true;
@@ -27,7 +28,7 @@ export const useTradeStore = create<TradeStoreState>((set, get) => ({
 
     deduped.sort((a, b) => b.timestamp - a.timestamp);
 
-    set((state) => ({
+    set(state => ({
       tradesBySymbol: {
         ...state.tradesBySymbol,
         [symbol]: deduped.slice(0, MAX_TRADES_PER_SYMBOL),
@@ -35,11 +36,11 @@ export const useTradeStore = create<TradeStoreState>((set, get) => ({
     }));
   },
 
-  getTrades: (symbol) => get().tradesBySymbol[symbol] ?? [],
+  getTrades: symbol => get().tradesBySymbol[symbol] ?? [],
 
-  clear: (symbol) => {
+  clear: symbol => {
     if (symbol) {
-      set((state) => {
+      set(state => {
         const next = { ...state.tradesBySymbol };
         delete next[symbol];
         return { tradesBySymbol: next };

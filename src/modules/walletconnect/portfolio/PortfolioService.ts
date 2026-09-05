@@ -1,7 +1,7 @@
 import { type Asset } from '../store/portfolioStore';
-import { type IPortfolioProvider, type PortfolioFetchParams } from './types';
 import { EVMPortfolioProvider } from './providers/EVMPortfolioProvider';
 import { StellarPortfolioProvider } from './providers/StellarPortfolioProvider';
+import { type IPortfolioProvider, type PortfolioFetchParams } from './types';
 
 export class PortfolioService {
   private providers: IPortfolioProvider[] = [];
@@ -12,7 +12,7 @@ export class PortfolioService {
   }
 
   public registerProvider(provider: IPortfolioProvider): void {
-    const exists = this.providers.find((p) => p.id === provider.id);
+    const exists = this.providers.find(p => p.id === provider.id);
     if (!exists) {
       this.providers.push(provider);
     }
@@ -23,7 +23,7 @@ export class PortfolioService {
   }
 
   public async fetchAll(params: PortfolioFetchParams): Promise<Asset[]> {
-    const fetchTasks = this.providers.map(async (provider) => {
+    const fetchTasks = this.providers.map(async provider => {
       try {
         return await provider.fetch(params);
       } catch {
@@ -35,7 +35,7 @@ export class PortfolioService {
     const flattened = results.flat();
 
     const mergedMap = new Map<string, Asset>();
-    flattened.forEach((asset) => {
+    flattened.forEach(asset => {
       mergedMap.set(asset.id, asset);
     });
 

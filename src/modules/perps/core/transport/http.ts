@@ -1,4 +1,4 @@
-import { TransportError, RateLimitError, ParsingError } from '../errors';
+import { ParsingError, RateLimitError, TransportError } from '../errors';
 
 export interface HttpTransportOptions {
   baseUrl: string;
@@ -42,11 +42,7 @@ export class HttpTransport {
     });
   }
 
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit,
-    retries = 0
-  ): Promise<T> {
+  private async request<T>(endpoint: string, options: RequestInit, retries = 0): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -65,10 +61,7 @@ export class HttpTransport {
         }
 
         const errorText = await response.text();
-        throw new TransportError(
-          `HTTP Error ${response.status}: ${errorText}`,
-          response.status
-        );
+        throw new TransportError(`HTTP Error ${response.status}: ${errorText}`, response.status);
       }
 
       const text = await response.text();
@@ -88,7 +81,7 @@ export class HttpTransport {
 
       if (retries < this.maxRetries) {
         const delay = Math.pow(2, retries) * 500;
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        await new Promise(resolve => setTimeout(resolve, delay));
         return this.request<T>(endpoint, options, retries + 1);
       }
 

@@ -2,7 +2,6 @@ import { BrowserProvider, getAddress, hexlify, toUtf8Bytes } from 'ethers';
 
 import { sendCustomNotification } from '../../../../service/notificationService';
 
-
 export async function signDydxMessage(evmAddress: string, provider: unknown): Promise<string> {
   const typedData = {
     domain: { name: 'dYdX Chain', chainId: 1 },
@@ -64,7 +63,6 @@ export async function signDydxMessage(evmAddress: string, provider: unknown): Pr
 
   throw new Error('Wallet provider is missing or invalid.');
 }
-
 
 // ---------------------------------------------------------------------------
 // SIWE (EIP-4361) personal_sign — multi-fallback

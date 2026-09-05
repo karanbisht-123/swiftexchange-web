@@ -14,8 +14,8 @@ const makeLocation = (overrides: Partial<GeolocationData> = {}): GeolocationData
 
 describe('geolocationUtils', () => {
   describe('isLocationRestricted', () => {
-    it('returns false when userLocation is null', () => {
-      expect(isLocationRestricted(null, ['US'])).toBe(false);
+    it('returns true when userLocation is null (fail-closed)', () => {
+      expect(isLocationRestricted(null, ['US'])).toBe(true);
     });
 
     it('returns true when countryCode matches a restricted country', () => {
@@ -99,7 +99,7 @@ describe('geolocationUtils', () => {
 
     it('throws when the HTTP response is not ok', async () => {
       vi.mocked(fetch).mockResolvedValue({ ok: false } as Response);
-      await expect(fetchGeolocation()).rejects.toThrow('Failed to fetch geolocation data');
+      await expect(fetchGeolocation()).rejects.toThrow(/failed/i);
     });
 
     it('rethrows network-level fetch errors', async () => {

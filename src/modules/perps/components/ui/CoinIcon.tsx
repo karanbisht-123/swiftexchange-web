@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+
 import { getCoinIconUrl } from '../../services/coinIconService';
 
 interface CoinIconProps {
@@ -15,13 +16,15 @@ export const CoinIcon: React.FC<CoinIconProps> = ({ symbol, size = 24, className
     width: size,
     height: size,
     borderRadius: '50%',
-    flexShrink: 0
+    flexShrink: 0,
   };
 
   const containerClasses = `flex items-center justify-center shrink-0 ${className}`;
 
   if (error || !iconUrl) {
-    const initial = symbol ? (symbol.replace(/1000/, '').split('-')[0]?.[0] || 'A').toUpperCase() : 'A';
+    const initial = symbol
+      ? (symbol.replace(/1000/, '').split('-')[0]?.[0] || 'A').toUpperCase()
+      : 'A';
     return (
       <div
         className={`${containerClasses} bg-brand/10 text-brand font-bold border border-brand/20`}
@@ -42,4 +45,3 @@ export const CoinIcon: React.FC<CoinIconProps> = ({ symbol, size = 24, className
     />
   );
 };
-

@@ -7,7 +7,7 @@ import { useTradeStore } from '../core/stores/tradeStore';
  * inside would create a new array reference on every call, causing infinite re-renders.
  */
 export const useTrades = () => {
-  const symbol = useMarketStore((state) => state.selectedSymbol);
-  const trades = useTradeStore((state) => state.tradesBySymbol[symbol]);
+  const symbol = useMarketStore(state => state.selectedSymbol);
+  const trades = useTradeStore(state => state.tradesBySymbol[symbol]);
   return trades ?? [];
 };

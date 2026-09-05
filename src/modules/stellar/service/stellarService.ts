@@ -107,10 +107,18 @@ export async function sendCryptoStellarBuild(
   to: string,
   amount: string,
   options: StellarTransactionOptions = {},
-  asset: { code: string; issuer?: string; isNative?: boolean; chainId?: string } = { code: 'XLM', isNative: true }
+  asset: { code: string; issuer?: string; isNative?: boolean; chainId?: string } = {
+    code: 'XLM',
+    isNative: true,
+  }
 ): Promise<StellarSendTransaction> {
   const currentNetwork = useWalletStore.getState().network;
-  const networkToUse = asset.chainId === 'testnet' ? 'testnet' : (asset.chainId === 'pubnet' ? 'mainnet' : currentNetwork);
+  const networkToUse =
+    asset.chainId === 'testnet'
+      ? 'testnet'
+      : asset.chainId === 'pubnet'
+        ? 'mainnet'
+        : currentNetwork;
   const config = getStellarConfig(networkToUse);
 
   const server = new StellarSDK.Horizon.Server(config.horizonUrl);

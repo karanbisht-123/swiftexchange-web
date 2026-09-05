@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+
 import { useMarketStore } from '../../core/stores/marketStore';
 import { useOrderbookStore } from '../../core/stores/orderbookStore';
 
@@ -16,7 +17,7 @@ export interface DepthChartProps {
 const DepthChart: React.FC<DepthChartProps> = ({ activeChartTab, onChartTabChange }) => {
   const symbol = useMarketStore(state => state.selectedSymbol);
   const orderbook = useOrderbookStore(state => state.books[symbol]);
-  
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -350,19 +351,19 @@ const DepthChart: React.FC<DepthChartProps> = ({ activeChartTab, onChartTabChang
       {activeChartTab && onChartTabChange && (
         <div className="flex items-center justify-end px-4 py-1.5 border-b border-color bg-secondary shrink-0 z-50">
           <div className="flex items-center gap-3 text-[11px] text-muted">
-            <button 
+            <button
               onClick={() => onChartTabChange('price')}
               className={`transition-colors hover:text-primary ${activeChartTab === 'price' ? 'text-primary font-medium' : ''}`}
             >
               Chart
             </button>
-            <button 
+            <button
               onClick={() => onChartTabChange('depth')}
               className={`transition-colors hover:text-primary ${activeChartTab === 'depth' ? 'text-primary font-medium' : ''}`}
             >
               Depth
             </button>
-            <button 
+            <button
               onClick={() => onChartTabChange('details')}
               className={`transition-colors hover:text-primary ${activeChartTab === 'details' ? 'text-primary font-medium' : ''}`}
             >

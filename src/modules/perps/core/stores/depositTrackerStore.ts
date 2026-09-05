@@ -125,7 +125,7 @@ export function startDepositPolling(signer: Signer, userAddr: string) {
           available: a.availableBalance || a.crossWalletBalance || '0',
           locked: String(
             parseFloat(a.walletBalance || '0') -
-            parseFloat(a.availableBalance || a.crossWalletBalance || '0')
+              parseFloat(a.availableBalance || a.crossWalletBalance || '0')
           ),
           marginBalance: a.marginBalance || a.crossWalletBalance || a.walletBalance || '0',
           unrealizedPnl: a.unrealizedProfit || '0',

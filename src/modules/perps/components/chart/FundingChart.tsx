@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+
 import {
   ColorType,
   type IChartApi,
@@ -6,13 +7,14 @@ import {
   LineSeries,
   createChart,
 } from 'lightweight-charts';
+
 import { getFundingRates } from '../../adapters/aster/api/funding';
 import { useMarketStore } from '../../core/stores/marketStore';
 
 type TimeFrame = '1h' | '8h' | '1y';
 
 const FundingChart: React.FC = () => {
-  const symbol = useMarketStore((state) => state.selectedSymbol);
+  const symbol = useMarketStore(state => state.selectedSymbol);
   const asterSymbol = symbol.replace('-', '');
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -181,7 +183,7 @@ const FundingChart: React.FC = () => {
       // Aster rate is base rate (usually 8h).
       let value = parseFloat(item.fundingRate) * 100;
       if (timeFrame === '1h') value /= 8; // Assuming base is 8h for estimation
-      if (timeFrame === '1y') value *= (365 * 3); // 3 times a day * 365
+      if (timeFrame === '1y') value *= 365 * 3; // 3 times a day * 365
 
       const time = (item.fundingTime / 1000) as any;
       newDataMap.set(time, { ...item, displayValue: value });

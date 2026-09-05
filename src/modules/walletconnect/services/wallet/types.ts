@@ -24,8 +24,6 @@ export interface WalletSession {
   };
 }
 
-
-
 export interface UnifiedConnectionResult {
   evm?: WalletSession;
   stellar?: WalletSession;

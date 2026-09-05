@@ -1,5 +1,5 @@
-import { perpEventBus, PerpEvent } from '../events';
 import { TransportError } from '../errors';
+import { PerpEvent, perpEventBus } from '../events';
 
 export interface WebSocketManagerOptions {
   url: string;
@@ -35,7 +35,10 @@ export abstract class WebSocketManager {
 
   public connect(): void {
     // Guard: skip if already open or mid-handshake
-    if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) {
+    if (
+      this.ws &&
+      (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)
+    ) {
       return;
     }
 
@@ -139,7 +142,9 @@ export abstract class WebSocketManager {
     );
     this.reconnectAttempt++;
 
-    console.warn(`[WS] Disconnected. Reconnecting in ${delay}ms (attempt ${this.reconnectAttempt})`);
+    console.warn(
+      `[WS] Disconnected. Reconnecting in ${delay}ms (attempt ${this.reconnectAttempt})`
+    );
 
     this.reconnectTimeoutId = setTimeout(() => {
       this.connect();

@@ -15,18 +15,18 @@ interface LeverageStoreState {
   setAllBrackets: (data: Record<string, LeverageBracket[]>) => void;
 }
 
-export const useLeverageStore = create<LeverageStoreState>((set) => ({
+export const useLeverageStore = create<LeverageStoreState>(set => ({
   bracketsBySymbol: {},
 
   setBrackets: (symbol, brackets) =>
-    set((state) => ({
+    set(state => ({
       bracketsBySymbol: {
         ...state.bracketsBySymbol,
         [symbol]: brackets,
       },
     })),
 
-  setAllBrackets: (data) => set({ bracketsBySymbol: data }),
+  setAllBrackets: data => set({ bracketsBySymbol: data }),
 }));
 
 export const leverageStore = {
@@ -35,5 +35,5 @@ export const leverageStore = {
     const brackets = useLeverageStore.getState().bracketsBySymbol[symbol];
     if (!brackets || brackets.length === 0) return 20; // Default fallback
     return Math.max(...brackets.map(b => b.initialLeverage));
-  }
+  },
 };

@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+
 import { ASTER_BAPI_URL } from '../constants';
 
 const ASSET_LOGO_CACHE_KEY = 'aster_asset_logos';
@@ -36,7 +37,7 @@ export const useAssetLogos = () => {
           method: 'POST',
         });
         const json = await response.json();
-        
+
         if (json.success && Array.isArray(json.data)) {
           const logoMap: Record<string, string> = {};
           json.data.forEach((item: any) => {
@@ -46,10 +47,13 @@ export const useAssetLogos = () => {
           });
 
           // Update cache
-          localStorage.setItem(ASSET_LOGO_CACHE_KEY, JSON.stringify({
-            timestamp: Date.now(),
-            data: logoMap,
-          }));
+          localStorage.setItem(
+            ASSET_LOGO_CACHE_KEY,
+            JSON.stringify({
+              timestamp: Date.now(),
+              data: logoMap,
+            })
+          );
 
           if (isMounted) {
             setLogos(logoMap);

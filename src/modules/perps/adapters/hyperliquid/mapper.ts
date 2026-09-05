@@ -1,6 +1,6 @@
-import type { Market, OrderBook, Ticker, OrderBookLevel } from '../../core/models';
+import type { Market, OrderBook, OrderBookLevel, Ticker } from '../../core/models';
 
-// Hyperliquid Internal Types 
+// Hyperliquid Internal Types
 
 export interface HlUniverseItem {
   name: string;
@@ -34,16 +34,16 @@ export interface HlTrade {
 }
 
 export interface HlCandle {
-  t: number;   // Open time
-  T: number;   // Close time
-  s: string;   // Coin
-  i: string;   // Interval
-  o: string;   // Open
-  h: string;   // High
-  l: string;   // Low
-  c: string;   // Close
-  v: string;   // Volume
-  n: number;   // Num trades
+  t: number; // Open time
+  T: number; // Close time
+  s: string; // Coin
+  i: string; // Interval
+  o: string; // Open
+  h: string; // High
+  l: string; // Low
+  c: string; // Close
+  v: string; // Volume
+  n: number; // Num trades
 }
 
 export class HyperliquidMapper {
@@ -58,7 +58,7 @@ export class HyperliquidMapper {
   }
 
   public static mapMarkets(meta: HlMetaResponse): Market[] {
-    return meta.universe.map((item) => {
+    return meta.universe.map(item => {
       const quoteAsset = 'USDC';
       const baseAsset = item.name;
       const sizePrecision = item.szDecimals;
@@ -80,12 +80,12 @@ export class HyperliquidMapper {
     const rawBids = book.levels[0] || [];
     const rawAsks = book.levels[1] || [];
 
-    const bids: OrderBookLevel[] = rawBids.map((level) => ({
+    const bids: OrderBookLevel[] = rawBids.map(level => ({
       price: level.px,
       size: level.sz,
     }));
 
-    const asks: OrderBookLevel[] = rawAsks.map((level) => ({
+    const asks: OrderBookLevel[] = rawAsks.map(level => ({
       price: level.px,
       size: level.sz,
     }));

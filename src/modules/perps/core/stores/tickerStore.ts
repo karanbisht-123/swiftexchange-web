@@ -22,17 +22,19 @@ interface TickerStoreState {
 
 export const useTickerStore = create<TickerStoreState>((set, get) => ({
   assetCtxByMarket: {},
-  setAssetCtx: (market, ctx) => set((state) => ({
-    assetCtxByMarket: {
-      ...state.assetCtxByMarket,
-      [market]: ctx,
-    }
-  })),
-  setMultipleAssetCtxs: (contexts) => set((state) => ({
-    assetCtxByMarket: {
-      ...state.assetCtxByMarket,
-      ...contexts
-    }
-  })),
-  getAssetCtx: (market) => get().assetCtxByMarket[market],
+  setAssetCtx: (market, ctx) =>
+    set(state => ({
+      assetCtxByMarket: {
+        ...state.assetCtxByMarket,
+        [market]: ctx,
+      },
+    })),
+  setMultipleAssetCtxs: contexts =>
+    set(state => ({
+      assetCtxByMarket: {
+        ...state.assetCtxByMarket,
+        ...contexts,
+      },
+    })),
+  getAssetCtx: market => get().assetCtxByMarket[market],
 }));

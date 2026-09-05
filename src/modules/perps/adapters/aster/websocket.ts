@@ -1,10 +1,10 @@
-import { AsterMapper } from './mapper';
-import { tradeStore } from '../../core/stores/tradeStore';
+import { PerpEvent, perpEventBus } from '../../core/events';
 import { useTickerStore } from '../../core/stores/tickerStore';
-import { perpEventBus, PerpEvent } from '../../core/events';
+import { tradeStore } from '../../core/stores/tradeStore';
 import { OrderbookEngine } from './OrderbookEngine';
-import { ASTER_WS_URL, ASTER_WS_STREAMS } from './constants';
 import { getAggTrades } from './api/trades';
+import { ASTER_WS_STREAMS, ASTER_WS_URL } from './constants';
+import { AsterMapper } from './mapper';
 
 type StreamHandler = (data: unknown) => void;
 
@@ -59,11 +59,14 @@ export class AsterWebSocket {
 
   public connect(): Promise<void> {
     this.refCount++;
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+    if (
+      this.ws &&
+      (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)
+    ) {
       return Promise.resolve();
     }
 
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       // Combined stream endpoint — payload always wrapped: { stream, data }
       const baseUrl = ASTER_WS_URL.replace('/ws', '/stream');
       const url = `${baseUrl}?streams=${ASTER_WS_STREAMS.TICKER}/${ASTER_WS_STREAMS.MARK_PRICE}`;
@@ -98,7 +101,7 @@ export class AsterWebSocket {
         }
       };
 
-      ws.onmessage = (event) => {
+      ws.onmessage = event => {
         if (this.ws !== ws) return;
         this.handleMessage(event);
       };
@@ -132,7 +135,7 @@ export class AsterWebSocket {
     this.clearReconnect();
     this.ws?.close();
     this.ws = null;
-    this.engines.forEach((engine) => engine.dispose());
+    this.engines.forEach(engine => engine.dispose());
     this.engines.clear();
     perpEventBus.emit(PerpEvent.DISCONNECTED);
   }
@@ -183,7 +186,7 @@ export class AsterWebSocket {
       this.send({ method: 'SUBSCRIBE', params: streams, id: this.msgId++ });
     }
     // Re-run snapshot+sync for all active engines after reconnect
-    this.engines.forEach((engine) => engine.dispose());
+    this.engines.forEach(engine => engine.dispose());
   }
 
   private handleMessage(event: MessageEvent): void {
@@ -207,7 +210,7 @@ export class AsterWebSocket {
     if (!streamName || data === undefined) return;
 
     // Dispatch to registered handlers first
-    this.handlers.get(streamName)?.forEach((h) => h(data));
+    this.handlers.get(streamName)?.forEach(h => h(data));
 
     this.dispatchBuiltIn(streamName, data);
   }
@@ -314,7 +317,7 @@ export class AsterWebSocket {
 
   public async subscribeTrades(coin: string): Promise<void> {
     this.subscribe(`${coin.toLowerCase()}usdt@aggTrade`, this._noop);
-    
+
     // Fetch initial snapshot of trades
     try {
       const asterSymbol = `${coin.toUpperCase()}USDT`;

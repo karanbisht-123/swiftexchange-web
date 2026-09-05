@@ -48,7 +48,7 @@ export const AssetsTab: React.FC = () => {
             available: a.availableBalance || a.crossWalletBalance || '0',
             locked: String(
               parseFloat(a.walletBalance || '0') -
-              parseFloat(a.availableBalance || a.crossWalletBalance || '0')
+                parseFloat(a.availableBalance || a.crossWalletBalance || '0')
             ),
             marginBalance: a.marginBalance || a.crossWalletBalance || a.walletBalance || '0',
             unrealizedPnl: a.unrealizedProfit || '0',
@@ -139,12 +139,13 @@ export const AssetsTab: React.FC = () => {
                 </td>
                 <td className="px-2.5 py-1.5 text-primary font-mono">${total.toFixed(2)}</td>
                 <td
-                  className={`px-2.5 py-1.5 font-mono ${parseFloat(b.unrealizedPnl || '0') > 0
+                  className={`px-2.5 py-1.5 font-mono ${
+                    parseFloat(b.unrealizedPnl || '0') > 0
                       ? 'text-success'
                       : parseFloat(b.unrealizedPnl || '0') < 0
                         ? 'text-danger'
                         : 'text-primary'
-                    }`}
+                  }`}
                 >
                   {b.unrealizedPnl || '0.00'}
                 </td>
