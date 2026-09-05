@@ -1,6 +1,5 @@
 export const WalletType = {
   EVM: 'evm',
-  COSMOS: 'cosmos',
   STELLAR: 'stellar',
 } as const;
 
@@ -15,6 +14,12 @@ export interface WalletConfig {
 
 export const EVM_WALLETS: WalletConfig[] = [
   {
+    id: 'swiftex',
+    name: 'SwiftEx Wallet',
+    icon: '/logo.png',
+    type: WalletType.EVM,
+  },
+  {
     id: 'metamask',
     name: 'MetaMask',
     icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT3ymr3UNKopfI0NmUY95Dr-0589vG-91KuAA&s',
@@ -26,7 +31,6 @@ export const EVM_WALLETS: WalletConfig[] = [
     icon: 'https://play-lh.googleusercontent.com/cd5BevWohRqLwsI2_i3k4YIVtcO57cIZCs6l20H1Hcdj0P2rFEcX_7QtgKbTM3Sn_A',
     type: WalletType.EVM,
   },
-
   {
     id: 'rainbow',
     name: 'Rainbow',
@@ -41,35 +45,19 @@ export const EVM_WALLETS: WalletConfig[] = [
   },
 ];
 
-export const COSMOS_WALLETS: WalletConfig[] = [
-  {
-    id: 'keplr',
-    name: 'Keplr',
-    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ5rMEIpPYpBjh6xhQtBd7TQDiaUi1H1VX9eA&s',
-    type: WalletType.COSMOS,
-  },
-  {
-    id: 'leap',
-    name: 'Leap Wallet',
-    icon: 'https://avatars.githubusercontent.com/u/99279452?s=200&v=4',
-    type: WalletType.COSMOS,
-  },
-  {
-    id: 'walletconnect',
-    name: 'WalletConnect',
-    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRWu9CeO85RIMN2ixs9U_6YhnatWBxtCzn6L_e7QRO_CiEV1SB0LGbSXJijfHYt0N46slY&usqp=CAU',
-    type: WalletType.COSMOS,
-  },
-];
-
 export const STELLAR_WALLETS: WalletConfig[] = [
   {
+    id: 'swiftex',
+    name: 'SwiftEx Wallet',
+    icon: '/logo.png',
+    type: WalletType.STELLAR,
+  },
+  {
     id: 'lobstr',
-    name: 'LOBSTR ',
+    name: 'LOBSTR',
     icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRr4vU2tmIUuPEaeD2fPRDIgbC4ZcqfNzQR3Q&s',
     type: WalletType.STELLAR,
   },
-
   {
     id: 'freighter',
     name: 'FREIGHTER',
@@ -93,13 +81,11 @@ export const CHAIN_METHODS = {
     'eth_signTypedData',
     'eth_signTypedData_v4',
   ],
-  cosmos: ['cosmos_getAccounts', 'cosmos_signDirect', 'cosmos_signAmino', 'cosmos_sendTransaction'],
   stellar: ['stellar_signTransaction', 'stellar_signAndSubmitXDR'],
 };
 
 export const CHAIN_EVENTS = {
   evm: ['chainChanged', 'accountsChanged'],
-  cosmos: ['accountsChanged'],
   stellar: ['accountsChanged'],
 };
 
@@ -113,6 +99,14 @@ export interface WalletMetadata {
 }
 
 export const WALLET_METADATA_MAP: Record<string, WalletMetadata> = {
+  swiftex: {
+    name: 'SwiftEx Wallet',
+    icon: 'https://explorer-api.walletconnect.com/v3/logo/sm/54c06c6a-333d-49d6-f2fd-7e89d2068500?projectId=fdde0f7f2696cc4d849103c23792d693',
+    redirects: {
+      native: 'swiftEx://app.swiftexchange.io',
+      universal: 'https://app.swiftexchange.io/',
+    },
+  },
   metamask: {
     name: 'MetaMask',
     icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT3ymr3UNKopfI0NmUY95Dr-0589vG-91KuAA&s',
@@ -135,22 +129,6 @@ export const WALLET_METADATA_MAP: Record<string, WalletMetadata> = {
     redirects: {
       native: 'rainbow://',
       universal: 'https://rnbwapp.com/wc',
-    },
-  },
-  keplr: {
-    name: 'Keplr',
-    icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQ5rMEIpPYpBjh6xhQtBd7TQDiaUi1H1VX9eA&s',
-    redirects: {
-      native: 'keplrwallet://wcV2',
-      universal: 'https://keplr.app',
-    },
-  },
-  leap: {
-    name: 'Leap Wallet',
-    icon: 'https://avatars.githubusercontent.com/u/99279452?s=200&v=4',
-    redirects: {
-      native: 'leapcosmos://wcV2',
-      universal: 'https://leapwallet.io',
     },
   },
   lobstr: {

@@ -1,10 +1,11 @@
-import { useState, useMemo, useEffect } from 'react';
-import { useWalletConnect, useWalletNetwork } from './useWalletConnect';
-import { useWalletAssets } from './useWalletAssets';
-import { portfolioUtils } from '../utils/portfolioUtils';
-import { type Asset } from '../store/portfolioStore';
+import { useEffect, useMemo, useState } from 'react';
 
-export type PortfolioTab = 'total' | 'evm' | 'stellar' | 'dydx';
+import { type Asset } from '../store/portfolioStore';
+import { portfolioUtils } from '../utils/portfolioUtils';
+import { useWalletAssets } from './useWalletAssets';
+import { useWalletConnect, useWalletNetwork } from './useWalletConnect';
+
+export type PortfolioTab = 'total' | 'evm' | 'stellar';
 
 export interface ChainFilter {
   id: string | number;
@@ -19,13 +20,14 @@ export function useProfilePortfolio() {
   // Group assets by chain type
   const evmAssets = useMemo(() => assets.filter(a => a.chainType === 'evm'), [assets]);
   const stellarAssets = useMemo(() => assets.filter(a => a.chainType === 'stellar'), [assets]);
-  const dydxAssets = useMemo(() => assets.filter(a => a.chainType === 'dydx'), [assets]);
 
   // Calculate totals
   const evmTotal = useMemo(() => portfolioUtils.calculateTotalUSD(evmAssets), [evmAssets]);
-  const stellarTotal = useMemo(() => portfolioUtils.calculateTotalUSD(stellarAssets), [stellarAssets]);
-  const dydxTotal = useMemo(() => portfolioUtils.calculateTotalUSD(dydxAssets), [dydxAssets]);
-  const grandTotal = useMemo(() => evmTotal + stellarTotal + dydxTotal, [evmTotal, stellarTotal, dydxTotal]);
+  const stellarTotal = useMemo(
+    () => portfolioUtils.calculateTotalUSD(stellarAssets),
+    [stellarAssets]
+  );
+  const grandTotal = useMemo(() => evmTotal + stellarTotal, [evmTotal, stellarTotal]);
 
   // Determine active cards based on connected wallets
   const activeTabs = useMemo(() => {
@@ -34,7 +36,6 @@ export function useProfilePortfolio() {
       tabs.push('total');
       tabs.push('evm');
       tabs.push('stellar');
-      tabs.push('dydx');
     }
     return tabs;
   }, [isAnyWalletConnected]);
@@ -61,9 +62,7 @@ export function useProfilePortfolio() {
   // Retrieve unique chains present in the currently selected tab's assets
   const availableChains = useMemo<ChainFilter[]>(() => {
     const currentTabAssets =
-      activeTab === 'total' ? assets :
-        activeTab === 'evm' ? evmAssets :
-          activeTab === 'stellar' ? stellarAssets : dydxAssets;
+      activeTab === 'total' ? assets : activeTab === 'evm' ? evmAssets : stellarAssets;
 
     const chainsMap = new Map<string | number, string>();
     currentTabAssets.forEach(asset => {
@@ -73,7 +72,7 @@ export function useProfilePortfolio() {
     });
 
     return Array.from(chainsMap.entries()).map(([id, name]) => ({ id, name }));
-  }, [activeTab, assets, evmAssets, stellarAssets, dydxAssets]);
+  }, [activeTab, assets, evmAssets, stellarAssets]);
 
   // Filter assets based on activeTab, selected chain, and search query
   const filteredAssets = useMemo(() => {
@@ -81,7 +80,6 @@ export function useProfilePortfolio() {
     if (activeTab === 'total') baseAssets = assets;
     else if (activeTab === 'evm') baseAssets = evmAssets;
     else if (activeTab === 'stellar') baseAssets = stellarAssets;
-    else if (activeTab === 'dydx') baseAssets = dydxAssets;
 
     return baseAssets.filter(asset => {
       // Chain filter matching
@@ -94,7 +92,7 @@ export function useProfilePortfolio() {
 
       return matchesChain && matchesSearch;
     });
-  }, [activeTab, assets, evmAssets, stellarAssets, dydxAssets, selectedChainFilter, searchQuery]);
+  }, [activeTab, assets, evmAssets, stellarAssets, selectedChainFilter, searchQuery]);
 
   return {
     isAnyWalletConnected,
@@ -107,13 +105,11 @@ export function useProfilePortfolio() {
     // Totals
     evmTotal,
     stellarTotal,
-    dydxTotal,
     grandTotal,
 
     // Per-chain assets (for export)
     evmAssets,
     stellarAssets,
-    dydxAssets,
 
     // Tabs & Filters
     activeTabs,
@@ -128,5 +124,4 @@ export function useProfilePortfolio() {
     // Output
     filteredAssets,
   };
-
 }

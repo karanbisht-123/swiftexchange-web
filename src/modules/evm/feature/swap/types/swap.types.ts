@@ -42,9 +42,8 @@ export interface SwapQuote {
   pricePerToken: string;
   fee: number;
   networkFee?: number;
-  poolAddress: string;
   priceImpact: string;
-  rawQuote: any;
+  rawQuote: Record<string, unknown>;
   provider: string;
   minimumReceived?: string;
 }
@@ -52,7 +51,7 @@ export interface SwapQuote {
 export interface UnifiedSwapResponse {
   success: boolean;
   provider: string;
-  data: any;
+  data: Record<string, unknown>;
 }
 
 export interface PrepareRequest {
@@ -169,21 +168,40 @@ export interface FusionOrder {
   orderHash: string;
 }
 
-export interface ActiveQuote {
-  source: 'swap' | 'bridge' | 'fusion_plus' | 'stellar' | null;
+export type QuoteSource = 'EVM_SWAP' | 'STELLAR_SWAP' | 'FUSION_PLUS' | 'NEAR_INTENT';
+
+export interface UnifiedQuote {
+  source: QuoteSource | null;
   data: any;
   error: string | null;
   loading: boolean;
+  alternativeQuote?: any;
+}
+
+export interface UnifiedAsset {
+  symbol: string;
+  name?: string;
+  decimals: number;
+  address?: string;
+  contractAddress?: string;
+  balance?: string;
+  logoUri?: string | null;
+  isNative?: boolean;
+  chainId?: number | string;
+  asset?: any;
+  hasTrustline?: boolean;
+  price?: string | number;
+  priceUSD?: string | number;
 }
 
 export interface EvmGasCheckParams {
   fromChainId: number | string;
-  swapAssets: any[];
-  selectedSellAsset: any;
+  swapAssets: UnifiedAsset[];
+  selectedSellAsset: UnifiedAsset | null;
   sellAmount: string;
   actionType: 'SWAP' | 'BRIDGE';
   feePayType: 'native' | 'stablecoin';
-  activeQuoteSource: 'swap' | 'bridge' | 'fusion_plus' | 'stellar' | null;
+  activeQuoteSource: QuoteSource | null;
   activeQuoteData: any;
   swapQuoteNetworkFee: number | undefined;
   isGasless: boolean;
@@ -191,7 +209,7 @@ export interface EvmGasCheckParams {
 
 export interface StellarGasCheckParams {
   fromChainId: number | string;
-  stellarAssets: any[];
+  stellarAssets: UnifiedAsset[];
   sellAssetSymbol: string;
   sellAmount: string;
   actionType: 'SWAP' | 'BRIDGE';
@@ -202,24 +220,24 @@ export interface StellarGasCheckParams {
 export interface BuyAmountParams {
   actionType: 'SWAP' | 'BRIDGE';
   isGasless: boolean;
-  fusionQuote: any;
+  fusionQuote?: any; // deprecated, removing soon
   showFusionScreen: boolean;
-  selectedBuyAsset: any;
-  activeQuoteSource: 'swap' | 'bridge' | 'fusion_plus' | 'stellar' | null;
+  selectedBuyAsset: UnifiedAsset | null;
+  activeQuoteSource: QuoteSource | null;
   activeQuoteData: any;
-  swapQuote: any;
+  swapQuote?: any; // deprecated, removing soon
   isSameAssetSelected: boolean;
   feePayType: 'native' | 'stablecoin';
 }
 
 export interface MinReceivedParams {
   actionType: 'SWAP' | 'BRIDGE';
-  activeQuoteSource: 'swap' | 'bridge' | 'fusion_plus' | 'stellar' | null;
+  activeQuoteSource: QuoteSource | null;
   activeQuoteData: any;
   feePayType: 'native' | 'stablecoin';
   fromChainId: number | string;
-  swapQuote: any;
-  selectedBuyAsset: any;
+  swapQuote?: any; // deprecated
+  selectedBuyAsset: UnifiedAsset | null;
   userSlippageTolerance: number;
   calculatedBuyAmount: string;
 }
@@ -235,9 +253,12 @@ export interface ButtonLabelParams {
   isAmountLessThanFee: boolean;
   hasInsufficientStellarGas: boolean;
   hasInsufficientEvmGas: boolean;
+  fromChainId: number | string;
   toChainId: number | string;
-  selectedBuyAsset: any;
+  selectedBuyAsset: UnifiedAsset | null;
   nativeSymbol: string;
+  missingWallets?: string[];
+  isStellarAccountActive?: boolean | null;
 }
 
 export interface ErrorParams {
@@ -255,4 +276,6 @@ export interface ErrorParams {
   activeQuoteData: any;
   feePayType: 'native' | 'stablecoin';
   nativeSymbol: string;
+  isStellarAccountActive?: boolean | null;
+  toChainId: number | string;
 }

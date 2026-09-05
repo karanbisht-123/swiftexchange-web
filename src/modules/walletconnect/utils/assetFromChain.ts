@@ -1,4 +1,4 @@
-import type { CosmosChainConfig, EVMChainConfig, StellarChainConfig } from '../config/chains';
+import type { EVMChainConfig, StellarChainConfig } from '../config/chains';
 import { WalletType } from '../constants/Wallet';
 
 const LOGO_CDN = 'https://coin-images.coingecko.com/coins/images';
@@ -37,20 +37,6 @@ export const assetFromEVM = (c: EVMChainConfig): ReceiveAsset => ({
   addressType: 'evm',
   walletType: WalletType.EVM,
 });
-
-export const assetFromCosmos = (c: CosmosChainConfig): ReceiveAsset => {
-  const primary = c.currencies[0];
-  return {
-    value: primary.coinDenom,
-    label: `${c.chainName} (${primary.coinDenom})`,
-    symbol: primary.coinDenom,
-    logo: LOGO_MAP[primary.coinDenom] ?? '',
-    network: c.chainName,
-    chainId: c.chainId,
-    addressType: 'cosmos',
-    walletType: WalletType.COSMOS,
-  };
-};
 
 export const assetFromStellar = (c: StellarChainConfig): ReceiveAsset => ({
   value: 'XLM',

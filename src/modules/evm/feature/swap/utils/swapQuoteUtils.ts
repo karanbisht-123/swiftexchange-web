@@ -1,53 +1,60 @@
 import { ethers } from 'ethers';
+
+import type {
+  ButtonLabelParams,
+  BuyAmountParams,
+  ErrorParams,
+  MinReceivedParams,
+} from '../types/swap.types';
 import { isStellar } from './swapAssetUtils';
-import { toPlainString } from './swapAmountUtils';
-import type { BuyAmountParams, MinReceivedParams, ButtonLabelParams, ErrorParams } from '../types/swap.types';
 
 export function getCalculatedBuyAmount(params: BuyAmountParams): string {
   const {
     actionType,
     isGasless,
-    fusionQuote,
     showFusionScreen,
     selectedBuyAsset,
     activeQuoteSource,
     activeQuoteData,
-    swapQuote,
     isSameAssetSelected,
-    feePayType,
   } = params;
 
   if (isSameAssetSelected) return 'SELECT DIFFERENT PAIR';
 
   if (actionType === 'SWAP') {
-    if (isGasless && fusionQuote && showFusionScreen) {
+    if (isGasless && activeQuoteSource === 'FUSION_PLUS' && showFusionScreen) {
       const decimals = selectedBuyAsset?.decimals || 18;
-      return ethers.formatUnits(fusionQuote.toTokenAmount, decimals);
+      return ethers.formatUnits(activeQuoteData.toTokenAmount || '0', decimals);
     }
-    if (activeQuoteSource === 'stellar') return activeQuoteData?.estimatedOutput || '0.00';
-    return swapQuote?.outputAmount || '0.00';
+    if (activeQuoteSource === 'STELLAR_SWAP') return activeQuoteData?.estimatedOutput || '0.00';
+    return activeQuoteData?.outputAmount || '0.00';
   }
 
   // BRIDGE mode
-  if (activeQuoteSource === 'bridge') {
-    const grossAmount = parseFloat(activeQuoteData?.minimumAmountOut || '0');
-    if (feePayType === 'stablecoin' && activeQuoteData?.fee?.stablecoin) {
-      const feeAmount = parseFloat(activeQuoteData.fee.stablecoin.amount || '0');
-      const netAmount = Math.max(0, grossAmount - feeAmount);
-      return toPlainString(netAmount);
-    }
-    return activeQuoteData?.minimumAmountOut || '0.00';
-  }
-  if (activeQuoteSource === 'fusion_plus' && activeQuoteData) {
+  if (activeQuoteSource === 'FUSION_PLUS' && activeQuoteData) {
     const decimals = selectedBuyAsset?.decimals || 18;
     const amtRaw = activeQuoteData.toTokenAmount || activeQuoteData.dstTokenAmount || '0';
     try {
       return ethers.formatUnits(amtRaw, decimals);
-    } catch (err) {
+    } catch {
       return '0.00';
     }
   }
-  if (swapQuote) return swapQuote.outputAmount || '0.00';
+
+  if (activeQuoteSource === 'NEAR_INTENT' && activeQuoteData) {
+    if (activeQuoteData.amountOutFormatted) {
+      return activeQuoteData.amountOutFormatted;
+    }
+    if (activeQuoteData.amountOut) {
+      const decimals = selectedBuyAsset?.decimals || 6;
+      try {
+        return ethers.formatUnits(activeQuoteData.amountOut, decimals);
+      } catch {
+        return activeQuoteData.amountOut;
+      }
+    }
+    return '0.00';
+  }
 
   return '0.00';
 }
@@ -57,16 +64,14 @@ export function getMinimumReceived(params: MinReceivedParams): string {
     actionType,
     activeQuoteSource,
     activeQuoteData,
-    feePayType,
     fromChainId,
-    swapQuote,
     selectedBuyAsset,
     userSlippageTolerance,
     calculatedBuyAmount,
   } = params;
 
   if (actionType === 'BRIDGE') {
-    if (activeQuoteSource === 'fusion_plus' && activeQuoteData) {
+    if (activeQuoteSource === 'FUSION_PLUS' && activeQuoteData) {
       const q = activeQuoteData;
       const preset = (q.recommended_preset || 'fast') as 'fast' | 'medium' | 'slow';
       const presetData = q.presets?.[preset];
@@ -79,28 +84,31 @@ export function getMinimumReceived(params: MinReceivedParams): string {
         }
       }
     }
-    if (activeQuoteSource === 'bridge') {
-      const grossAmount = parseFloat(activeQuoteData?.minimumAmountOut || '0');
-      if (feePayType === 'stablecoin' && activeQuoteData?.fee?.stablecoin) {
-        const feeAmount = parseFloat(activeQuoteData.fee.stablecoin.amount || '0');
-        return Math.max(0, grossAmount - feeAmount).toString();
+    if (activeQuoteSource === 'NEAR_INTENT' && activeQuoteData) {
+      if (activeQuoteData.minAmountOut) {
+        try {
+          return ethers.formatUnits(activeQuoteData.minAmountOut, selectedBuyAsset?.decimals || 18);
+        } catch {
+          return '0.00';
+        }
       }
-      return activeQuoteData?.minimumAmountOut || '0.00';
+      return '0.00';
     }
   }
 
-  if (isStellar(fromChainId) && activeQuoteSource === 'stellar') return activeQuoteData?.minimumOutput || '0.00';
+  if (isStellar(fromChainId) && activeQuoteSource === 'STELLAR_SWAP')
+    return activeQuoteData?.minimumOutput || '0.00';
 
-  if (swapQuote?.minimumReceived) return swapQuote.minimumReceived;
-  if (!swapQuote?.outputAmount || !selectedBuyAsset) return '0.00';
+  if (activeQuoteData?.minimumReceived) return activeQuoteData.minimumReceived;
+  if (!activeQuoteData?.outputAmount || !selectedBuyAsset) return '0.00';
 
   try {
     const decimals = selectedBuyAsset.decimals || 18;
-    const amountBN = ethers.parseUnits(swapQuote.outputAmount, decimals);
+    const amountBN = ethers.parseUnits(activeQuoteData.outputAmount, decimals);
     const slippageBips = BigInt(Math.floor(userSlippageTolerance * 100));
     const minReceivedBN = (amountBN * (10000n - slippageBips)) / 10000n;
     return ethers.formatUnits(minReceivedBN, decimals);
-  } catch (err) {
+  } catch {
     return calculatedBuyAmount;
   }
 }
@@ -124,14 +132,30 @@ export function getButtonLabel(params: ButtonLabelParams): string {
     isAmountLessThanFee,
     hasInsufficientStellarGas,
     hasInsufficientEvmGas,
+    fromChainId,
     toChainId,
     selectedBuyAsset,
     nativeSymbol,
+    missingWallets,
+    isStellarAccountActive,
   } = params;
 
-  if (isFetchingSwapAssets || isQuoteLoading || isFetchingStellarAssets) return 'FETCHING QUOTES...';
-  if (!sellAmount || parseFloat(sellAmount) <= 0) return 'ENTER AMOUNT';
   if (isSameAssetSelected) return 'SELECT DIFFERENT ASSET';
+
+  if (missingWallets && missingWallets.length > 0) {
+    if (missingWallets.length === 1) {
+      const missing = String(missingWallets[0]).toLowerCase();
+      if (missing === 'stellar') return 'CONNECT STELLAR WALLET';
+      if (missing === 'evm') return 'CONNECT EVM WALLET';
+      if (missing === 'cosmos') return 'CONNECT COSMOS WALLET';
+      return `CONNECT ${String(missingWallets[0]).toUpperCase()} WALLET`;
+    }
+    return 'CONNECT WALLETS';
+  }
+
+  if (isFetchingSwapAssets || isQuoteLoading || isFetchingStellarAssets)
+    return 'FETCHING QUOTES...';
+  if (!sellAmount || parseFloat(sellAmount) <= 0) return 'ENTER AMOUNT';
 
   if (isInsufficientBalance) return 'INSUFFICIENT BALANCE';
   if (isAmountLessThanFee) return 'AMOUNT LESS THAN FEE';
@@ -140,11 +164,30 @@ export function getButtonLabel(params: ButtonLabelParams): string {
     return `INSUFFICIENT ${nativeSymbol} FOR GAS`;
   }
 
-  if (isStellar(toChainId) && selectedBuyAsset && !selectedBuyAsset.isNative && !selectedBuyAsset.hasTrustline) {
-    return 'ADD TRUSTLINE & SWAP';
+  if (errorMessage) {
+    if (errorMessage.includes('4 XLM')) {
+      return 'INCREASE AMOUNT';
+    }
+  }
+
+  if (isStellar(toChainId) && isStellarAccountActive === false) {
+    return 'ACTIVATE ACCOUNT';
+  }
+
+  if (
+    isStellar(toChainId) &&
+    isStellarAccountActive !== false &&
+    selectedBuyAsset &&
+    !selectedBuyAsset.isNative &&
+    !selectedBuyAsset.hasTrustline
+  ) {
+    return isStellar(fromChainId) ? 'ADD TRUSTLINE & SWAP' : 'ADD TRUSTLINE';
   }
 
   if (errorMessage) {
+    // Never show raw wallet error codes or overly long messages on the button
+    const isRawCode = /^USER_REJECTED$|^ACTION_REJECTED$|^4001$/.test(errorMessage.trim());
+    if (isRawCode) return 'SWAP FAILED';
     return errorMessage.length > 45 ? 'SWAP FAILED' : errorMessage.toUpperCase();
   }
 
@@ -167,22 +210,41 @@ export function getErrorMessage(params: ErrorParams): string | null {
     activeQuoteData,
     feePayType,
     nativeSymbol,
+    isStellarAccountActive,
+    toChainId,
   } = params;
 
-  if (bridgeTxStatus === 'error' || bridgeErrorMsg) return bridgeErrorMsg || 'Transaction failed. Please try again.';
+  if (
+    isStellarAccountActive === false &&
+    isStellar(toChainId) &&
+    activeQuoteData &&
+    activeQuoteData.amountOutFormatted &&
+    parseFloat(activeQuoteData.amountOutFormatted) < 4
+  ) {
+    return `Need at least 4 XLM output to activate your Stellar wallet. You're getting ${parseFloat(activeQuoteData.amountOutFormatted).toFixed(2)} XLM — increase your input amount.`;
+  }
+
+  if (bridgeTxStatus === 'error' || bridgeErrorMsg)
+    return bridgeErrorMsg || 'Transaction failed. Please try again.';
   if (swapError) return swapError;
-  if (activeQuoteError) return activeQuoteError;
+  if (
+    activeQuoteError &&
+    activeQuoteError !== 'Trustline required' &&
+    activeQuoteError !== 'Account activation required'
+  ) {
+    return activeQuoteError;
+  }
   if (isInsufficientBalance) return 'Insufficient balance for this transaction';
   if (isAmountLessThanFee) {
     const feeAmount = parseFloat(activeQuoteData?.fee?.stablecoin?.amount || '0');
     return `Amount must be greater than the bridge fee of ${feeAmount.toFixed(4)} USDC`;
   }
   if (hasInsufficientStellarGas) {
-    let reqFee = 0.01;
+    let reqFee = 0.00001; // Stellar base tx fee = 100 stroops
     if (actionType === 'BRIDGE' && feePayType === 'native' && activeQuoteData?.fee?.native) {
       reqFee += parseFloat(activeQuoteData.fee.native.amount);
     }
-    return `Insufficient XLM balance. You need at least ${reqFee.toFixed(3)} XLM (beyond reserve) for gas fees.`;
+    return `Insufficient XLM balance. You need at least ${reqFee.toFixed(5)} XLM (beyond reserve) for network fees.`;
   }
   if (hasInsufficientEvmGas) {
     return `Insufficient ${nativeSymbol} balance for gas fees.`;

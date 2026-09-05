@@ -16,14 +16,12 @@
     "preview": "vite preview",
     "doctor": "npx react-doctor@latest",
     "prepare": "husky",
-    "test": "vitest",
-    "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage"
+    "test": "NODE_OPTIONS='--experimental-require-module' vitest",
+    "test:ui": "NODE_OPTIONS='--experimental-require-module' vitest --ui",
+    "test:coverage": "NODE_OPTIONS='--experimental-require-module' vitest run --coverage"
   },
   "dependencies": {
-    "@allbridge/bridge-core-sdk": "^3.29.1",
-    "@dydxprotocol/v4-client-js": "3.6.0",
-    "@skip-go/client": "^1.5.14",
+    "@nktkas/hyperliquid": "^0.33.2",
     "@stellar/stellar-sdk": "^14.4.3",
     "@walletconnect/core": "^2.20.0",
     "@walletconnect/modal": "^2.7.0",
@@ -37,15 +35,15 @@
     "lightweight-charts-drawing": "^0.1.1",
     "lightweight-charts-indicators": "^0.4.2",
     "lucide-react": "^0.525.0",
-    "oakscriptjs": "^0.2.8",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.8.2",
     "react-select": "^5.10.2",
+    "react-share": "^5.3.0",
     "react-virtualized-auto-sizer": "^2.0.3",
     "react-window": "^1.8.11",
-    "viem": "^2.47.5",
+    "siwe": "^3.0.0",
     "zustand": "^5.0.8"
   },
   "devDependencies": {

@@ -1,5 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Hedvig+Letters+Serif&display=swap');
-@import url('https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,700,900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import 'tailwindcss';
 
 @theme {
@@ -34,28 +35,34 @@
 }
 
 :root {
-  /* Brand Colors - Based on #020e46 */
-  --color-brand-primary: #020e46;
-  --color-brand-primary-hover: #030f5a;
-  --color-brand-primary-light: #0d1a6e;
-  --color-brand-accent: #3b4fd9;
+  /* Brand Colors - Electric Blue/Purple Web3 Aesthetic */
+  --color-brand-primary: #2563eb;
+  --color-brand-primary-hover: #1d4ed8;
+  --color-brand-primary-light: #eff6ff;
+  --color-brand-accent: #8b5cf6;
 
-  /* Light Theme - Clean fintech neutral-cool white */
-  --color-bg-primary: #f7f8fc;
-  --color-bg-secondary: #ffffff;
-  --color-bg-tertiary: #f0f3fb;
-  --color-bg-hover: #eaedfa;
+  /* Light Theme - Premium Soft Frost (No Pure White) */
+  --color-bg-primary: #f1f5f9;
+  --color-bg-secondary: #f8fafc;
+  --color-bg-tertiary: #e2e8f0;
+  --color-bg-hover: #cbd5e1;
+
+  /* Premium gradient variants */
+  --gradient-bg-primary: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  --gradient-bg-secondary: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%);
+  --gradient-bg-tertiary: linear-gradient(160deg, #f1f5f9 0%, #e2e8f0 100%);
+  --gradient-bg-hover: linear-gradient(145deg, #f1f5f9 0%, #e2e8f0 100%);
 
   /* Text Colors - High Contrast */
-  --color-text-primary: #0f1729;
-  --color-text-secondary: #4a5568;
-  --color-text-muted: #8896b3;
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94a3b8;
   --color-text-inverse: #ffffff;
 
-  /* Border Colors - Soft for light mode */
-  --color-border: #e4e8f0;
-  --color-border-light: #dce3ed;
-  --color-border-dark: #c8d1de;
+  /* Border Colors - Crisp and subtle */
+  --color-border: #e2e8f0;
+  --color-border-light: #f1f5f9;
+  --color-border-dark: #cbd5e1;
   --calendar-icon-filter: none;
 
   /* Status Colors */
@@ -69,8 +76,9 @@
   --color-info-bg: #dbeafe;
 
   /* Typography */
-  --font-heading: 'Hedvig Letters Serif', Georgia, serif;
-  --font-body: 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
 
   /* Border Radius */
   --radius-sm: 0.25rem;
@@ -88,6 +96,59 @@
    DARK THEME
    -------------------------- */
 .dark {
+  /* Brand Colors - Vibrant and glowing for dark mode */
+  --color-brand-primary: #3b82f6;
+  --color-brand-primary-hover: #60a5fa;
+  --color-brand-primary-light: #1e3a8a;
+  --color-brand-accent: #a78bfa;
+
+  /* Dark Theme - Deep midnight crypto aesthetic (Zinc/Slate base) */
+  --color-bg-primary: #09090b; /* Almost pure black */
+  --color-bg-secondary: #18181b; /* Elevated card */
+  --color-bg-tertiary: #27272a; /* Tertiary card */
+  --color-bg-hover: #3f3f46;
+
+  /* Subtle dark gradients */
+  --gradient-bg-primary: linear-gradient(180deg, #09090b 0%, #000000 100%);
+  --gradient-bg-secondary: linear-gradient(145deg, #18181b 0%, #09090b 100%);
+  --gradient-bg-tertiary: linear-gradient(160deg, #27272a 0%, #18181b 100%);
+  --gradient-bg-hover: linear-gradient(145deg, #3f3f46 0%, #27272a 100%);
+
+  /* Extra brand gradient - Electric Blue to Purple (Very Web3) */
+  --gradient-brand: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+
+  /* Text Colors - Sharp and readable */
+  --color-text-primary: #fafafa;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #71717a;
+  --color-text-inverse: #ffffff;
+
+  /* Border Colors - Subtle structure */
+  --color-border: #27272a;
+  --color-border-light: #18181b;
+  --color-border-dark: #3f3f46;
+  --calendar-icon-filter: invert(1) brightness(1.5);
+
+  /* Status Colors */
+  --color-success: #10b981;
+  --color-success-bg: rgba(16, 185, 129, 0.1);
+  --color-warning: #f59e0b;
+  --color-warning-bg: rgba(245, 158, 11, 0.1);
+  --color-danger: #ef4444;
+  --color-danger-bg: rgba(239, 68, 68, 0.1);
+  --color-info: #3b82f6;
+  --color-info-bg: rgba(59, 130, 246, 0.1);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+}
+
+/* -------------------------
+   NAVY THEME (Classic Crypto)
+   -------------------------- */
+.navy {
   /* Brand Colors - Adjusted for dark mode */
   --color-brand-primary: #4d5cdb;
   --color-brand-primary-hover: #5d6ce5;
@@ -99,6 +160,15 @@
   --color-bg-secondary: #0f1528;
   --color-bg-tertiary: #0a1020;
   --color-bg-hover: #162035;
+
+  /* Classic Navy gradients */
+  --gradient-bg-primary: linear-gradient(180deg, #0a0f1e 0%, #080c18 100%);
+  --gradient-bg-secondary: linear-gradient(145deg, #121a30 0%, #0f1528 100%);
+  --gradient-bg-tertiary: linear-gradient(160deg, #0c1224 0%, #0a1020 100%);
+  --gradient-bg-hover: linear-gradient(145deg, #1a2540 0%, #162035 100%);
+
+  /* Extra brand gradient */
+  --gradient-brand: linear-gradient(135deg, #4d5cdb 0%, #6b7aef 100%);
 
   /* Text Colors - High Contrast for Dark */
   --color-text-primary: #f8fafc;
@@ -150,8 +220,21 @@
 
   body {
     background-color: var(--color-bg-primary);
+    background-image:
+      radial-gradient(
+        at 10% 5%,
+        color-mix(in srgb, var(--color-brand-primary) 7%, transparent) 0px,
+        transparent 50%
+      ),
+      radial-gradient(
+        at 90% 85%,
+        color-mix(in srgb, var(--color-brand-accent) 5%, transparent) 0px,
+        transparent 50%
+      );
+    background-attachment: fixed;
     color: var(--color-text-primary);
     line-height: 1.6;
+    min-height: 100vh;
     transition:
       background-color 0.2s ease,
       color 0.2s ease;
@@ -476,17 +559,23 @@
 
   /* Price Indicators */
   .price-up {
+    font-family: var(--font-mono);
     color: var(--color-success);
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
 
   .price-down {
+    font-family: var(--font-mono);
     color: var(--color-danger);
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
 
   .price-neutral {
+    font-family: var(--font-mono);
     color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
   }
 }
 
@@ -512,6 +601,30 @@
     background-color: var(--color-bg-tertiary);
   }
 
+  /* NEW: opt-in gradient background utilities.
+     Apply these ALONGSIDE (not instead of) the solid classes above,
+     e.g. class="card bg-secondary-gradient", wherever you want the
+     gradient look. Nothing existing references these, so nothing breaks. */
+  .bg-primary-gradient {
+    background: var(--gradient-bg-primary);
+  }
+
+  .bg-secondary-gradient {
+    background: var(--gradient-bg-secondary);
+  }
+
+  .bg-tertiary-gradient {
+    background: var(--gradient-bg-tertiary);
+  }
+
+  .bg-hover-gradient {
+    background: var(--gradient-bg-hover);
+  }
+
+  .bg-brand-gradient {
+    background: var(--gradient-brand, var(--color-brand-primary));
+  }
+
   /* Text Colors */
   .text-primary {
     color: var(--color-text-primary);
@@ -527,6 +640,13 @@
 
   .text-brand {
     color: var(--color-brand-primary);
+  }
+
+  /* Monospace for tickers, order books, balances, timestamps */
+  .font-mono-tabular {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
   }
 
   /* Dividers */
@@ -756,23 +876,16 @@
   animation: pulseSubtle 3s ease-in-out infinite;
 }
 
-.hide-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-
+/* Scrollbar hide utility */
+.scrollbar-hide,
 .hide-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
 
-/* Scrollbar hide utility */
-.scrollbar-hide::-webkit-scrollbar {
+.scrollbar-hide::-webkit-scrollbar,
+.hide-scrollbar::-webkit-scrollbar {
   display: none;
-}
-
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
 }
 
 @keyframes slideUpModal {
@@ -826,4 +939,271 @@
 
 .animate-backdrop-fade-in {
   animation: backdropFade 0.25s ease-out forwards;
+}
+
+/* WalletConnect font override */
+.w3m-font {
+  font-family: var(--font-body);
+}
+
+/* =====================================================================
+   ORDERBOOK & TRADES ANIMATIONS
+   ===================================================================== */
+
+@keyframes ob-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes trade-row-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes size-flash-up {
+  0% {
+    color: #22c55e;
+    font-weight: 700;
+  }
+
+  100% {
+    color: inherit;
+    font-weight: inherit;
+  }
+}
+
+@keyframes size-flash-down {
+  0% {
+    color: #ef4444;
+    font-weight: 700;
+  }
+
+  100% {
+    color: inherit;
+    font-weight: inherit;
+  }
+}
+
+.ob-row-enter {
+  animation: ob-row-enter 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.trade-row-enter {
+  animation: trade-row-enter 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.size-flash-up {
+  animation: size-flash-up 0.45s ease-out forwards;
+}
+
+.size-flash-down {
+  animation: size-flash-down 0.45s ease-out forwards;
+}
+
+.ob-depth-bar {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  pointer-events: none;
+  transform-origin: right center;
+  will-change: width;
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ob-depth-bar--ask-soft {
+  background-color: rgba(239, 68, 68, 0.07);
+}
+
+.ob-depth-bar--ask-strong {
+  background-color: rgba(239, 68, 68, 0.22);
+}
+
+.ob-depth-bar--bid-soft {
+  background-color: rgba(34, 197, 94, 0.07);
+}
+
+.ob-depth-bar--bid-strong {
+  background-color: rgba(34, 197, 94, 0.22);
+}
+
+.ob-depth-bar--ask {
+  background-color: rgba(239, 68, 68, 0.12);
+}
+
+.ob-depth-bar--bid {
+  background-color: rgba(34, 197, 94, 0.12);
+}
+
+.ob-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+
+.ob-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ob-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--color-border, #2a2d35);
+  border-radius: 99px;
+}
+
+.ob-stagger > * {
+  animation: ob-row-enter 0.15s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ob-stagger > *:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.ob-stagger > *:nth-child(2) {
+  animation-delay: 0.02s;
+}
+
+.ob-stagger > *:nth-child(3) {
+  animation-delay: 0.03s;
+}
+
+.ob-stagger > *:nth-child(4) {
+  animation-delay: 0.04s;
+}
+
+.ob-stagger > *:nth-child(5) {
+  animation-delay: 0.05s;
+}
+
+.ob-stagger > *:nth-child(6) {
+  animation-delay: 0.06s;
+}
+
+.ob-stagger > *:nth-child(7) {
+  animation-delay: 0.07s;
+}
+
+.ob-stagger > *:nth-child(8) {
+  animation-delay: 0.08s;
+}
+
+.ob-stagger > *:nth-child(9) {
+  animation-delay: 0.09s;
+}
+
+.ob-stagger > *:nth-child(10) {
+  animation-delay: 0.1s;
+}
+
+.ob-stagger > *:nth-child(11) {
+  animation-delay: 0.11s;
+}
+
+.ob-stagger > *:nth-child(12) {
+  animation-delay: 0.12s;
+}
+
+.ob-stagger > *:nth-child(13) {
+  animation-delay: 0.13s;
+}
+
+.ob-stagger > *:nth-child(14) {
+  animation-delay: 0.14s;
+}
+
+.ob-stagger > *:nth-child(15) {
+  animation-delay: 0.15s;
+}
+
+@layer utilities {
+  .neon-card {
+    --neon-color: var(--color-info);
+    position: relative;
+    overflow: hidden;
+    border-color: color-mix(in srgb, var(--neon-color) 35%, transparent);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--neon-color) 6%, transparent),
+      0 0 18px color-mix(in srgb, var(--neon-color) 18%, transparent),
+      inset 0 0 40px color-mix(in srgb, var(--neon-color) 5%, transparent);
+    animation: neonPulse 3.4s ease-in-out infinite;
+  }
+
+  .neon-badge {
+    --neon-color: var(--color-info);
+    border-color: color-mix(in srgb, var(--neon-color) 35%, transparent);
+    box-shadow:
+      0 0 10px color-mix(in srgb, var(--neon-color) 45%, transparent),
+      0 0 20px color-mix(in srgb, var(--neon-color) 18%, transparent);
+  }
+
+  .neon-text {
+    --neon-color: var(--color-info);
+    text-shadow: 0 0 6px color-mix(in srgb, var(--neon-color) 40%, transparent);
+  }
+
+  .neon-btn {
+    --neon-color: var(--color-info);
+    background: linear-gradient(
+      135deg,
+      var(--neon-color),
+      color-mix(in srgb, var(--neon-color) 75%, black)
+    );
+    color: var(--color-text-inverse);
+    box-shadow:
+      0 0 12px color-mix(in srgb, var(--neon-color) 55%, transparent),
+      0 0 24px color-mix(in srgb, var(--neon-color) 25%, transparent);
+  }
+
+  .neon-sheen::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.6;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--neon-color, var(--color-info)) 12%, transparent),
+      transparent
+    );
+    background-size: 200% 100%;
+    animation: neonSheen 4s linear infinite;
+  }
+
+  @keyframes neonPulse {
+    0%,
+    100% {
+      box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--neon-color) 6%, transparent),
+        0 0 18px color-mix(in srgb, var(--neon-color) 18%, transparent),
+        inset 0 0 40px color-mix(in srgb, var(--neon-color) 5%, transparent);
+    }
+
+    50% {
+      box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--neon-color) 12%, transparent),
+        0 0 26px color-mix(in srgb, var(--neon-color) 28%, transparent),
+        inset 0 0 46px color-mix(in srgb, var(--neon-color) 10%, transparent);
+    }
+  }
+
+  @keyframes neonSheen {
+    0% {
+      background-position: -100% 0;
+    }
+
+    100% {
+      background-position: 100% 0;
+    }
+  }
 }

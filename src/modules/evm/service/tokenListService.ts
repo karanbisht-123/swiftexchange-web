@@ -1,8 +1,9 @@
 import { ethers } from 'ethers';
+
 import { ERC20_ABI } from '../../../abi/Erc20AbI';
 import PancakeTokens from '../../../data/swap/PancakeList.json';
 import UniswapTokens from '../../../data/swap/UniswapList.json';
-import { CHAIN_REGISTRY, getChainById } from '../utils/Chainregistry';
+import { CHAIN_REGISTRY, getChainById, normalizeTokenForDisplay } from '../utils/Chainregistry';
 import { NATIVE_ADDRESS } from '../utils/assetmanagement/constants';
 
 export interface TokenInfo {
@@ -14,6 +15,7 @@ export interface TokenInfo {
   logoURI?: string;
   balance?: string;
   isNative?: boolean;
+  type?: string;
 }
 
 export interface ChainNativeConfig {
@@ -25,7 +27,13 @@ export interface ChainNativeConfig {
 
 function isNativeAddress(address: string): boolean {
   if (!address) return false;
-  return address.toLowerCase() === NATIVE_ADDRESS.toLowerCase();
+  const lower = address.toLowerCase();
+  return (
+    lower === NATIVE_ADDRESS.toLowerCase() ||
+    lower === '0x0000000000000000000000000000000000000000' ||
+    lower === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ||
+    lower === 'native'
+  );
 }
 
 export function getTokensForChain(chainId: number | string): TokenInfo[] {
@@ -36,14 +44,19 @@ export function getTokensForChain(chainId: number | string): TokenInfo[] {
   const platform = chainConfig.coingeckoPlatform.toLowerCase();
   const slug = chainConfig.slug.toLowerCase();
 
-  if (platform === 'binance-smart-chain' || platform === 'bnb' || slug === 'smartchain' || slug === 'binance') {
+  if (
+    platform === 'binance-smart-chain' ||
+    platform === 'bnb' ||
+    slug === 'smartchain' ||
+    slug === 'binance'
+  ) {
     rawTokens = PancakeTokens;
   } else {
     rawTokens = UniswapTokens;
   }
 
   const combinedTokens = [...(chainConfig.assets || []), ...rawTokens].filter(
-    t => t.chainId === chainId || !t.chainId
+    t => String(t.chainId) === String(chainId) || !t.chainId
   );
 
   const uniqueTokensMap = new Map<string, any>();
@@ -54,24 +67,40 @@ export function getTokensForChain(chainId: number | string): TokenInfo[] {
     }
   }
 
-  const mappedTokens: TokenInfo[] = Array.from(uniqueTokensMap.values())
-    .map(t => {
-      const isNative = isNativeAddress(t.address) || t.type === 'NATIVE';
-      return {
-        chainId: t.chainId || chainId,
-        address: t.address,
-        name: t.name,
+  const mappedTokens: TokenInfo[] = Array.from(uniqueTokensMap.values()).map(t => {
+    const isNative = isNativeAddress(t.address) || t.type === 'NATIVE';
+
+    // Normalize: native-address tokens on ETH L2 chains must display as ETH
+    // (token sources like 1inch/Uniswap may label them with the chain symbol)
+    const normalized = normalizeTokenForDisplay(
+      {
         symbol: t.symbol,
-        decimals: t.decimals,
+        name: t.name,
         logoURI: t.logoURI,
-        balance: undefined,
+        address: t.address,
         isNative,
-      };
-    });
+        type: t.type,
+      },
+      chainId
+    );
+
+    return {
+      chainId: t.chainId || chainId,
+      address: t.address,
+      name: normalized.name,
+      symbol: normalized.symbol,
+      decimals: t.decimals,
+      logoURI: normalized.logoURI || t.logoURI,
+      balance: undefined,
+      isNative: normalized.isNative,
+      type: t.type,
+    };
+  });
 
   const hasNative = mappedTokens.some(t => t.isNative);
-  
+
   if (!hasNative && chainConfig.nativeCurrency) {
+    // nativeCurrency is already corrected to ETH for ARB/OPT/BASE chains
     const nativeAsset: TokenInfo = {
       chainId,
       address: ethers.ZeroAddress,
@@ -143,4 +172,3 @@ export function getSupportedChainIds(): (number | string)[] {
 export function getSwapEnabledChainIds(): (number | string)[] {
   return CHAIN_REGISTRY.filter(c => c.available && c.swapEnabled).map(c => c.chainId);
 }
-

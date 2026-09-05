@@ -1,12 +1,30 @@
-import { ArrowDown, ArrowDownLeft, Check, Copy, ExternalLink, Loader2, RefreshCw, ShieldCheck, X } from 'lucide-react';
-import React, { useState, useEffect } from 'react';
-import { getFusionOrderStatus, type FusionOrderStatusResponse } from '../service/evmTransactionStatusService';
+import {
+  ArrowDown,
+  ArrowDownLeft,
+  Check,
+  Copy,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 
 import { type LocalTransactionWithStatus } from '../hook/useLocalTransactions';
 import { type TransactionItem } from '../service/EvmTransactionService';
-import { getChainLogoUrl, getChainName, getExplorerUrl, getGlobalAssetMetadata, getAssetByAddress } from '../utils/Chainregistry';
-import { formatTxAmount, formatAssetName, getDisplayAmountWithSign } from '../utils/formatAmount';
-
+import {
+  type FusionOrderStatusResponse,
+  getFusionOrderStatus,
+} from '../service/evmTransactionStatusService';
+import {
+  getAssetByAddress,
+  getChainLogoUrl,
+  getChainName,
+  getExplorerUrl,
+  getGlobalAssetMetadata,
+} from '../utils/Chainregistry';
+import { formatAssetName, formatTxAmount, getDisplayAmountWithSign } from '../utils/formatAmount';
 
 interface TransactionDetailsViewProps {
   transaction: TransactionItem | LocalTransactionWithStatus;
@@ -41,22 +59,36 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
 
   const txProvider = (transaction as any).provider;
   const isFusion = txProvider === 'ONEINCH_FUSION' || txProvider === 'ONEINCH_FUSION_PLUS';
-  const isAllbridge = txProvider === 'ALLBRIDGE' || txProvider === 'SRBTODYDX';
+
+  const isNearIntent = txProvider === 'NEARINTENT';
 
   const isLocal = 'type' in transaction;
   const isBackendOrder = (transaction as any).isBackendOrder;
 
-  const rawStatus = (isFusion && fusionDetails?.status)
-    ? fusionDetails.status
-    : (backendStatus?.status || (isLocal ? (transaction as LocalTransactionWithStatus).status : 'success'));
+  const rawStatus =
+    isFusion && fusionDetails?.status
+      ? fusionDetails.status
+      : backendStatus?.status ||
+        (isLocal ? (transaction as LocalTransactionWithStatus).status : 'success');
 
   const getStatusType = (s: string | undefined): 'success' | 'failed' | 'pending' => {
     if (!s) return 'pending';
     const lower = s.toLowerCase();
-    if (lower === 'completed' || lower === 'executed' || lower === 'success' || lower === 'filled') {
+    if (
+      lower === 'completed' ||
+      lower === 'executed' ||
+      lower === 'success' ||
+      lower === 'filled'
+    ) {
       return 'success';
     }
-    if (lower === 'failed' || lower === 'cancelled' || lower === 'expired' || lower === 'invalid' || lower === 'refunded') {
+    if (
+      lower === 'failed' ||
+      lower === 'cancelled' ||
+      lower === 'expired' ||
+      lower === 'invalid' ||
+      lower === 'refunded'
+    ) {
       return 'failed';
     }
     return 'pending'; // created, pending, partially_filled, refunding, etc.
@@ -67,14 +99,10 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
 
   const cleanLabel = (desc: string | null | undefined, defaultType: string) => {
     if (!desc) return `${defaultType.charAt(0).toUpperCase() + defaultType.slice(1)} Transaction`;
-    return desc
-      .replace(/\s*\(Step \d+\/\d+\)/i, '')
-      .replace(/\s*for Swap/i, '');
+    return desc.replace(/\s*\(Step \d+\/\d+\)/i, '').replace(/\s*for Swap/i, '');
   };
 
-  const displayType = isLocal
-    ? (description ? cleanLabel(description, type) : type)
-    : type;
+  const displayType = isLocal ? (description ? cleanLabel(description, type) : type) : type;
 
   useEffect(() => {
     if (isFusion && transaction.hash) {
@@ -83,7 +111,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
         .then(res => setFusionDetails(res))
         .catch(err => console.error('Failed to load Fusion order details:', err));
     }
-  }, [isFusion, transaction.hash, chainId, txProvider]);
+  }, [isFusion, transaction, chainId, txProvider]);
 
   let displayHash = transaction.hash;
   let showExplorerLink = true;
@@ -96,15 +124,17 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
     }
   }
 
-  const explorerLinkUrl = isAllbridge
-    ? `https://core.allbridge.io/explorer?search=${transaction.hash}`
+  const explorerLinkUrl = isNearIntent
+    ? `https://explorer.near-intents.org/transactions/${transaction.hash}`
     : getExplorerUrl(chainId, 'tx', displayHash);
   const timestamp = isLocal
     ? (transaction as LocalTransactionWithStatus).timestamp
     : (transaction as TransactionItem).metadata?.blockTimestamp
       ? new Date((transaction as TransactionItem).metadata.blockTimestamp).getTime()
       : null;
-  const destinationHash = backendStatus?.destinationHash || (isLocal ? (transaction as LocalTransactionWithStatus).destinationHash : null);
+  const destinationHash =
+    backendStatus?.destinationHash ||
+    (isLocal ? (transaction as LocalTransactionWithStatus).destinationHash : null);
   const getTransactionAssetSymbol = (t: any): string => {
     if (t.isBackendOrder) {
       return t.fromToken || '';
@@ -125,7 +155,8 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
     const tx = transaction as TransactionItem;
     assetSymbol = formatAssetName(tx);
     if (tx.asset) assetLogo = getGlobalAssetMetadata(tx.asset)?.logoURI;
-    if (!assetLogo && tx.rawContract?.address) assetLogo = getAssetByAddress(chainId, tx.rawContract.address)?.logoURI;
+    if (!assetLogo && tx.rawContract?.address)
+      assetLogo = getAssetByAddress(chainId, tx.rawContract.address)?.logoURI;
   } else {
     assetSymbol = getTransactionAssetSymbol(transaction);
     if (assetSymbol) assetLogo = getGlobalAssetMetadata(assetSymbol)?.logoURI;
@@ -191,11 +222,17 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
           </div>
         )}
         <div className="relative w-20 h-20 mb-6">
-          <div className={`w-full h-full rounded-full flex items-center justify-center shadow-inner border border-color overflow-hidden bg-primary ${type === 'approval' ? 'bg-blue-500/10 border-blue-500/20' : 'bg-tertiary'}`}>
+          <div
+            className={`w-full h-full rounded-full flex items-center justify-center shadow-inner border border-color overflow-hidden bg-primary ${type === 'approval' ? 'bg-blue-500/10 border-blue-500/20' : 'bg-tertiary'}`}
+          >
             {type === 'approval' ? (
               <ShieldCheck className="w-10 h-10 text-blue-500" />
             ) : assetLogo ? (
-              <img src={assetLogo} alt={assetSymbol || chainSymbol} className="w-full h-full object-cover rounded-full" />
+              <img
+                src={assetLogo}
+                alt={assetSymbol || chainSymbol}
+                className="w-full h-full object-cover rounded-full"
+              />
             ) : (
               <div className="text-lg font-black text-primary">
                 {assetSymbol ? assetSymbol.slice(0, 3).toUpperCase() : chainSymbol.slice(0, 2)}
@@ -210,14 +247,12 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
             />
           )}
         </div>
-        {(!isLocal || isBackendOrder) ? (
+        {!isLocal || isBackendOrder ? (
           <div className="text-center mb-2">
             <div className="text-3xl font-black text-primary tracking-tight mb-1">
               {amount} <span className="text-xl text-muted font-bold ml-1">{assetName}</span>
             </div>
-            <div className="text-sm font-semibold text-muted">
-              {cleanLabel(description, type)}
-            </div>
+            <div className="text-sm font-semibold text-muted">{cleanLabel(description, type)}</div>
           </div>
         ) : (
           <div className="text-2xl font-black text-primary tracking-tight text-center max-w-[80%] leading-tight mb-2">
@@ -227,7 +262,9 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
         <div className="flex items-center gap-3 mt-2">
           {getStatusDisplay()}
           <div className="h-1 w-1 rounded-full bg-muted/30" />
-          <span className={`text-xs font-bold text-muted uppercase tracking-[0.2em] px-3 py-1 rounded-full border border-color/30 ${type === 'approval' ? 'bg-blue-500/10 text-blue-500' : 'bg-tertiary/50'}`}>
+          <span
+            className={`text-xs font-bold text-muted uppercase tracking-[0.2em] px-3 py-1 rounded-full border border-color/30 ${type === 'approval' ? 'bg-blue-500/10 text-blue-500' : 'bg-tertiary/50'}`}
+          >
             {isLocal ? displayType : (transaction as TransactionItem).category}
           </span>
         </div>
@@ -253,14 +290,22 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <span className="text-xs font-black text-primary">{(transaction as any).fromToken?.slice(0, 2).toUpperCase()}</span>
+                        <span className="text-xs font-black text-primary">
+                          {(transaction as any).fromToken?.slice(0, 2).toUpperCase()}
+                        </span>
                       )}
                     </div>
                     <div>
-                      <span className="text-[10px] text-muted block uppercase tracking-wider font-bold opacity-60">You Pay</span>
+                      <span className="text-[10px] text-muted block uppercase tracking-wider font-bold opacity-60">
+                        You Pay
+                      </span>
                       <div className="flex items-baseline gap-1">
-                        <span className="text-base font-black text-primary font-mono leading-none">{(transaction as any).amountIn}</span>
-                        <span className="text-xs font-black text-muted leading-none">{(transaction as any).fromToken}</span>
+                        <span className="text-base font-black text-primary font-mono leading-none">
+                          {(transaction as any).amountIn}
+                        </span>
+                        <span className="text-xs font-black text-muted leading-none">
+                          {(transaction as any).fromToken}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -274,7 +319,9 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
                         className="w-4 h-4 rounded-full bg-primary"
                       />
                     )}
-                    <span className="text-xs font-bold text-primary font-mono">{(transaction as any).fromChainSymbol}</span>
+                    <span className="text-xs font-bold text-primary font-mono">
+                      {(transaction as any).fromChainSymbol}
+                    </span>
                   </div>
                 </div>
 
@@ -298,28 +345,46 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <span className="text-xs font-black text-primary">{(transaction as any).toToken?.slice(0, 2).toUpperCase()}</span>
+                        <span className="text-xs font-black text-primary">
+                          {(transaction as any).toToken?.slice(0, 2).toUpperCase()}
+                        </span>
                       )}
                     </div>
                     <div>
-                      <span className="text-[10px] text-muted block uppercase tracking-wider font-bold opacity-60">You Receive</span>
+                      <span className="text-[10px] text-muted block uppercase tracking-wider font-bold opacity-60">
+                        You Receive
+                      </span>
                       <div className="flex items-baseline gap-1">
-                        <span className="text-base font-black text-primary font-mono leading-none">{(transaction as any).amountOut}</span>
-                        <span className="text-xs font-black text-muted leading-none">{(transaction as any).toToken}</span>
+                        <span className="text-base font-black text-primary font-mono leading-none">
+                          {(transaction as any).amountOut}
+                        </span>
+                        <span className="text-xs font-black text-muted leading-none">
+                          {(transaction as any).toToken}
+                        </span>
                       </div>
                     </div>
                   </div>
 
                   {/* Destination Chain */}
                   <div className="flex items-center gap-1.5 bg-tertiary/50 px-2.5 py-1 rounded-xl border border-color/20 shadow-sm">
-                    {getChainLogoUrl((transaction as any).toChainSymbol || (transaction as any).fromChainSymbol || chainId) && (
+                    {getChainLogoUrl(
+                      (transaction as any).toChainSymbol ||
+                        (transaction as any).fromChainSymbol ||
+                        chainId
+                    ) && (
                       <img
-                        src={getChainLogoUrl((transaction as any).toChainSymbol || (transaction as any).fromChainSymbol || chainId)}
+                        src={getChainLogoUrl(
+                          (transaction as any).toChainSymbol ||
+                            (transaction as any).fromChainSymbol ||
+                            chainId
+                        )}
                         alt=""
                         className="w-4 h-4 rounded-full bg-primary"
                       />
                     )}
-                    <span className="text-xs font-bold text-primary font-mono">{(transaction as any).toChainSymbol || (transaction as any).fromChainSymbol}</span>
+                    <span className="text-xs font-bold text-primary font-mono">
+                      {(transaction as any).toChainSymbol || (transaction as any).fromChainSymbol}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -329,7 +394,9 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
         )}
 
         <div className="space-y-2">
-          <h4 className="text-xs font-bold text-muted uppercase tracking-wider">Transaction Info</h4>
+          <h4 className="text-xs font-bold text-muted uppercase tracking-wider">
+            Transaction Info
+          </h4>
           <div className="space-y-3">
             <div className="flex justify-between items-center">
               <span className="text-sm text-secondary">Tx Hash</span>
@@ -356,7 +423,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-1.5 hover:bg-tertiary rounded-md text-muted hover:text-primary transition-colors"
-                    title={isAllbridge ? 'View on Allbridge Explorer' : 'View on Explorer'}
+                    title="View on Explorer"
                   >
                     <ExternalLink size={14} />
                   </a>
@@ -410,7 +477,11 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
             <div className="flex justify-between items-center">
               <span className="text-sm text-secondary">Time</span>
               <span className="text-sm text-primary font-medium">
-                {timestamp ? new Date(timestamp).toLocaleString() : isLocal ? 'Just now' : 'Unknown Time'}
+                {timestamp
+                  ? new Date(timestamp).toLocaleString()
+                  : isLocal
+                    ? 'Just now'
+                    : 'Unknown Time'}
               </span>
             </div>
           </div>
@@ -418,7 +489,7 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
 
         <div className="h-px bg-color w-full" />
 
-        {((!isLocal) || (isLocal && type === 'bridge')) && (
+        {(!isLocal || (isLocal && type === 'bridge')) && (
           <>
             <div className="space-y-4">
               <h4 className="text-xs font-bold text-muted uppercase tracking-wider">
@@ -428,7 +499,14 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-muted font-semibold uppercase">From</span>
                   <button
-                    onClick={() => handleCopy(isLocal ? (transaction as LocalTransactionWithStatus).from || '' : (transaction as TransactionItem).from, 'from')}
+                    onClick={() =>
+                      handleCopy(
+                        isLocal
+                          ? (transaction as LocalTransactionWithStatus).from || ''
+                          : (transaction as TransactionItem).from,
+                        'from'
+                      )
+                    }
                     className="p-1 hover:bg-hover rounded text-muted hover:text-primary transition-colors"
                   >
                     {copiedField === 'from' ? (
@@ -439,7 +517,9 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
                   </button>
                 </div>
                 <div className="font-mono text-sm text-primary break-all">
-                  {isLocal ? (transaction as LocalTransactionWithStatus).from || '—' : (transaction as TransactionItem).from}
+                  {isLocal
+                    ? (transaction as LocalTransactionWithStatus).from || '—'
+                    : (transaction as TransactionItem).from}
                 </div>
               </div>
 
@@ -453,7 +533,14 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-muted font-semibold uppercase">Recipient (To)</span>
                   <button
-                    onClick={() => handleCopy(isLocal ? (transaction as LocalTransactionWithStatus).to || '' : (transaction as TransactionItem).to, 'to')}
+                    onClick={() =>
+                      handleCopy(
+                        isLocal
+                          ? (transaction as LocalTransactionWithStatus).to || ''
+                          : (transaction as TransactionItem).to,
+                        'to'
+                      )
+                    }
                     className="p-1 hover:bg-hover rounded text-muted hover:text-primary transition-colors"
                   >
                     {copiedField === 'to' ? (
@@ -464,7 +551,9 @@ const TransactionDetailsView: React.FC<TransactionDetailsViewProps> = ({
                   </button>
                 </div>
                 <div className="font-mono text-sm text-primary break-all">
-                  {isLocal ? (transaction as LocalTransactionWithStatus).to || '—' : (transaction as TransactionItem).to}
+                  {isLocal
+                    ? (transaction as LocalTransactionWithStatus).to || '—'
+                    : (transaction as TransactionItem).to}
                 </div>
               </div>
             </div>

@@ -1,52 +1,72 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { lazy } from 'react';
+import { Navigate, createBrowserRouter } from 'react-router-dom';
 
-import Layout from '../components/layout/Layout';
-import RootLayout from '../components/layout/RootLayout';
-import { ROUTES } from '../constants/routes';
-import AlchemyPayIntegration from '../modules/alchemyPay/components/AlchemyPayIntegration';
-import { GeolocationGuard } from '../modules/commonfeature/components/GeolocationGuard';
-import { RESTRICTED_TRADING_LOCATIONS } from '../modules/commonfeature/constants/compliance';
-import ReceiveAssets from '../modules/commonfeature/reciveassets/ReceiveAssets';
-import SendAssets from '../modules/commonfeature/sendassets/SendAssets';
-// import MarketsDisplay from '../modules/dydx/components/MarketsDisplay';
-import TradingintrFace from '../modules/dydx/components/tradedashbord/TradingintrFace';
-import EvmTransactionHistory from '../modules/evm/components/EvmTransactionHistory';
-// import BridgePage from '../modules/evm/feature/bridge/BridgePage';
-// import WebSocketDebugger from '../modules/dydx/utils/WebSocketDebugger';
-import SwapAssets from '../modules/evm/feature/swap/components/SwapAssets';
-import CryptoMarket from '../modules/market/CryptoMarket';
-// import TradeTransactionUI from '../modules/steallr/components/TradeTransactionUI';
-import StallerTradescreen from '../modules/steallr/components/tradescreen/StallerTradescreen';
-import Dashboard from '../pages/Dashboard';
-// import Home from '../pages/Home';
-import Profile from '../pages/Profile';
-import { HomeRedirect } from './HomeRedirect';
-import ProtectedRoute from './ProtectedRoute';
+import Layout from '@/components/layout/Layout';
+import RootLayout from '@/components/layout/RootLayout';
+import { ROUTES } from '@/constants/routes';
+import { GeolocationGuard } from '@/modules/commonfeature/components/GeolocationGuard';
+import { RESTRICTED_TRADING_LOCATIONS } from '@/modules/commonfeature/constants/compliance';
+
+import { HomeRedirect } from './components/HomeRedirect';
+import ProtectedRoute from './components/ProtectedRoute';
+import { RouteErrorBoundary } from './components/RouteErrorBoundary';
+
+const AlchemyPayIntegration = lazy(
+  () => import('@/modules/alchemyPay/components/AlchemyPayIntegration')
+);
+const ReceiveAssets = lazy(() => import('@/modules/commonfeature/receiveassets/ReceiveAssets'));
+const SendAssets = lazy(() => import('@/modules/commonfeature/sendassets/SendAssets'));
+const PerpetualsTradingPage = lazy(() => import('@/pages/perps'));
+const EvmTransactionHistory = lazy(() => import('@/modules/evm/components/EvmTransactionHistory'));
+const SwapAssets = lazy(() => import('@/modules/evm/feature/swap/components/SwapAssets'));
+
+const CryptoMarket = lazy(() => import('@/modules/market/CryptoMarket'));
+const StellarTradescreen = lazy(
+  () => import('@/modules/stellar/components/tradescreen/StellarTradescreen')
+);
+const StellarPortfolioUI = lazy(
+  () => import('@/modules/stellar/components/stellarassets/StellarPortfolioUI')
+);
+const Dashboard = lazy(() => import('@/pages/dashboard'));
+const Profile = lazy(() => import('@/pages/profile'));
 
 const router = createBrowserRouter([
   {
     path: '/',
     element: <RootLayout />,
+    errorElement: <RouteErrorBoundary />,
     children: [
       {
         path: ROUTES.HOME,
         element: <HomeRedirect />,
       },
       {
-        path: ROUTES.TRADING_DYDX_FUTURES,
+        path: ROUTES.TRADING_PERPS,
         element: (
           <Layout>
             <GeolocationGuard restrictedLocations={RESTRICTED_TRADING_LOCATIONS} blocking={true}>
-              <TradingintrFace />
+              <PerpetualsTradingPage />
             </GeolocationGuard>
           </Layout>
         ),
       },
       {
-        path: ROUTES.TRADING_STEALLR,
+        path: '/trade/v2/perpetuals',
+        element: <Navigate to={ROUTES.TRADING_PERPS} replace />,
+      },
+      {
+        path: ROUTES.TRADING_STELLAR,
         element: (
           <Layout>
-            <StallerTradescreen />
+            <StellarTradescreen />
+          </Layout>
+        ),
+      },
+      {
+        path: ROUTES.PORTFOLIO,
+        element: (
+          <Layout>
+            <StellarPortfolioUI />
           </Layout>
         ),
       },
@@ -77,12 +97,10 @@ const router = createBrowserRouter([
               </Layout>
             ),
           },
-
           {
             path: ROUTES.TRANSACTIONS,
             element: (
               <Layout>
-                {/* <TradeTransactionUI /> */}
                 <EvmTransactionHistory />
               </Layout>
             ),
@@ -103,15 +121,6 @@ const router = createBrowserRouter([
               </Layout>
             ),
           },
-          // {
-          //   path: ROUTES.BRIDGE,
-          //   element: (
-          //     <Layout>
-          //       <BridgePage />
-          //     </Layout>
-          //   ),
-          // },
-
           {
             path: ROUTES.MARKETS,
             element: (
@@ -120,14 +129,7 @@ const router = createBrowserRouter([
               </Layout>
             ),
           },
-          {
-            path: ROUTES.PORTFOLIO,
-            element: (
-              <Layout>
-                <Profile />
-              </Layout>
-            ),
-          },
+
           {
             path: ROUTES.MY_ASSETS,
             element: (
@@ -137,6 +139,10 @@ const router = createBrowserRouter([
             ),
           },
         ],
+      },
+      {
+        path: '*',
+        element: <Navigate to={ROUTES.HOME} replace />,
       },
     ],
   },

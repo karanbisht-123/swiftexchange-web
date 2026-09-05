@@ -3,8 +3,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import PageLayout from '../../../components/layout/PageLayout';
-import AllTransactionsUI from '../../steallr/components/AllTransactionsUI';
+import AllTransactionsUI from '../../stellar/components/AllTransactionsUI';
 import { WalletType } from '../../walletconnect/constants/Wallet';
+import { useWalletConnect } from '../../walletconnect/hooks/useWalletConnect';
 import { useWalletStore } from '../../walletconnect/store/walletConnectStore';
 import { useEvmTransaction } from '../hook/useEvmTransaction';
 import {
@@ -66,7 +67,8 @@ const resolveOrderStatus = (status: string | undefined): 'success' | 'failed' | 
     s === 'cancelled' ||
     s === 'expired' ||
     s === 'invalid' ||
-    s === 'refunded'
+    s === 'refunded' ||
+    s === 'exhausted'
   ) {
     return 'failed';
   }
@@ -88,9 +90,7 @@ const isBypassedProvider = (provider: string | undefined | null): boolean => {
 
 const resolveChainLogoUrl = (cId: string | number): string => {
   const id = String(cId).toUpperCase();
-  if (id === 'DYDX') {
-    return 'https://coin-images.coingecko.com/coins/images/17500/large/dydx.png';
-  }
+
   if (id === 'SRB' || id === 'STELLAR' || id === 'PUBNET' || id === 'TESTNET') {
     return 'https://coin-images.coingecko.com/coins/images/100/large/Stellar_symbol_black_RGB.png';
   }
@@ -99,7 +99,7 @@ const resolveChainLogoUrl = (cId: string | number): string => {
 
 const resolveChainDisplayName = (cId: string | number): string => {
   const id = String(cId).toUpperCase();
-  if (id === 'DYDX') return 'dYdX';
+
   if (id === 'SRB' || id === 'STELLAR' || id === 'PUBNET' || id === 'TESTNET') return 'Stellar';
   return getChainName(cId);
 };
@@ -111,24 +111,42 @@ const resolveChainId = (chainSymbol: string | undefined, network: string): strin
   return chainSymbol;
 };
 
-const EmptyState: React.FC<{ icon: React.ReactNode; title: string; description: string }> = ({
-  icon,
-  title,
-  description,
-}) => (
+const EmptyState: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  actionButton?: React.ReactNode;
+}> = ({ icon, title, description, actionButton }) => (
   <div className="flex flex-col items-center justify-center py-20 text-center">
     <div className="w-16 h-16 bg-tertiary rounded-full flex items-center justify-center mb-4 text-muted">
       {icon}
     </div>
     <h3 className="text-lg font-bold text-primary mb-2">{title}</h3>
-    <p className="text-muted text-sm max-w-xs">{description}</p>
+    <p className="text-muted text-sm max-w-xs mb-4">{description}</p>
+    {actionButton}
   </div>
 );
+
+const ElapsedTime = ({ startTime }: { startTime: number }) => {
+  const [elapsed, setElapsed] = useState(Date.now() - startTime);
+  useEffect(() => {
+    const interval = setInterval(() => setElapsed(Date.now() - startTime), 1000);
+    return () => clearInterval(interval);
+  }, [startTime]);
+  const mins = Math.floor(elapsed / 60000);
+  const secs = Math.floor((elapsed % 60000) / 1000);
+  return (
+    <span>
+      {mins}:{secs.toString().padStart(2, '0')}
+    </span>
+  );
+};
 
 const EvmTransactionHistory: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const txHashFromUrl = searchParams.get('hash');
 
+  const { openModal } = useWalletConnect();
   const connectedWallets = useWalletStore(state => state.connectedWallets);
   const currentNetwork = useWalletStore(state => state.network);
 
@@ -206,7 +224,7 @@ const EvmTransactionHistory: React.FC = () => {
   }, [hasPending]);
 
   const isCheckingOnChain = useRef<boolean>(false);
-  const isPollingSkip = useRef<boolean>(false);
+
   const checkingHashes = useRef<Set<string>>(new Set());
   const processedHashRef = useRef<string | null>(null);
 
@@ -280,136 +298,6 @@ const EvmTransactionHistory: React.FC = () => {
     const interval = setInterval(checkStatuses, 8000);
     return () => clearInterval(interval);
   }, [backendOrders?.data, currentNetwork, liveStatusOverrides]);
-
-  useEffect(() => {
-    const pendingDydxOrders = backendOrders?.data?.filter(
-      (order: SwapOrder) =>
-        order.provider?.toUpperCase() === 'DYDX' &&
-        order.txType === 'Bridge' &&
-        order.status === 'pending' &&
-        !liveStatusOverrides[order.txHash.toLowerCase()]
-    );
-
-    if (!pendingDydxOrders || pendingDydxOrders.length === 0) return;
-
-    const pollSkipStatuses = async () => {
-      if (isPollingSkip.current) return;
-      isPollingSkip.current = true;
-      try {
-        for (const order of pendingDydxOrders) {
-          try {
-            const chainConfig = findChain(order.fromChain, currentNetwork);
-            const chainId = chainConfig?.chainId ?? order.fromChain;
-            const url = `https://api.skip.build/v2/tx/status?chain_id=${chainId}&tx_hash=${order.txHash}`;
-            const res = await fetch(url);
-            if (!res.ok) {
-              const errorData = await res.text();
-              if (errorData.includes('tx not found')) {
-                const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
-                if (timeElapsed > 60 * 60 * 1000) {
-                  setLiveStatusOverrides(prev => ({
-                    ...prev,
-                    [order.txHash.toLowerCase()]: 'failed',
-                  }));
-                  updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(
-                    err => console.error('Failed to update dYdX deposit status in DB:', err)
-                  );
-                }
-              }
-              continue;
-            }
-            const data = await res.json();
-            const state: string = data.state ?? 'STATE_UNKNOWN';
-
-            if (state === 'STATE_COMPLETED_SUCCESS') {
-              setLiveStatusOverrides(prev => ({
-                ...prev,
-                [order.txHash.toLowerCase()]: 'success',
-              }));
-              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'completed' }).catch(err =>
-                console.error('Failed to update dYdX deposit status in DB:', err)
-              );
-            } else if (state === 'STATE_COMPLETED_ERROR' || state === 'STATE_ABANDONED') {
-              setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
-              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(err =>
-                console.error('Failed to update dYdX deposit status in DB:', err)
-              );
-            }
-          } catch (err: any) {
-            console.error('Failed to poll Skip status for dYdX deposit:', err);
-            if (err?.message?.toLowerCase().includes('not found')) {
-              const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
-              if (timeElapsed > 60 * 60 * 1000) {
-                setLiveStatusOverrides(prev => ({
-                  ...prev,
-                  [order.txHash.toLowerCase()]: 'failed',
-                }));
-                updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(
-                  console.error
-                );
-              }
-            }
-          }
-        }
-      } finally {
-        isPollingSkip.current = false;
-      }
-    };
-
-    pollSkipStatuses();
-    const interval = setInterval(pollSkipStatuses, 15000);
-    return () => clearInterval(interval);
-  }, [backendOrders?.data, currentNetwork, liveStatusOverrides]);
-
-  useEffect(() => {
-    const pendingSrbOrders = backendOrders?.data?.filter(
-      (order: SwapOrder) =>
-        order.provider?.toUpperCase() === 'SRBTODYDX' &&
-        order.status === 'pending' &&
-        !liveStatusOverrides[order.txHash.toLowerCase()]
-    );
-
-    if (!pendingSrbOrders || pendingSrbOrders.length === 0) return;
-
-    const pollSrbStatuses = async () => {
-      for (const order of pendingSrbOrders) {
-        try {
-          const res = await getTransactionStatus({
-            walletType: 'SRB',
-            txHash: order.txHash,
-            provider: 'ALLBRIDGE',
-          });
-
-          if (res.receive && res.receive.txId) {
-            setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'success' }));
-            updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'completed' }).catch(
-              console.error
-            );
-          } else if (res.isSuspended) {
-            setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
-            updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(
-              console.error
-            );
-          }
-        } catch (err: any) {
-          console.error('Failed to poll Allbridge status for SRBTODYDX:', err);
-          if (err?.message?.toLowerCase().includes('not found')) {
-            const timeElapsed = Date.now() - new Date(order.createdAt).getTime();
-            if (timeElapsed > 60 * 60 * 1000) {
-              setLiveStatusOverrides(prev => ({ ...prev, [order.txHash.toLowerCase()]: 'failed' }));
-              updateSwapOrderStatus({ txHash: order.txHash, orderStatus: 'failed' }).catch(
-                console.error
-              );
-            }
-          }
-        }
-      }
-    };
-
-    pollSrbStatuses();
-    const interval = setInterval(pollSrbStatuses, 20000);
-    return () => clearInterval(interval);
-  }, [backendOrders?.data, liveStatusOverrides]);
 
   const activeAddresses = useMemo(() => {
     return [evmWallet?.address, stellarWallet?.address].filter(Boolean) as string[];
@@ -707,7 +595,7 @@ const EvmTransactionHistory: React.FC = () => {
         getTransactionStatus({
           walletType: tx.fromChainSymbol || 'ETH',
           txHash: tx.hash,
-          provider: tx.provider === 'SRBTODYDX' ? 'ALLBRIDGE' : tx.provider,
+          provider: tx.provider,
         }).catch((err: any) => console.error('Failed to refresh backend order status:', err));
       }
     }
@@ -734,7 +622,7 @@ const EvmTransactionHistory: React.FC = () => {
         <EmptyState
           icon={<Clock size={32} />}
           title="No Wallet Connected"
-          description="Please connect a wallet (EVM, Stellar, or Cosmos) to view your transaction history."
+          description="Please connect a wallet (EVM or Stellar) to view your transaction history."
         />
       </PageLayout>
     );
@@ -879,8 +767,24 @@ const EvmTransactionHistory: React.FC = () => {
       return (
         <EmptyState
           icon={<Clock size={32} />}
-          title="No Recent Transactions"
-          description="Your recent transactions will appear here after you make a swap, send, or bridge."
+          title={
+            !hasEvm && !hasStellar ? 'Connect Wallet to View History' : 'No Recent Transactions'
+          }
+          description={
+            !hasEvm && !hasStellar
+              ? 'Connect your wallet to track swaps, transfers, and bridge transactions.'
+              : 'Your recent transactions will appear here after you make a swap, send, or bridge.'
+          }
+          actionButton={
+            !hasEvm && !hasStellar ? (
+              <button
+                onClick={openModal}
+                className="btn btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm shadow-md"
+              >
+                Connect Wallet
+              </button>
+            ) : null
+          }
         />
       );
     }
@@ -918,7 +822,8 @@ const EvmTransactionHistory: React.FC = () => {
 
       const txProvider = ((tx as any).provider || '').toUpperCase();
       const isFusion = txProvider === 'ONEINCH_FUSION' || txProvider === 'ONEINCH_FUSION_PLUS';
-      const isAllbridge = txProvider === 'ALLBRIDGE' || txProvider === 'SRBTODYDX';
+      const isAllbridge = false;
+      const isNearIntent = txProvider === 'NEARINTENT';
 
       const rawLabel =
         tx.description || `${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)} Transaction`;
@@ -994,27 +899,10 @@ const EvmTransactionHistory: React.FC = () => {
               toChainId = dstChain.chainId;
             }
           } else {
-            const depositMatch = desc.match(
-              /Deposit\s+(?:[\d.]+\s+)?([A-Za-z0-9]+)\s+to\s+dYdX\s+from\s+([A-Za-z0-9\s]+)/i
-            );
-            if (depositMatch) {
-              fromAssetSymbol = depositMatch[1];
-              toAssetSymbol = depositMatch[1];
-              const srcChainName = depositMatch[2].trim();
-              const srcChain = getEvmChainsForNetwork(currentNetwork).find(
-                c =>
-                  c.name.toLowerCase() === srcChainName.toLowerCase() ||
-                  c.symbol?.toLowerCase() === srcChainName.toLowerCase()
-              );
-              if (srcChain) {
-                fromChainId = srcChain.chainId;
-              }
-              toChainId = 'dydx';
-            } else {
-              fromAssetSymbol = getTransactionAssetSymbol(tx);
-              toAssetSymbol = fromAssetSymbol;
-              fromChainId = tx.chainId;
-            }
+            // Fallback to simple symbol extraction
+            fromAssetSymbol = getTransactionAssetSymbol(tx);
+            toAssetSymbol = fromAssetSymbol;
+            fromChainId = tx.chainId;
           }
         }
       }
@@ -1041,99 +929,129 @@ const EvmTransactionHistory: React.FC = () => {
       );
 
       return (
-        <div
-          key={tx.hash}
-          onClick={() => handleLocalTxClick(tx)}
-          className={`w-full px-3 py-2.5 rounded-xl cursor-pointer transition-all select-none ${
-            isSelected
-              ? 'bg-secondary border border-color shadow-sm'
-              : isPending
-                ? 'bg-primary border border-yellow-500/20 hover:border-yellow-500/40 shadow-sm shadow-yellow-500/5'
-                : isFailed
-                  ? 'bg-primary border border-red-500/25 hover:border-red-500/45 shadow-sm shadow-red-500/5 bg-red-500/[0.01]'
-                  : 'bg-primary border border-transparent hover:border-color'
-          }`}
-        >
-          <div className="flex items-center gap-2.5">
-            <div
-              className="relative shrink-0"
-              style={{ width: showDualIcon ? 52 : 32, height: 32 }}
-            >
-              <div className="absolute left-0 top-0 w-8 h-8">
-                <div
-                  className={`w-full h-full rounded-full flex items-center justify-center border-2 overflow-hidden bg-primary ${tx.status === 'pending' ? 'border-yellow-500/50' : tx.status === 'success' ? 'border-green-500/30' : 'border-red-500/30'}`}
-                >
-                  {fromAssetLogo ? (
-                    <img
-                      src={fromAssetLogo}
-                      alt={fromAssetSymbol}
-                      className="w-full h-full object-cover rounded-full"
-                    />
-                  ) : (
-                    <span className="text-[9px] font-bold text-primary">{fromFallbackLetter}</span>
-                  )}
-                </div>
-                {fromChainLogo && (
-                  <img
-                    src={fromChainLogo}
-                    alt=""
-                    className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border border-secondary object-cover bg-secondary"
-                  />
-                )}
-              </div>
-
-              {showDualIcon && (
-                <div className="absolute right-0 top-0 w-8 h-8">
+        <React.Fragment key={tx.hash}>
+          <div
+            onClick={() => handleLocalTxClick(tx)}
+            className={`w-full px-3 py-2.5 rounded-xl cursor-pointer transition-all select-none ${
+              isSelected
+                ? 'bg-secondary border border-color shadow-sm'
+                : isPending
+                  ? 'bg-primary border border-yellow-500/20 hover:border-yellow-500/40 shadow-sm shadow-yellow-500/5'
+                  : isFailed
+                    ? 'bg-primary border border-red-500/25 hover:border-red-500/45 shadow-sm shadow-red-500/5 bg-red-500/[0.01]'
+                    : 'bg-primary border border-transparent hover:border-color'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <div
+                className="relative shrink-0"
+                style={{ width: showDualIcon ? 52 : 32, height: 32 }}
+              >
+                <div className="absolute left-0 top-0 w-8 h-8">
                   <div
-                    className={`w-full h-full rounded-full flex items-center justify-center border-2 overflow-hidden bg-secondary ${tx.status === 'pending' ? 'border-yellow-500/50' : tx.status === 'success' ? 'border-green-500/30' : 'border-red-500/30'}`}
+                    className={`w-full h-full rounded-full flex items-center justify-center border-2 overflow-hidden bg-primary ${tx.status === 'pending' ? 'border-yellow-500/50' : tx.status === 'success' ? 'border-green-500/30' : 'border-red-500/30'}`}
                   >
-                    {toAssetLogo ? (
+                    {fromAssetLogo ? (
                       <img
-                        src={toAssetLogo}
-                        alt={toAssetSymbol}
+                        src={fromAssetLogo}
+                        alt={fromAssetSymbol}
                         className="w-full h-full object-cover rounded-full"
                       />
                     ) : (
-                      <span className="text-[9px] font-bold text-primary">{toFallbackLetter}</span>
+                      <span className="text-[9px] font-bold text-primary">
+                        {fromFallbackLetter}
+                      </span>
                     )}
                   </div>
-                  {toChainLogo && (
+                  {fromChainLogo && (
                     <img
-                      src={toChainLogo}
+                      src={fromChainLogo}
                       alt=""
                       className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border border-secondary object-cover bg-secondary"
                     />
                   )}
                 </div>
-              )}
-            </div>
 
-            <div className="flex-1 min-w-0">
-              {/* Label row */}
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-xs font-semibold text-primary truncate leading-tight">
-                  {cleanLabel}
-                </span>
-                <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 capitalize tracking-wide ${statusStyle}`}
-                >
-                  {tx.status === 'pending' && (txProvider === 'SKIP' || txProvider === 'SRBTODYDX')
-                    ? 'Bridging'
-                    : tx.status === 'pending' && txProvider === 'DYDX'
-                      ? 'Settling'
-                      : tx.status}
-                </span>
-                {isPending && (
-                  <Loader2 size={9} className="animate-spin text-yellow-500 shrink-0" />
+                {showDualIcon && (
+                  <div className="absolute right-0 top-0 w-8 h-8">
+                    <div
+                      className={`w-full h-full rounded-full flex items-center justify-center border-2 overflow-hidden bg-secondary ${tx.status === 'pending' ? 'border-yellow-500/50' : tx.status === 'success' ? 'border-green-500/30' : 'border-red-500/30'}`}
+                    >
+                      {toAssetLogo ? (
+                        <img
+                          src={toAssetLogo}
+                          alt={toAssetSymbol}
+                          className="w-full h-full object-cover rounded-full"
+                        />
+                      ) : (
+                        <span className="text-[9px] font-bold text-primary">
+                          {toFallbackLetter}
+                        </span>
+                      )}
+                    </div>
+                    {toChainLogo && (
+                      <img
+                        src={toChainLogo}
+                        alt=""
+                        className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border border-secondary object-cover bg-secondary"
+                      />
+                    )}
+                  </div>
                 )}
               </div>
 
-              {showDualIcon ? (
-                <div className="flex items-start gap-2">
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[8px] text-muted uppercase tracking-wider font-semibold leading-none mb-0.5">
-                      From
+              <div className="flex-1 min-w-0">
+                {/* Label row */}
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-xs font-semibold text-primary truncate leading-tight">
+                    {cleanLabel}
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 capitalize tracking-wide ${statusStyle}`}
+                  >
+                    {tx.status}
+                  </span>
+                  {isPending && (
+                    <Loader2 size={9} className="animate-spin text-yellow-500 shrink-0" />
+                  )}
+                  {isPending && isAllbridge && (
+                    <span className="text-[10px] text-muted ml-auto mr-1 font-medium flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-yellow-500/70 animate-pulse"></span>
+                      ~2m (<ElapsedTime startTime={tx.timestamp} />)
                     </span>
+                  )}
+                </div>
+
+                {showDualIcon ? (
+                  <div className="flex items-start gap-2">
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-[8px] text-muted uppercase tracking-wider font-semibold leading-none mb-0.5">
+                        From
+                      </span>
+                      <span className="text-[9px] font-bold text-primary truncate leading-tight">
+                        {fromAssetSymbol || '—'}
+                      </span>
+                      <span className="text-[8px] text-muted truncate leading-tight">
+                        {fromChainName}
+                      </span>
+                    </div>
+
+                    <span className="text-muted text-[9px] mt-2 shrink-0">›</span>
+
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-[8px] text-muted uppercase tracking-wider font-semibold leading-none mb-0.5">
+                        To
+                      </span>
+                      <span className="text-[9px] font-bold text-primary truncate leading-tight">
+                        {toAssetSymbol || '—'}
+                      </span>
+                      <span className="text-[8px] text-muted truncate leading-tight">
+                        {toChainName || fromChainName}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col min-w-0">
                     <span className="text-[9px] font-bold text-primary truncate leading-tight">
                       {fromAssetSymbol || '—'}
                     </span>
@@ -1141,68 +1059,68 @@ const EvmTransactionHistory: React.FC = () => {
                       {fromChainName}
                     </span>
                   </div>
-
-                  <span className="text-muted text-[9px] mt-2 shrink-0">›</span>
-
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[8px] text-muted uppercase tracking-wider font-semibold leading-none mb-0.5">
-                      To
-                    </span>
-                    <span className="text-[9px] font-bold text-primary truncate leading-tight">
-                      {toAssetSymbol || '—'}
-                    </span>
-                    <span className="text-[8px] text-muted truncate leading-tight">
-                      {toChainName || fromChainName}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col min-w-0">
-                  <span className="text-[9px] font-bold text-primary truncate leading-tight">
-                    {fromAssetSymbol || '—'}
-                  </span>
-                  <span className="text-[8px] text-muted truncate leading-tight">
-                    {fromChainName}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Right: amount + explorer */}
-            <div className="flex flex-col items-end justify-center gap-1 shrink-0 ml-1">
-              {topAmount && bottomToken && (
-                <div className="flex items-baseline gap-0.5">
-                  <span className="font-bold font-mono text-md text-primary">{topAmount}</span>
-                  <span className="text-sm text-muted font-medium">{bottomToken}</span>
-                </div>
-              )}
-              <div className="flex items-center gap-1">
-                <span className="text-sm text-muted font-mono opacity-70">
-                  {formatRecentTime(tx.timestamp)}
-                </span>
-                {!isFusion && (
-                  <a
-                    href={
-                      isAllbridge
-                        ? `https://core.allbridge.io/explorer?search=${tx.hash}`
-                        : getExplorerUrl(tx.chainId, 'tx', tx.hash)
-                    }
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={e => e.stopPropagation()}
-                    className="p-0.5 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center"
-                    title={isAllbridge ? 'View on Allbridge Explorer' : 'View on Explorer'}
-                  >
-                    <ExternalLink size={12} />
-                  </a>
                 )}
               </div>
-              <span className="text-sm text-muted/50 font-mono">
-                {tx.hash.slice(0, 5)}…{tx.hash.slice(-3)}
-              </span>
+
+              {/* Right: amount + explorer */}
+              <div className="flex flex-col items-end justify-center gap-1 shrink-0 ml-1">
+                {topAmount && bottomToken && (
+                  <div className="flex items-baseline gap-0.5">
+                    <span className="font-bold font-mono text-md text-primary">{topAmount}</span>
+                    <span className="text-sm text-muted font-medium">{bottomToken}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-1">
+                  <span className="text-sm text-muted font-mono opacity-70">
+                    {formatRecentTime(tx.timestamp)}
+                  </span>
+                  {tx.status === 'pending' && (
+                    <button
+                      onClick={async e => {
+                        e.stopPropagation();
+                        if ((tx as any).isBackendOrder) {
+                          try {
+                            await getTransactionStatus({
+                              walletType: (tx as any).fromChainSymbol || 'ETH',
+                              txHash: tx.hash,
+                              provider: txProvider || 'UNKNOWN',
+                            });
+                          } catch (err) {
+                            console.error('Failed to manually refresh backend status:', err);
+                          }
+                        }
+                        refreshOrders(activeAddresses, 1, 10, false);
+                      }}
+                      className="p-0.5 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center"
+                      title="Refresh Status"
+                    >
+                      <RefreshCw size={12} className={ordersLoading ? 'animate-spin' : ''} />
+                    </button>
+                  )}
+                  {!isFusion && (
+                    <a
+                      href={
+                        isNearIntent
+                          ? `https://explorer.near-intents.org/transactions/${tx.hash}`
+                          : getExplorerUrl(tx.chainId, 'tx', tx.hash)
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="p-0.5 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center"
+                      title={isNearIntent ? 'View on NEAR Intents Explorer' : 'View on Explorer'}
+                    >
+                      <ExternalLink size={12} />
+                    </a>
+                  )}
+                </div>
+                <span className="text-sm text-muted/50 font-mono">
+                  {tx.hash.slice(0, 5)}…{tx.hash.slice(-3)}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
+        </React.Fragment>
       );
     };
 
@@ -1323,6 +1241,26 @@ const EvmTransactionHistory: React.FC = () => {
       );
     }
 
+    if (!walletAddress) {
+      return (
+        <EmptyState
+          icon={<SearchX size={32} />}
+          title="Wallet Not Connected"
+          description={`Connect your EVM wallet to view transaction history on ${
+            typeof selectedView === 'number' ? getChainName(selectedView) : selectedView
+          }.`}
+          actionButton={
+            <button
+              onClick={openModal}
+              className="btn btn-primary px-5 py-2.5 rounded-xl font-semibold text-sm shadow-md"
+            >
+              Connect Wallet
+            </button>
+          }
+        />
+      );
+    }
+
     if (historyData.length === 0) {
       return (
         <EmptyState
@@ -1403,97 +1341,100 @@ const EvmTransactionHistory: React.FC = () => {
               const fallbackLetter = assetSymbol ? assetSymbol.slice(0, 2).toUpperCase() : 'TX';
 
               return (
-                <button
-                  key={tx.uniqueId}
-                  onClick={() => handleTxClick(tx)}
-                  className={`w-full rounded-lg bg-primary p-3 flex items-center justify-between transition-all group text-left ${
-                    isSelected ? 'border' : 'hover:bg-tertiary/50'
-                  }`}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="relative w-9 h-9 lg:w-10 lg:h-10 shrink-0">
-                      <div className="w-full h-full rounded-full flex items-center justify-center border border-color overflow-hidden bg-primary">
-                        {assetLogo ? (
+                <div key={tx.uniqueId} className="flex flex-col">
+                  <button
+                    onClick={() => handleTxClick(tx)}
+                    className={`w-full rounded-lg bg-primary p-3 flex items-center justify-between transition-all group text-left ${
+                      isSelected ? 'border' : 'hover:bg-tertiary/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="relative w-9 h-9 lg:w-10 lg:h-10 shrink-0">
+                        <div className="w-full h-full rounded-full flex items-center justify-center border border-color overflow-hidden bg-primary">
+                          {assetLogo ? (
+                            <img
+                              src={assetLogo}
+                              alt={assetSymbol}
+                              className="w-full h-full object-cover rounded-full"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-tertiary flex items-center justify-center text-[10px] lg:text-xs font-bold text-primary rounded-full">
+                              {fallbackLetter}
+                            </div>
+                          )}
+                        </div>
+                        {chainLogo && (
                           <img
-                            src={assetLogo}
-                            alt={assetSymbol}
-                            className="w-full h-full object-cover rounded-full"
+                            src={chainLogo}
+                            alt=""
+                            className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 lg:w-4 lg:h-4 rounded-full border border-secondary object-cover bg-secondary"
                           />
-                        ) : (
-                          <div className="w-full h-full bg-tertiary flex items-center justify-center text-[10px] lg:text-xs font-bold text-primary rounded-full">
-                            {fallbackLetter}
-                          </div>
                         )}
                       </div>
-                      {chainLogo && (
-                        <img
-                          src={chainLogo}
-                          alt=""
-                          className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 lg:w-4 lg:h-4 rounded-full border border-secondary object-cover bg-secondary"
-                        />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-primary font-semibold lg:text-md text-sm flex items-center gap-2 truncate">
-                        <span className="truncate">{actionLabel}</span>
-                        <span className="text-[9px] lg:text-xs px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider shrink-0">
-                          {tx.category}
-                        </span>
-                      </div>
-                      {(() => {
-                        const formattedTime = tx.metadata?.blockTimestamp
-                          ? new Date(tx.metadata.blockTimestamp).toLocaleTimeString(undefined, {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })
-                          : '';
-                        return (
-                          <div className="text-xs text-muted font-mono mt-1 flex items-center gap-1.5 truncate">
-                            {formattedTime && (
-                              <>
-                                <span className="text-muted/80 font-sans shrink-0 font-medium">
-                                  {formattedTime}
-                                </span>
-                                <span className="w-1 h-1 rounded-full bg-muted/40 shrink-0" />
-                              </>
-                            )}
-                            <span className="hidden lg:inline opacity-75 shrink-0">
-                              {tx.blockNum ? `Block #${formatBlockNumber(tx.blockNum)}` : 'Pending'}
-                            </span>
-                            <span className="hidden lg:inline w-1 h-1 rounded-full bg-muted/40 shrink-0" />
-                            <span className="truncate max-w-[80px] lg:max-w-[120px]">
-                              {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
-                            </span>
-                            <a
-                              href={getExplorerUrl(
-                                typeof selectedView === 'number' ? selectedView : 1,
-                                'tx',
-                                tx.hash
+                      <div className="min-w-0 flex-1">
+                        <div className="text-primary font-semibold lg:text-md text-sm flex items-center gap-2 truncate">
+                          <span className="truncate">{actionLabel}</span>
+                          <span className="text-[9px] lg:text-xs px-2 py-0.5 rounded-full bg-tertiary text-muted uppercase font-bold tracking-wider shrink-0">
+                            {tx.category}
+                          </span>
+                        </div>
+                        {(() => {
+                          const formattedTime = tx.metadata?.blockTimestamp
+                            ? new Date(tx.metadata.blockTimestamp).toLocaleTimeString(undefined, {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            : '';
+                          return (
+                            <div className="text-xs text-muted font-mono mt-1 flex items-center gap-1.5 truncate">
+                              {formattedTime && (
+                                <>
+                                  <span className="text-muted/80 font-sans shrink-0 font-medium">
+                                    {formattedTime}
+                                  </span>
+                                  <span className="w-1 h-1 rounded-full bg-muted/40 shrink-0" />
+                                </>
                               )}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={e => e.stopPropagation()}
-                              className="p-1 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center shrink-0"
-                              title="View on Explorer"
-                            >
-                              <ExternalLink size={10} />
-                            </a>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0 ml-2">
-                    <div className="text-right">
-                      <div className="font-bold font-mono text-sm lg:text-base text-primary">
-                        {getDisplayAmountWithSign(formatTxAmount(tx), incoming, isSelf)}
+                              <span className="hidden lg:inline opacity-75 shrink-0">
+                                {tx.blockNum
+                                  ? `Block #${formatBlockNumber(tx.blockNum)}`
+                                  : 'Pending'}
+                              </span>
+                              <span className="hidden lg:inline w-1 h-1 rounded-full bg-muted/40 shrink-0" />
+                              <span className="truncate max-w-[80px] lg:max-w-[120px]">
+                                {tx.hash.slice(0, 6)}...{tx.hash.slice(-4)}
+                              </span>
+                              <a
+                                href={getExplorerUrl(
+                                  typeof selectedView === 'number' ? selectedView : 1,
+                                  'tx',
+                                  tx.hash
+                                )}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={e => e.stopPropagation()}
+                                className="p-1 rounded bg-tertiary hover:bg-tertiary/80 text-muted hover:text-primary transition-colors flex items-center justify-center shrink-0"
+                                title="View on Explorer"
+                              >
+                                <ExternalLink size={10} />
+                              </a>
+                            </div>
+                          );
+                        })()}
                       </div>
-                      <div className="text-[9px] lg:text-xs text-muted mt-0.5 font-medium bg-tertiary/50 px-1.5 py-0.5 rounded ml-auto w-fit">
-                        {formatAssetName(tx)}
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0 ml-2">
+                      <div className="text-right">
+                        <div className="font-bold font-mono text-sm lg:text-base text-primary">
+                          {getDisplayAmountWithSign(formatTxAmount(tx), incoming, isSelf)}
+                        </div>
+                        <div className="text-[9px] lg:text-xs text-muted mt-0.5 font-medium bg-tertiary/50 px-1.5 py-0.5 rounded ml-auto w-fit">
+                          {formatAssetName(tx)}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </button>
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -1607,10 +1548,7 @@ const EvmTransactionHistory: React.FC = () => {
                         getTransactionStatus({
                           walletType: (selectedLocalTx as any).fromChainSymbol || 'ETH',
                           txHash: selectedLocalTx.hash,
-                          provider:
-                            (selectedLocalTx as any).provider === 'SRBTODYDX'
-                              ? 'ALLBRIDGE'
-                              : (selectedLocalTx as any).provider,
+                          provider: (selectedLocalTx as any).provider,
                         });
                       }
                     }
@@ -1701,10 +1639,7 @@ const EvmTransactionHistory: React.FC = () => {
                       getTransactionStatus({
                         walletType: (selectedLocalTx as any).fromChainSymbol || 'ETH',
                         txHash: selectedLocalTx.hash,
-                        provider:
-                          (selectedLocalTx as any).provider === 'SRBTODYDX'
-                            ? 'ALLBRIDGE'
-                            : (selectedLocalTx as any).provider,
+                        provider: (selectedLocalTx as any).provider,
                       });
                     }
                   }

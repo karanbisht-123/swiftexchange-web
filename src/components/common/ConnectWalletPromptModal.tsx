@@ -17,7 +17,13 @@ export const ConnectWalletPromptModal: React.FC<ConnectWalletPromptModalProps> =
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="connect-wallet-title"
+      aria-describedby="connect-wallet-desc"
+    >
       <div className="bg-(--color-bg-secondary) rounded-3xl border border-(--color-border) w-full max-w-sm shadow-2xl overflow-hidden transform transition-all scale-100 flex flex-col p-6 space-y-6">
         <div className="flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
@@ -25,7 +31,10 @@ export const ConnectWalletPromptModal: React.FC<ConnectWalletPromptModalProps> =
               <Wallet className="w-5 h-5 text-amber-500" />
             </div>
             <div>
-              <h3 className="text-lg font-black tracking-tight text-(--color-text-primary)">
+              <h3
+                id="connect-wallet-title"
+                className="text-lg font-black tracking-tight text-(--color-text-primary)"
+              >
                 Connect Wallet
               </h3>
               <p className="text-[10px] font-bold text-(--color-text-secondary) uppercase tracking-widest">
@@ -42,7 +51,10 @@ export const ConnectWalletPromptModal: React.FC<ConnectWalletPromptModalProps> =
         </div>
 
         <div className="space-y-4">
-          <p className="text-sm text-(--color-text-secondary) font-medium leading-relaxed">
+          <p
+            id="connect-wallet-desc"
+            className="text-sm text-(--color-text-secondary) font-medium leading-relaxed"
+          >
             {message}
           </p>
 

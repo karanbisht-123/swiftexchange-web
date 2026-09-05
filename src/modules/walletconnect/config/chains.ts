@@ -1,3 +1,5 @@
+import { getEvmChainsForNetwork } from '../../evm/utils/Chainregistry';
+
 export interface EVMChainConfig {
   chainId: number | string;
   name: string;
@@ -13,23 +15,6 @@ export interface EVMChainConfig {
   logoUrl: string;
 }
 
-export interface CosmosChainConfig {
-  chainId: string;
-  chainName: string;
-  rpc: string;
-  rest: string;
-  bech32Config: {
-    bech32PrefixAccAddr: string;
-  };
-  currencies: Array<{
-    coinDenom: string;
-    coinMinimalDenom: string;
-    coinDecimals: number;
-  }>;
-  logoUrl: string;
-  blockExplorerUrl?: string;
-}
-
 export interface StellarChainConfig {
   network: 'PUBLIC' | 'TESTNET';
   networkPassphrase: string;
@@ -40,13 +25,10 @@ export interface StellarChainConfig {
 
 export type NetworkType = 'mainnet' | 'testnet';
 
-
-import { getEvmChainsForNetwork } from '../../evm/utils/Chainregistry';
-
 export const getEVMChains = (network: NetworkType): EVMChainConfig[] => {
   const chains = getEvmChainsForNetwork(network);
 
-  return chains.map((c) => ({
+  return chains.map(c => ({
     chainId: c.chainId,
     name: c.name,
     rpcUrls: c.rpcUrls,
@@ -58,42 +40,9 @@ export const getEVMChains = (network: NetworkType): EVMChainConfig[] => {
       logoURI: c.nativeCurrency.logoURI,
     },
     blockExplorerUrl: c.blockExplorerUrl,
-    logoUrl: c.logoURI || "https://coin-images.coingecko.com/coins/images/279/large/ethereum.png" || '',
+    logoUrl: c.logoURI || 'https://coin-images.coingecko.com/coins/images/279/large/ethereum.png',
   }));
 };
-
-export const COSMOS_CHAINS_MAINNET: CosmosChainConfig[] = [
-  {
-    chainId: 'dydx-mainnet-1',
-    chainName: 'dYdX',
-    rpc: 'https://dydx-rpc.publicnode.com:443',
-    rest: 'https://dydx-api.publicnode.com',
-    bech32Config: { bech32PrefixAccAddr: 'dydx' },
-    currencies: [{ coinDenom: 'DYDX', coinMinimalDenom: 'adydx', coinDecimals: 18 }],
-    logoUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/dydx/images/dydx.png',
-    blockExplorerUrl: 'https://www.mintscan.io/dydx',
-  },
-  {
-    chainId: 'cosmoshub-4',
-    chainName: 'Cosmos Hub',
-    rpc: 'https://rpc.cosmos.network',
-    rest: 'https://api.cosmos.network',
-    bech32Config: { bech32PrefixAccAddr: 'cosmos' },
-    currencies: [{ coinDenom: 'ATOM', coinMinimalDenom: 'uatom', coinDecimals: 6 }],
-    logoUrl:
-      'https://raw.githubusercontent.com/cosmos/chain-registry/master/cosmoshub/images/atom.png',
-  },
-  {
-    chainId: 'osmosis-1',
-    chainName: 'Osmosis',
-    rpc: 'https://rpc.osmosis.zone',
-    rest: 'https://api.osmosis.zone',
-    bech32Config: { bech32PrefixAccAddr: 'osmo' },
-    currencies: [{ coinDenom: 'OSMO', coinMinimalDenom: 'uosmo', coinDecimals: 6 }],
-    logoUrl:
-      'https://raw.githubusercontent.com/cosmos/chain-registry/master/osmosis/images/osmo.png',
-  },
-];
 
 export const STELLAR_CONFIG_MAINNET: StellarChainConfig = {
   network: 'PUBLIC',
@@ -104,38 +53,6 @@ export const STELLAR_CONFIG_MAINNET: StellarChainConfig = {
     'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png',
 };
 
-export const COSMOS_CHAINS_TESTNET: CosmosChainConfig[] = [
-  {
-    chainId: 'dydx-testnet-4',
-    chainName: 'dYdX Testnet',
-    rpc: 'https://dydx-testnet-rpc.polkachu.com',
-    rest: 'https://dydx-testnet-api.polkachu.com',
-    bech32Config: { bech32PrefixAccAddr: 'dydx' },
-    currencies: [{ coinDenom: 'DYDX', coinMinimalDenom: 'adydx', coinDecimals: 18 }],
-    logoUrl: 'https://raw.githubusercontent.com/cosmos/chain-registry/master/dydx/images/dydx.png',
-  },
-  {
-    chainId: 'theta-testnet-001',
-    chainName: 'Cosmos Hub Testnet',
-    rpc: 'https://rpc.sentry-01.theta-testnet.polypore.xyz',
-    rest: 'https://rest.sentry-01.theta-testnet.polypore.xyz',
-    bech32Config: { bech32PrefixAccAddr: 'cosmos' },
-    currencies: [{ coinDenom: 'ATOM', coinMinimalDenom: 'uatom', coinDecimals: 6 }],
-    logoUrl:
-      'https://raw.githubusercontent.com/cosmos/chain-registry/master/cosmoshub/images/atom.png',
-  },
-  {
-    chainId: 'osmo-test-5',
-    chainName: 'Osmosis Testnet',
-    rpc: 'https://rpc.testnet.osmosis.zone',
-    rest: 'https://lcd.testnet.osmosis.zone',
-    bech32Config: { bech32PrefixAccAddr: 'osmo' },
-    currencies: [{ coinDenom: 'OSMO', coinMinimalDenom: 'uosmo', coinDecimals: 6 }],
-    logoUrl:
-      'https://raw.githubusercontent.com/cosmos/chain-registry/master/osmosis/images/osmo.png',
-  },
-];
-
 export const STELLAR_CONFIG_TESTNET: StellarChainConfig = {
   network: 'TESTNET',
   networkPassphrase: 'Test SDF Network ; September 2015',
@@ -145,21 +62,13 @@ export const STELLAR_CONFIG_TESTNET: StellarChainConfig = {
     'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/stellar/info/logo.png',
 };
 
-export const getCosmosChains = (network: NetworkType): CosmosChainConfig[] => {
-  return network === 'mainnet' ? COSMOS_CHAINS_MAINNET : COSMOS_CHAINS_TESTNET;
+export const getStellarConfig = (network: NetworkType | string): StellarChainConfig => {
+  return network === 'mainnet' || network === 'pubnet'
+    ? STELLAR_CONFIG_MAINNET
+    : STELLAR_CONFIG_TESTNET;
 };
 
-export const getStellarConfig = (network: NetworkType): StellarChainConfig => {
-  return network === 'mainnet' ? STELLAR_CONFIG_MAINNET : STELLAR_CONFIG_TESTNET;
-};
-
-export const getDydxConfig = (network: NetworkType): CosmosChainConfig => {
-  const chains = getCosmosChains(network);
-  return chains.find((c) => c.chainId.startsWith('dydx')) || chains[0];
-};
-
-export const WALLETCONNECT_PROJECT_ID =
-  import.meta.env.VITE_WALLETCONNECT_PROJECT_ID;
+export const WALLETCONNECT_PROJECT_ID = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID;
 
 export const WALLETCONNECT_METADATA = {
   name: 'SwiftExchange',
@@ -174,12 +83,12 @@ export const buildUnifiedNamespaces = (
   requiredNamespaces: Record<string, unknown>;
   optionalNamespaces: Record<string, unknown>;
 } => {
-  const evmChains = getEVMChains(network).map((c) => `eip155:${c.chainId}`);
+  const evmChains = getEVMChains(network).map(c => `eip155:${c.chainId}`);
   const stellarConfig = getStellarConfig(network);
   const stellarChain = `stellar:${stellarConfig.chainId}`;
 
   const evmNamespace = {
-    methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'personal_sign'],
+    methods: ['eth_sendTransaction', 'eth_signTypedData_v4', 'eth_signTypedData', 'personal_sign'],
     chains: evmChains,
     events: ['chainChanged', 'accountsChanged'],
   };

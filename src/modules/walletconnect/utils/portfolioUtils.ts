@@ -1,6 +1,7 @@
-import { formatMarketPrice, formatNumericWithCommas } from '../../dydx/utils/BigNumberUtils';
-import { type Asset } from '../store/portfolioStore';
 import BigNumber from 'bignumber.js';
+
+import { formatMarketPrice, formatNumericWithCommas } from '../../../utils/BigNumberUtils';
+import { type Asset } from '../store/portfolioStore';
 
 const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
 
@@ -12,6 +13,20 @@ export const portfolioUtils = {
     }, 0);
   },
 
+  calculatePortfolioChange(assets: Asset[]): number {
+    let totalValue = 0;
+    let weightedChange = 0;
+    for (const asset of assets) {
+      if (asset.balance && (asset.current_price || 0) > 0) {
+        const assetValue = asset.balance * asset.current_price;
+        totalValue += assetValue;
+        weightedChange += assetValue * (asset.price_change_percentage_24h || 0);
+      }
+    }
+    if (totalValue === 0) return 0;
+    return weightedChange / totalValue;
+  },
+
   formatBalance(value: number | string | null | undefined, maxDecimals: number = 6): string {
     if (value === null || value === undefined || value === '') return '0';
     try {
@@ -19,24 +34,17 @@ export const portfolioUtils = {
       if (bn.isNaN() || bn.isZero()) return '0';
 
       const num = Math.abs(bn.toNumber());
-      
-      // Determine appropriate decimal places based on size
       let decimals = maxDecimals;
       if (num >= 1000) {
         decimals = 2;
       } else if (num < 0.000001) {
-        decimals = 8; // Show more precision for small balances
+        decimals = 8;
       }
-
-      // Format with commas and rounding
       let formatted = bn.toFormat(decimals, BigNumber.ROUND_HALF_UP);
-      
-      // Remove trailing zeros in decimal part if any
       if (formatted.includes('.')) {
         formatted = formatted.replace(/0+$/, '').replace(/\.$/, '');
       }
-      
-      // If it rounded to 0 but the original value is not zero, find the first significant digit and format
+
       if (formatted === '0' && !bn.isZero()) {
         const str = bn.toFixed(20);
         const match = str.match(/\.0*([1-9])/);
@@ -65,7 +73,9 @@ export const portfolioUtils = {
     return formatNumericWithCommas(value, 2, '$');
   },
 
-  async fetchBatchPrices(symbols: string[]): Promise<Record<string, { usd: number; usd_24h_change: number }>> {
+  async fetchBatchPrices(
+    symbols: string[]
+  ): Promise<Record<string, { usd: number; usd_24h_change: number; sparkline?: number[] }>> {
     const COMMON_TOKENS: Record<string, string> = {
       XLM: 'stellar',
       USDC: 'usd-coin',
@@ -81,30 +91,43 @@ export const portfolioUtils = {
       MATIC: 'matic-network',
       AVAX: 'avalanche-2',
       TRX: 'tron',
-      DYDX: 'dydx'
+      DYDX: 'dydx',
     };
 
-    const idsToFetch = Array.from(new Set(symbols.map(s => COMMON_TOKENS[s.toUpperCase()]))).filter(Boolean);
+    const idsToFetch = Array.from(new Set(symbols.map(s => COMMON_TOKENS[s.toUpperCase()]))).filter(
+      Boolean
+    );
 
     if (idsToFetch.length === 0) return {};
 
     try {
       const response = await fetch(
-        `${COINGECKO_BASE}/simple/price?ids=${idsToFetch.join(',')}&vs_currencies=usd&include_24hr_change=true`
+        `${COINGECKO_BASE}/coins/markets?vs_currency=usd&ids=${idsToFetch.join(',')}&sparkline=true`
       );
       if (!response.ok) return {};
       const data = await response.json();
 
-      const result: Record<string, { usd: number; usd_24h_change: number }> = {};
+      const result: Record<string, { usd: number; usd_24h_change: number; sparkline?: number[] }> =
+        {};
+
+      const dataMap = data.reduce((acc: any, item: any) => {
+        acc[item.id] = item;
+        return acc;
+      }, {});
+
       symbols.forEach(symbol => {
         const id = COMMON_TOKENS[symbol.toUpperCase()];
-        if (id && data[id]) {
-          result[symbol.toUpperCase()] = data[id];
+        if (id && dataMap[id]) {
+          result[symbol.toUpperCase()] = {
+            usd: dataMap[id].current_price,
+            usd_24h_change: dataMap[id].price_change_percentage_24h || 0,
+            sparkline: dataMap[id].sparkline_in_7d?.price,
+          };
         }
       });
       return result;
     } catch {
       return {};
     }
-  }
+  },
 };

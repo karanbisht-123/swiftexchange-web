@@ -659,18 +659,6 @@ describe('useEvmSwap', () => {
       expect(result.current.loading).toBe(false);
     });
 
-    it('classifies an Allbridge order as a Bridge transaction', async () => {
-      mockExecuteSwapCallbacks('0xBRIDGEHASH');
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-      const quote = { outputAmount: '3000', provider: 'ALLBRIDGE' } as any;
-
-      await act(async () => {
-        await result.current.performSwap(quote, ethAsset, usdcAsset, '1', 1);
-      });
-
-      expect(storeSwapOrder).toHaveBeenCalledWith(expect.objectContaining({ txType: 'Bridge' }));
-    });
-
     it('stores a Token Approval order before the swap when an approval step occurs', async () => {
       mockExecuteSwapCallbacks('0xTXHASH', true);
       const { result } = renderHook(() => useEvmSwap(baseProps()));

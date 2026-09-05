@@ -2,7 +2,8 @@ const STORAGE_KEY = 'swiftex_local_transactions';
 const MAX_TRANSACTIONS = 30;
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-export type TransactionType = 'swap' | 'send' | 'bridge' | 'approval' | 'trustline' | 'claim' | 'orderbook' | 'crosschain-swap';
+export type TransactionType =
+  'swap' | 'send' | 'bridge' | 'approval' | 'trustline' | 'claim' | 'orderbook' | 'crosschain-swap';
 
 export interface LocalTransaction {
   hash: string;
@@ -20,19 +21,23 @@ export interface LocalTransaction {
   provider?: string;
 }
 
-export const getLocalTransactions = (walletAddresses?: string[], network?: string): LocalTransaction[] => {
+export const getLocalTransactions = (
+  walletAddresses?: string[],
+  network?: string
+): LocalTransaction[] => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return [];
 
-    let transactions: LocalTransaction[] = JSON.parse(stored);
+    const transactions: LocalTransaction[] = JSON.parse(stored);
     const now = Date.now();
 
     const validTransactions = transactions.filter(tx => {
       const isExpired = now - tx.timestamp >= MAX_AGE_MS;
       if (isExpired) return false;
 
-      const isStellar = tx.chainId === 'stellar' || tx.chainId === 'pubnet' || tx.chainId === 'testnet';
+      const isStellar =
+        tx.chainId === 'stellar' || tx.chainId === 'pubnet' || tx.chainId === 'testnet';
       if (isStellar && tx.type !== 'bridge' && tx.type !== 'crosschain-swap') {
         return false;
       }
@@ -58,9 +63,7 @@ export const getLocalTransactions = (walletAddresses?: string[], network?: strin
       });
     }
     if (network) {
-      filteredTransactions = filteredTransactions.filter(
-        tx => tx.network === network
-      );
+      filteredTransactions = filteredTransactions.filter(tx => tx.network === network);
     }
 
     if (validTransactions.length !== transactions.length) {
@@ -76,7 +79,8 @@ export const getLocalTransactions = (walletAddresses?: string[], network?: strin
 
 export const addLocalTransaction = (tx: LocalTransaction): void => {
   try {
-    const isStellar = tx.chainId === 'stellar' || tx.chainId === 'pubnet' || tx.chainId === 'testnet';
+    const isStellar =
+      tx.chainId === 'stellar' || tx.chainId === 'pubnet' || tx.chainId === 'testnet';
     if (isStellar && tx.type !== 'bridge' && tx.type !== 'crosschain-swap') {
       return;
     }
@@ -144,5 +148,3 @@ export const clearLocalTransactions = (): void => {
 export const getTransactionsByChain = (chainId: number | string): LocalTransaction[] => {
   return getLocalTransactions().filter(tx => tx.chainId === chainId);
 };
-
-

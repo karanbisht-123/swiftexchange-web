@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 
+import { getEVMChains, getStellarConfig } from '../config/chains';
 import { WalletType } from '../constants/Wallet';
 import { walletService } from '../services/walletService';
 import {
@@ -8,7 +9,6 @@ import {
   selectIsAnyWalletConnected,
   useWalletStore,
 } from '../store/walletConnectStore';
-import { getEVMChains, getCosmosChains, getStellarConfig } from '../config/chains';
 
 export const useWalletConnect = () => {
   const connectedWallets = useWalletStore(state => state.connectedWallets);
@@ -17,6 +17,21 @@ export const useWalletConnect = () => {
   const network = useWalletStore(state => state.network);
   const isRestoringSession = useWalletStore(state => state.isRestoringSession);
   const session = useWalletStore(state => state.session);
+  const pairingUri = useWalletStore(state => state.pairingUri);
+  const connectingWalletId = useWalletStore(state => state.connectingWalletId);
+  const setPairingUri = useWalletStore(state => state.setPairingUri);
+  const setConnectingWalletId = useWalletStore(state => state.setConnectingWalletId);
+
+  const isAuthenticated = useWalletStore(state => state.isAuthenticated);
+  const isAuthenticating = useWalletStore(state => state.isAuthenticating);
+  const authError = useWalletStore(state => state.authError);
+  const authenticatedChain = useWalletStore(state => state.authenticatedChain);
+  const linkedChains = useWalletStore(state => state.linkedChains);
+  const tradingAuthEnabled = useWalletStore(state => state.tradingAuthEnabled);
+  const setTradingAuthEnabled = useWalletStore(state => state.setTradingAuthEnabled);
+  const authenticateEvm = useWalletStore(state => state.authenticateEvm);
+  const authenticateStellar = useWalletStore(state => state.authenticateStellar);
+  const logoutAuth = useWalletStore(state => state.logoutAuth);
 
   const connectWallet = useWalletStore(state => state.connectWallet);
   const connectUnified = useWalletStore(state => state.connectUnified);
@@ -27,7 +42,6 @@ export const useWalletConnect = () => {
   const closeModal = useWalletStore(state => state.closeModal);
   const isConnected = useWalletStore(state => state.isConnected);
   const isConnecting = useWalletStore(state => state.isConnecting);
-  const deriveDydx = useWalletStore(state => state.deriveDydx);
   const checkSessionHealth = useWalletStore(state => state.checkSessionHealth);
 
   useEffect(() => {
@@ -75,6 +89,17 @@ export const useWalletConnect = () => {
     isRestoringSession,
     session,
 
+    isAuthenticated,
+    isAuthenticating,
+    authError,
+    authenticatedChain,
+    linkedChains,
+    tradingAuthEnabled,
+    setTradingAuthEnabled,
+    authenticateEvm,
+    authenticateStellar,
+    logoutAuth,
+
     isAnyWalletConnected,
     connectedCount,
     activeSessions,
@@ -85,7 +110,6 @@ export const useWalletConnect = () => {
     disconnect,
     disconnectAll,
     restoreSessions,
-    deriveDydx,
     checkSessionHealth,
 
     setNetwork,
@@ -95,6 +119,11 @@ export const useWalletConnect = () => {
 
     isConnected,
     isConnecting,
+
+    pairingUri,
+    connectingWalletId,
+    setPairingUri,
+    setConnectingWalletId,
 
     getProvider,
     getWalletInfo,
@@ -111,38 +140,22 @@ export const useEVMWallet = () => {
   const disconnect = useWalletStore(state => state.disconnect);
   const isConnected = useWalletStore(state => state.isConnected);
   const isConnecting = useWalletStore(state => state.isConnecting);
-  const deriveDydx = useWalletStore(state => state.deriveDydx);
 
   const connected = useMemo(() => isConnected('evm'), [isConnected]);
   const connecting = useMemo(() => isConnecting('evm'), [isConnecting]);
 
   const connect = useCallback(
     async (walletId: string) => {
-      console.log(`[UI] User initiated EVM connection for ${walletId}`);
-      try {
-        await connectWallet('evm', walletId);
-        console.log(`[UI] EVM connection successful for ${walletId}`);
-      } catch (error: any) {
-        console.error(`[UI] EVM connection failed for ${walletId}:`, {
-          message: error.message,
-          stack: error.stack,
-        });
-        throw error;
-      }
+      await connectWallet('evm', walletId);
     },
     [connectWallet]
   );
 
   const disconnectWallet = useCallback(async () => {
-    console.log('[UI] User initiated EVM disconnect');
     try {
       await disconnect('evm');
-      console.log('[UI] EVM disconnected successfully');
     } catch (error: any) {
-      console.error('[UI] EVM disconnect failed:', {
-        message: error.message,
-        stack: error.stack,
-      });
+      console.error(error);
     }
   }, [disconnect]);
 
@@ -153,67 +166,6 @@ export const useEVMWallet = () => {
 
   return {
     wallet,
-    dydxAddress: wallet?.dydxAddress,
-    status: status || { state: 'idle' as const },
-    isConnected: connected,
-    isConnecting: connecting,
-    connect,
-    disconnect: disconnectWallet,
-    deriveDydx,
-    getProvider,
-  };
-};
-
-export const useCosmosWallet = () => {
-  const wallet = useWalletStore(selectConnectedWallet('cosmos'));
-  const status = useWalletStore(selectConnectionStatus('cosmos'));
-
-  const connectWallet = useWalletStore(state => state.connectWallet);
-  const disconnect = useWalletStore(state => state.disconnect);
-  const isConnected = useWalletStore(state => state.isConnected);
-  const isConnecting = useWalletStore(state => state.isConnecting);
-
-  const connected = useMemo(() => isConnected('cosmos'), [isConnected]);
-  const connecting = useMemo(() => isConnecting('cosmos'), [isConnecting]);
-
-  const connect = useCallback(
-    async (walletId: string) => {
-      console.log(`[UI] User initiated Cosmos connection for ${walletId}`);
-      try {
-        await connectWallet('cosmos', walletId);
-        console.log(`[UI] Cosmos connection successful for ${walletId}`);
-      } catch (error: any) {
-        console.error(`[UI] Cosmos connection failed for ${walletId}:`, {
-          message: error.message,
-          stack: error.stack,
-        });
-        throw error;
-      }
-    },
-    [connectWallet]
-  );
-
-  const disconnectWallet = useCallback(async () => {
-    console.log('[UI] User initiated Cosmos disconnect');
-    try {
-      await disconnect('cosmos');
-      console.log('[UI] Cosmos disconnected successfully');
-    } catch (error: any) {
-      console.error('[UI] Cosmos disconnect failed:', {
-        message: error.message,
-        stack: error.stack,
-      });
-    }
-  }, [disconnect]);
-
-  const getProvider = useCallback(() => {
-    if (!wallet) return null;
-    return walletService.getProvider('cosmos');
-  }, [wallet]);
-
-  return {
-    wallet,
-    dydxAddress: wallet?.dydxAddress,
     status: status || { state: 'idle' as const },
     isConnected: connected,
     isConnecting: connecting,
@@ -237,31 +189,16 @@ export const useStellarWallet = () => {
 
   const connect = useCallback(
     async (walletId: string) => {
-      console.log(`[UI] User initiated Stellar connection for ${walletId}`);
-      try {
-        await connectWallet('stellar', walletId);
-        console.log(`[UI] Stellar connection successful for ${walletId}`);
-      } catch (error: any) {
-        console.error(`[UI] Stellar connection failed for ${walletId}:`, {
-          message: error.message,
-          stack: error.stack,
-        });
-        throw error;
-      }
+      await connectWallet('stellar', walletId);
     },
     [connectWallet]
   );
 
   const disconnectWallet = useCallback(async () => {
-    console.log('[UI] User initiated Stellar disconnect');
     try {
       await disconnect('stellar');
-      console.log('[UI] Stellar disconnected successfully');
     } catch (error: any) {
-      console.error('[UI] Stellar disconnect failed:', {
-        message: error.message,
-        stack: error.stack,
-      });
+      console.error(error);
     }
   }, [disconnect]);
 
@@ -294,7 +231,6 @@ export const useWalletNetwork = () => {
   const setNetwork = useWalletStore(state => state.setNetwork);
 
   const availableEVMChains = useMemo(() => getEVMChains(network), [network]);
-  const availableCosmosChains = useMemo(() => getCosmosChains(network), [network]);
   const currentStellarConfig = useMemo(() => getStellarConfig(network), [network]);
 
   const switchNetwork = useCallback(
@@ -309,7 +245,6 @@ export const useWalletNetwork = () => {
     network,
     switchNetwork,
     availableEVMChains,
-    availableCosmosChains,
     currentStellarConfig,
   };
 };
@@ -339,68 +274,4 @@ export const useWalletConnectionStatus = (type: WalletType) => {
     }),
     [status, isConnected, isConnecting, type]
   );
-};
-
-export const useApiTradingKeys = () => {
-  const keys = useWalletStore(state => state.apiTradingKeys);
-  const isGenerating = useWalletStore(state => state.isGeneratingApiKey);
-  const revokingKeyId = useWalletStore(state => state.revokingKeyId);
-  const error = useWalletStore(state => state.apiKeyError);
-  const isModalOpen = useWalletStore(state => state.isApiKeyModalOpen);
-  const restrictWithdrawalToWebsite = useWalletStore(state => state.restrictWithdrawalToWebsite);
-
-  const _generate = useWalletStore(state => state.generateApiTradingKey);
-  const _revoke = useWalletStore(state => state.revokeApiTradingKey);
-  const _load = useWalletStore(state => state.loadApiTradingKeys);
-  const _open = useWalletStore(state => state.openApiKeyModal);
-  const _close = useWalletStore(state => state.closeApiKeyModal);
-  const _setRestrict = useWalletStore(state => state.setRestrictWithdrawalToWebsite);
-
-  const generate = useCallback(
-    async (label?: string) => {
-      try {
-        await _generate(label);
-      } catch (err) {
-        console.log(err, "[usewaelectconnect] => key genration error")
-      }
-    },
-    [_generate]
-  );
-
-  const revoke = useCallback(
-    async (id: string) => {
-      try {
-        await _revoke(id);
-      } catch (err) {
-        console.log(err, "[usewaelectconnect] => revoker id error")
-      }
-    },
-    [_revoke]
-  );
-
-  const openModal = useCallback(() => {
-    _load();
-    _open();
-  }, [_load, _open]);
-
-  const closeModal = useCallback(() => _close(), [_close]);
-
-  const setRestrictWithdrawalToWebsite = useCallback(
-    (v: boolean) => _setRestrict(v),
-    [_setRestrict]
-  );
-
-  return {
-    keys,
-    generate,
-    revoke,
-    isGenerating,
-    revokingKeyId,
-    error,
-    isModalOpen,
-    openModal,
-    closeModal,
-    restrictWithdrawalToWebsite,
-    setRestrictWithdrawalToWebsite,
-  };
 };

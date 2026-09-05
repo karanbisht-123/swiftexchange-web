@@ -84,7 +84,7 @@ describe('isInsufficientStellarGas', () => {
   });
 
   it('returns true when non-XLM sell asset and XLM balance is too low', () => {
-    const params = { ...baseParams, stellarAssets: [{ symbol: 'XLM', balance: '0.005' }] };
+    const params = { ...baseParams, stellarAssets: [{ symbol: 'XLM', balance: '0.000005' }] };
     expect(isInsufficientStellarGas(params)).toBe(true);
   });
 
@@ -153,7 +153,7 @@ describe('isInsufficientEvmGas', () => {
   });
 
   it('returns true when non-native sell asset and native balance is below gas buffer', () => {
-    const lowBalAsset = { ...nativeAsset, balance: '0.0001' };
+    const lowBalAsset = { ...nativeAsset, balance: '0.00005' };
     expect(isInsufficientEvmGas({ ...baseParams, swapAssets: [lowBalAsset] })).toBe(true);
   });
 

@@ -1,32 +1,24 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
+export type ThemeType = 'light' | 'dark' | 'navy';
+
 interface ThemeState {
-  theme: 'light' | 'dark';
-  toggleTheme: () => void;
-  setTheme: (theme: 'light' | 'dark') => void;
+  theme: ThemeType;
+  setTheme: (theme: ThemeType) => void;
 }
 
 export const useThemeStore = create<ThemeState>()(
   persist(
-    (set, get) => ({
-      theme: 'dark',
+    set => ({
+      theme: 'dark', // Default to the new premium dark mode
 
-      toggleTheme: () => {
-        const currentTheme = get().theme;
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        set({ theme: newTheme });
-
-        document.documentElement.classList.remove(currentTheme);
-        document.documentElement.classList.add(newTheme);
-
-        console.log(`Theme changed to ${newTheme}`);
-      },
-
-      setTheme: theme => {
+      setTheme: (theme: ThemeType) => {
         set({ theme });
-        document.documentElement.classList.remove('light', 'dark');
-        document.documentElement.classList.add(theme);
+        document.documentElement.classList.remove('light', 'dark', 'navy');
+        if (theme !== 'light') {
+          document.documentElement.classList.add(theme);
+        }
       },
     }),
     {
@@ -34,9 +26,10 @@ export const useThemeStore = create<ThemeState>()(
       storage: createJSONStorage(() => localStorage),
       onRehydrateStorage: () => state => {
         if (state?.theme) {
-          document.documentElement.classList.remove('light', 'dark');
-          document.documentElement.classList.add(state.theme);
-          console.log('Theme rehydrated:', state.theme);
+          document.documentElement.classList.remove('light', 'dark', 'navy');
+          if (state.theme !== 'light') {
+            document.documentElement.classList.add(state.theme);
+          }
         }
       },
     }

@@ -1,7 +1,6 @@
-import { Activity, Check, ChevronRight, Compass, Copy, Sparkles, Wallet } from 'lucide-react';
+import { Check, ChevronRight, Compass, Copy, Sparkles, Wallet } from 'lucide-react';
 import React from 'react';
 
-import { dydxDataService } from '../../../modules/dydx/service/dydxOrderService';
 import { type PortfolioTab } from '../../../modules/walletconnect/hooks/useProfilePortfolio';
 import { portfolioUtils } from '../../../modules/walletconnect/utils/portfolioUtils';
 
@@ -12,7 +11,7 @@ interface PortfolioCardsGridProps {
   grandTotal: number;
   evmTotal: number;
   stellarTotal: number;
-  dydxTotal: number;
+
   connectedWallets: any;
   copiedStates: Record<string, boolean>;
   handleCopy: (text: string, key: string) => void;
@@ -27,7 +26,7 @@ export const PortfolioCardsGrid: React.FC<PortfolioCardsGridProps> = ({
   grandTotal,
   evmTotal,
   stellarTotal,
-  dydxTotal,
+
   connectedWallets,
   copiedStates,
   handleCopy,
@@ -80,26 +79,19 @@ export const PortfolioCardsGrid: React.FC<PortfolioCardsGridProps> = ({
             'bg-gradient-to-br from-purple-500/20 via-pink-500/10 to-transparent border-purple-500 shadow-purple-500/10',
         };
       }
-      case 'dydx': {
-        const isDydxConnected = dydxDataService.isReady();
+
+      default:
         return {
-          title: 'dYdX Account',
-          icon: <Activity size={20} className="text-emerald-400" />,
-          total: dydxTotal,
-          walletId: isDydxConnected
-            ? connectedWallets.evm?.dydxAddress
-              ? connectedWallets.evm.walletId
-              : connectedWallets.cosmos?.walletId || 'Derived'
-            : 'Not Connected',
-          address: isDydxConnected
-            ? connectedWallets.evm?.dydxAddress || connectedWallets.cosmos?.dydxAddress || ''
-            : '',
-          color: 'from-emerald-500/20 to-teal-500/10 border-emerald-500/30 text-emerald-400',
-          glow: 'shadow-emerald-500/10',
+          title: 'Unknown Portfolio',
+          icon: <Wallet size={20} className="text-gray-400" />,
+          total: 0,
+          walletId: 'Unknown',
+          address: '',
+          color: 'from-gray-500/20 to-gray-500/10 border-gray-500/30 text-gray-400',
+          glow: 'shadow-gray-500/10',
           activeBg:
-            'bg-gradient-to-br from-emerald-500/20 via-teal-500/10 to-transparent border-emerald-500 shadow-emerald-500/10',
+            'bg-gradient-to-br from-gray-500/20 via-gray-500/10 to-transparent border-gray-500 shadow-gray-500/10',
         };
-      }
     }
   };
 
@@ -124,10 +116,10 @@ export const PortfolioCardsGrid: React.FC<PortfolioCardsGridProps> = ({
           <div
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`p-4 rounded-2xl border transition-all duration-300 cursor-pointer relative overflow-hidden group shadow-sm hover:shadow-md ${
+            className={`p-5 rounded-2xl border transition-all duration-300 cursor-pointer relative overflow-hidden group flex flex-col justify-between h-full bg-(--color-bg-secondary) backdrop-blur-md ${
               isActive
-                ? `${details.activeBg} border-brand-primary/50 shadow-inner`
-                : 'bg-(--color-bg-secondary) border-(--color-border) hover:border-brand-primary/30 hover:-translate-y-0.5'
+                ? `${details.activeBg} ${details.glow} shadow-lg shadow-indigo-500/10`
+                : 'border-(--color-border) hover:border-brand-primary/30 hover:-translate-y-0.5 shadow-sm'
             }`}
           >
             <div className="absolute top-0 right-0 w-20 h-20 bg-brand-primary/5 rounded-full blur-2xl pointer-events-none group-hover:scale-150 transition-all duration-500" />
@@ -179,7 +171,7 @@ export const PortfolioCardsGrid: React.FC<PortfolioCardsGridProps> = ({
 
             <div
               onClick={e => e.stopPropagation()}
-              className="mt-3 pt-3 border-t border-(--color-border) flex items-center justify-between text-xs text-(--color-text-secondary)"
+              className="mt-4 pt-3 border-t border-(--color-border) flex items-center justify-between text-xs text-(--color-text-secondary)"
             >
               {tab === 'total' ? (
                 <span className="text-[10.5px] font-medium text-brand-primary/80">
@@ -192,7 +184,7 @@ export const PortfolioCardsGrid: React.FC<PortfolioCardsGridProps> = ({
                   </span>
                   <button
                     onClick={() => handleCopy(details.address, tab)}
-                    className="p-1 hover:bg-(--color-bg-tertiary) rounded text-(--color-text-secondary) hover:text-(--color-text-primary) transition cursor-pointer"
+                    className="p-1.5 bg-(--color-bg-tertiary) hover:bg-(--color-bg-tertiary)/80 rounded-md text-(--color-text-secondary) hover:text-(--color-text-primary) transition cursor-pointer flex items-center justify-center"
                   >
                     {isCopied ? (
                       <Check size={12} className="text-emerald-500" />
