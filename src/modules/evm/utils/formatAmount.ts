@@ -1,6 +1,5 @@
 import { type TransactionItem } from '../service/EvmTransactionService';
 
-
 export const formatTxAmount = (
   tx: Pick<TransactionItem, 'formattedAmount' | 'value' | 'rawContract' | 'category'>
 ): string => {
@@ -31,6 +30,7 @@ export const formatTxAmount = (
         return result.toFixed(6).replace(/\.?0+$/, '') || '0';
       }
     } catch {
+      // Ignore parsing errors and fall through
     }
   }
 
@@ -43,16 +43,20 @@ export const formatTxAmount = (
   return '—';
 };
 
-
-export const formatAssetName = (tx: Pick<TransactionItem, 'asset' | 'category' | 'rawContract'>): string => {
+export const formatAssetName = (
+  tx: Pick<TransactionItem, 'asset' | 'category' | 'rawContract'>
+): string => {
   if (tx.asset) return tx.asset;
   if (tx.category === 'erc721') return 'Asset';
   if (tx.category === 'erc1155') return 'Asset';
   return '—';
 };
 
-
-export const getDisplayAmountWithSign = (formattedAmount: string, isIncoming: boolean, isSelf: boolean): string => {
+export const getDisplayAmountWithSign = (
+  formattedAmount: string,
+  isIncoming: boolean,
+  isSelf: boolean
+): string => {
   if (formattedAmount === '—') return '—';
   if (isSelf) return formattedAmount;
 
