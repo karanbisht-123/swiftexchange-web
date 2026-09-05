@@ -69,7 +69,13 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
         if (!mountedRef.current) return;
         hasLoadedActiveRef.current = true;
         setActiveOffers(prev => {
-          if (cursor) return [...prev, ...offers];
+          const list = cursor ? [...prev, ...offers] : offers;
+          const seen = new Set<string>();
+          const deduped = list.filter(o => {
+            if (seen.has(o.id)) return false;
+            seen.add(o.id);
+            return true;
+          });
           const existingIds = new Set(prev.map(o => o.id));
           const freshIds = offers.filter(o => !existingIds.has(o.id)).map(o => o.id);
           if (freshIds.length > 0) {
@@ -84,7 +90,7 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
               }
             }, 2000);
           }
-          return offers;
+          return deduped;
         });
         setActivePagination({ cursor: nextCursor, hasMore });
       } catch (err) {
@@ -121,7 +127,15 @@ export function useTradeTransaction({ userAddress }: UseTradeTransactionProps) {
         );
         if (!mountedRef.current) return;
         hasLoadedCompletedRef.current = true;
-        setCompletedTrades(prev => (cursor ? [...prev, ...trades] : trades));
+        setCompletedTrades(prev => {
+          const list = cursor ? [...prev, ...trades] : trades;
+          const seen = new Set<string>();
+          return list.filter(t => {
+            if (seen.has(t.id)) return false;
+            seen.add(t.id);
+            return true;
+          });
+        });
         setCompletedPagination({ cursor: nextCursor, hasMore });
       } catch (err) {
         if (mountedRef.current) {

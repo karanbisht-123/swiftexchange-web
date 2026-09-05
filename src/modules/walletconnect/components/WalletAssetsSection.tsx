@@ -373,19 +373,19 @@ const AssetRow = memo(
             onClick={() => {
               if (window.innerWidth < 1024) setSheetOpen(true);
             }}
-            className="flex items-center gap-3 h-full bg-secondary hover:bg-hover rounded-xl px-3 cursor-pointer lg:cursor-default active:scale-[0.98] lg:active:scale-100 transition-all"
+            className="flex items-center gap-3.5 h-full bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-tertiary)]/75 border border-[var(--color-border)]/40 hover:border-[var(--color-brand-primary)]/40 rounded-xl px-3.5 cursor-pointer lg:cursor-default active:scale-[0.99] lg:active:scale-100 transition-all duration-150 shadow-xs group"
           >
             {/* Token icon */}
             <div className="relative shrink-0">
               <img
                 src={asset.image}
-                className="w-9 h-9 rounded-full bg-tertiary"
+                className="w-9 h-9 rounded-full bg-[var(--color-bg-tertiary)] group-hover:scale-105 transition-transform"
                 alt={asset.symbol}
                 onError={e => {
                   e.currentTarget.src = `https://ui-avatars.com/api/?name=${asset.symbol}&background=random`;
                 }}
               />
-              <div className="absolute -bottom-1 -right-1 w-[18px] h-[18px] rounded-full bg-secondary border border-color flex items-center justify-center">
+              <div className="absolute -bottom-1 -right-1 w-[18px] h-[18px] rounded-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] flex items-center justify-center">
                 {getChainIcon(asset) ? (
                   <img
                     src={getChainIcon(asset)}
@@ -393,7 +393,7 @@ const AssetRow = memo(
                     className="w-3 h-3 rounded-full"
                   />
                 ) : (
-                  <span className="text-[7px] font-bold text-muted">
+                  <span className="text-[7px] font-bold text-[var(--color-text-muted)]">
                     {asset.chainType === 'stellar' ? asset.chainId : asset.chainName?.[0] || '?'}
                   </span>
                 )}
@@ -403,23 +403,31 @@ const AssetRow = memo(
             {/* Name + price */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-sm text-primary">{asset.symbol}</span>
-                <span className="text-[11px] text-muted truncate">{asset.chainName}</span>
+                <span className="font-bold text-sm text-[var(--color-text-primary)] group-hover:text-[var(--color-brand-primary)] transition-colors">
+                  {asset.symbol}
+                </span>
+                <span className="text-[11px] text-[var(--color-text-muted)] truncate">
+                  {asset.chainName}
+                </span>
               </div>
               <div className="flex items-center gap-1.5 mt-0.5">
                 {isPriceLoading ? (
                   <Shimmer className="h-3 w-14" />
                 ) : (
                   <>
-                    <span className="text-xs text-muted">
+                    <span className="text-xs font-mono text-[var(--color-text-muted)]">
                       $
                       {asset.current_price?.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </span>
                     {asset.price_change_percentage_24h !== 0 && (
                       <span
-                        className={`text-[11px] font-medium ${asset.price_change_percentage_24h >= 0 ? 'price-up' : 'price-down'}`}
+                        className={`text-[10.5px] font-mono font-bold px-1.5 py-0.2 rounded border ${
+                          (asset.price_change_percentage_24h || 0) >= 0
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                            : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                        }`}
                       >
-                        {asset.price_change_percentage_24h >= 0 ? '+' : ''}
+                        {(asset.price_change_percentage_24h || 0) >= 0 ? '+' : ''}
                         {asset.price_change_percentage_24h?.toFixed(2)}%
                       </span>
                     )}
@@ -437,10 +445,10 @@ const AssetRow = memo(
                 </>
               ) : (
                 <>
-                  <div className="text-sm font-semibold text-primary">
+                  <div className="text-sm font-mono font-bold text-[var(--color-text-primary)]">
                     {portfolioUtils.formatBalance(asset.balance)}
                   </div>
-                  <div className="text-xs text-muted mt-0.5">
+                  <div className="text-xs font-mono text-[var(--color-text-muted)] mt-0.5">
                     {portfolioUtils.formatUSD(usdValue)}
                   </div>
                 </>
@@ -448,18 +456,18 @@ const AssetRow = memo(
             </div>
 
             {/* Desktop actions */}
-            <div className="hidden lg:flex items-center gap-2 shrink-0">
+            <div className="hidden lg:flex items-center gap-1.5 shrink-0">
               {canTrade && (
                 <button
                   onClick={() => onTrade(asset)}
-                  className="btn btn-primary btn-sm rounded-md px-3"
+                  className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-brand-primary)] text-[var(--color-text-primary)] hover:text-white border border-[var(--color-border)]/60 hover:border-transparent transition-all cursor-pointer shadow-xs"
                 >
                   Spot
                 </button>
               )}
               <button
                 onClick={() => onPerp(asset)}
-                className="btn btn-primary btn-sm rounded-md px-3"
+                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-brand-primary)] text-[var(--color-text-primary)] hover:text-white border border-[var(--color-border)]/60 hover:border-transparent transition-all cursor-pointer shadow-xs"
               >
                 Perp
               </button>
@@ -508,35 +516,74 @@ const SkeletonRows = () => (
   </div>
 );
 
-// Sparkline SVG Component
-const Sparkline = ({ data, colorClass }: { data: number[]; colorClass: string }) => {
-  if (!data || data.length === 0) return null;
+// Smooth Sparkline SVG Component with Glowing Area Gradient
+const Sparkline = ({
+  data,
+  isGain,
+  width = 54,
+  height = 22,
+}: {
+  data: number[];
+  isGain: boolean;
+  width?: number;
+  height?: number;
+}) => {
+  if (!data || data.length < 2) return null;
   const min = Math.min(...data);
   const max = Math.max(...data);
   const range = max - min || 1;
 
-  const width = 45;
-  const height = 20;
+  const pad = 2;
+  const h = height - pad * 2;
+  const pts = data.map((val, i) => {
+    const x = (i / (data.length - 1)) * width;
+    const y = pad + h - ((val - min) / range) * h;
+    return { x, y };
+  });
 
-  const points = data
-    .map((val, i) => {
-      const x = (i / (data.length - 1)) * width;
-      const y = height - ((val - min) / range) * height;
-      return `${x},${y}`;
-    })
-    .join(' ');
+  // Generate smooth cubic Bézier curve
+  let pathD = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const curr = pts[i];
+    const next = pts[i + 1];
+    const cp1x = curr.x + (next.x - curr.x) / 2;
+    const cp1y = curr.y;
+    const cp2x = curr.x + (next.x - curr.x) / 2;
+    const cp2y = next.y;
+    pathD += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${next.x} ${next.y}`;
+  }
+
+  const areaD = `${pathD} L ${width} ${height} L 0 ${height} Z`;
+  const strokeColor = isGain ? '#10b981' : '#f43f5e';
+  const gradId = `sparkGrad-${isGain ? 'gain' : 'loss'}`;
+  const lastPt = pts[pts.length - 1];
 
   return (
-    <svg width={width} height={height} className="overflow-visible">
-      <polyline
-        points={points}
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      className="overflow-visible"
+    >
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={strokeColor} stopOpacity={0.35} />
+          <stop offset="100%" stopColor={strokeColor} stopOpacity={0.0} />
+        </linearGradient>
+      </defs>
+      {/* Area Fill */}
+      <path d={areaD} fill={`url(#${gradId})`} />
+      {/* Smooth Stroke */}
+      <path
+        d={pathD}
         fill="none"
-        stroke="currentColor"
-        className={colorClass}
-        strokeWidth="1.5"
+        stroke={strokeColor}
+        strokeWidth="1.75"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+      {/* Glowing End Point */}
+      <circle cx={lastPt.x} cy={lastPt.y} r="2" fill={strokeColor} />
     </svg>
   );
 };
@@ -550,25 +597,29 @@ const MoverCard = ({
   type: 'gain' | 'loss';
   onClick: () => void;
 }) => {
-  const colorClass = type === 'gain' ? 'text-success' : 'text-danger';
+  const isGain = type === 'gain';
+  // const colorClass = isGain ? 'text-emerald-400' : 'text-rose-400';
+  const bgBadge = isGain
+    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+    : 'bg-rose-500/10 border-rose-500/20 text-rose-400';
 
   return (
     <div
       onClick={onClick}
-      className="flex flex-col lg:flex-row lg:items-center gap-2.5 lg:gap-2 p-3 bg-secondary hover:bg-hover rounded-xl cursor-pointer transition-all border-none"
+      className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-2.5 p-2.5 sm:p-3 bg-[var(--color-bg-secondary)] hover:bg-[var(--color-bg-tertiary)]/80 rounded-xl cursor-pointer transition-all duration-150 border border-[var(--color-border)]/50 hover:border-[var(--color-brand-primary)]/40 hover:shadow-md group select-none"
     >
       {/* Mobile Top Row / Desktop Left Side */}
       <div className="flex items-start justify-between w-full lg:w-auto">
         <div className="relative shrink-0">
           <img
             src={asset.image}
-            className="w-8 h-8 rounded-full bg-tertiary"
+            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[var(--color-bg-tertiary)] group-hover:scale-105 transition-transform"
             alt={asset.symbol}
             onError={e => {
               e.currentTarget.src = `https://ui-avatars.com/api/?name=${asset.symbol}&background=random`;
             }}
           />
-          <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-secondary border border-color flex items-center justify-center">
+          <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-[var(--color-bg-secondary)] border border-[var(--color-border)] flex items-center justify-center">
             {getChainIcon(asset) ? (
               <img
                 src={getChainIcon(asset)}
@@ -576,7 +627,7 @@ const MoverCard = ({
                 className="w-2.5 h-2.5 rounded-full"
               />
             ) : (
-              <span className="text-[6px] font-bold text-muted">
+              <span className="text-[6px] font-bold text-[var(--color-text-muted)]">
                 {asset.chainType === 'stellar' ? asset.chainId : asset.chainName?.[0] || '?'}
               </span>
             )}
@@ -584,30 +635,43 @@ const MoverCard = ({
         </div>
 
         {/* Rate on Mobile (Top Right) */}
-        <div className={`lg:hidden text-[12px] font-bold pt-1 ${colorClass}`}>
-          {type === 'gain' ? '+' : ''}
+        <div
+          className={`lg:hidden text-[11px] font-mono font-bold px-1.5 py-0.2 rounded-md border ${bgBadge}`}
+        >
+          {isGain ? '+' : ''}
           {asset.price_change_percentage_24h?.toFixed(2)}%
         </div>
       </div>
 
       {/* Middle area (Symbol & Price) */}
-      <div className="flex-1 min-w-0 pr-1 flex flex-col lg:justify-end">
-        <div className="font-bold text-[13px] text-primary truncate">{asset.symbol}</div>
-        <div className="text-[11px] text-muted truncate">
+      <div className="flex-1 min-w-0 pr-1 flex flex-col lg:justify-center">
+        <div className="font-bold text-[12.5px] sm:text-[13px] text-[var(--color-text-primary)] truncate group-hover:text-[var(--color-brand-primary)] transition-colors">
+          {asset.symbol}
+        </div>
+        <div className="text-[10.5px] sm:text-[11px] font-mono text-[var(--color-text-muted)] truncate">
           {portfolioUtils.formatUSD(asset.current_price)}
         </div>
       </div>
 
-      {/* Sparkline (Desktop only) */}
-      {asset.sparkline && asset.sparkline.length > 0 && (
-        <div className="shrink-0 px-1 opacity-80 hidden lg:block xl:block">
-          <Sparkline data={asset.sparkline} colorClass={colorClass} />
+      {/* Smooth Sparkline with Gradient Glow (Desktop & Mobile) */}
+      {asset.sparkline && asset.sparkline.length > 1 && (
+        <div className="shrink-0 opacity-90 hidden lg:block">
+          <Sparkline data={asset.sparkline} isGain={isGain} width={54} height={22} />
+        </div>
+      )}
+
+      {/* Mobile Mini Sparkline */}
+      {asset.sparkline && asset.sparkline.length > 1 && (
+        <div className="lg:hidden w-full pt-1 opacity-90 flex justify-center">
+          <Sparkline data={asset.sparkline} isGain={isGain} width={98} height={18} />
         </div>
       )}
 
       {/* Rate on Desktop (Far Right) */}
-      <div className={`hidden lg:block text-xs font-bold shrink-0 ${colorClass}`}>
-        {type === 'gain' ? '+' : ''}
+      <div
+        className={`hidden lg:block text-xs font-mono font-bold px-2 py-0.5 rounded-md border shrink-0 ${bgBadge}`}
+      >
+        {isGain ? '+' : ''}
         {asset.price_change_percentage_24h?.toFixed(2)}%
       </div>
     </div>
@@ -769,9 +833,9 @@ const WalletAssetsSection = () => {
         </div>
       )}
 
-      <section className="flex-1 min-w-0 card rounded-none border-none lg:rounded-xl lg:border-none lg:overflow-hidden p-0 shadow-premium">
+      <section className="flex-1 min-w-0 rounded-2xl border border-[var(--color-border)]/60 overflow-hidden p-0 shadow-sm bg-[var(--color-bg-secondary)]">
         {/* ── Portfolio List ── */}
-        <div className="flex flex-col h-full bg-secondary/80 backdrop-blur-xl">
+        <div className="flex flex-col h-full bg-[var(--color-bg-secondary)]/90 backdrop-blur-xl">
           {/* ── Body ── */}
           <div className="min-h-[400px]">
             {hasError && filteredAssets.length === 0 ? (

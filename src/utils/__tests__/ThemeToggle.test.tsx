@@ -32,21 +32,23 @@ describe('ThemeToggle', () => {
     expect(container.querySelector('svg')).toBeInTheDocument();
   });
 
-  it('calls toggleTheme when button is clicked', () => {
+  it('opens dropdown and switches theme when an option is clicked', () => {
     useThemeStore.setState({ theme: 'dark' });
     render(<ThemeToggle />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Toggle theme' }));
+    fireEvent.click(screen.getByRole('button', { name: /Light/i }));
 
     expect(useThemeStore.getState().theme).toBe('light');
   });
 
-  it('toggles back from light to dark on second click', () => {
-    useThemeStore.setState({ theme: 'light' });
+  it('switches to navy theme when Navy Classic is clicked', () => {
+    useThemeStore.setState({ theme: 'dark' });
     render(<ThemeToggle />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Toggle theme' }));
+    fireEvent.click(screen.getByRole('button', { name: /Navy Classic/i }));
 
-    expect(useThemeStore.getState().theme).toBe('dark');
+    expect(useThemeStore.getState().theme).toBe('navy');
   });
 });

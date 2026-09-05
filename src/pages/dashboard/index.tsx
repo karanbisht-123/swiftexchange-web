@@ -4,8 +4,8 @@ import WalletAssetsSection from '@/modules/walletconnect/components/WalletAssets
 
 const Dashboard = () => {
   return (
-    <div className="lg:bg-bg-secondary/40 lg:backdrop-blur-xl lg:border-none md:p-6 lg:rounded-2xl lg:shadow-premium">
-      <div className="flex flex-col lg:flex-row-reverse lg:items-stretch gap-1 sm:gap-4 mb-1 sm:mb-4">
+    <div className="w-full px-3 sm:px-4 md:px-6 py-2 sm:py-4 lg:bg-bg-secondary/40 lg:backdrop-blur-xl lg:rounded-2xl lg:shadow-premium transition-all">
+      <div className="flex flex-col lg:flex-row-reverse lg:items-stretch gap-3 sm:gap-4 mb-3 sm:mb-4">
         <div className="w-full lg:w-[40%] shrink-0">
           <PortfolioRedirectCard />
         </div>

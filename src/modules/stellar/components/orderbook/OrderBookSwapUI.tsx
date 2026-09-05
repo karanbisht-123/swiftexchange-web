@@ -464,7 +464,7 @@ const OrderBookSwapUI = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-1 lg:gap-4 items-stretch">
         <div
-          className={`bg-secondary lg:rounded-xl overflow-hidden border border-color h-[260px] lg:h-auto lg:min-h-[400px] max-h-[500px] ${
+          className={`bg-[var(--color-bg-secondary)] rounded-2xl border border-[var(--color-border)]/60 overflow-hidden shadow-sm h-[320px] max-h-[380px] lg:h-auto lg:min-h-0 ${
             activeTab === 'overview' ? 'block' : 'hidden lg:block'
           }`}
         >
@@ -479,7 +479,7 @@ const OrderBookSwapUI = () => {
           </Suspense>
         </div>
         <div
-          className={`bg-secondary lg:rounded-xl border border-color overflow-hidden h-[440px] max-h-[500px] lg:h-auto lg:min-h-0 ${
+          className={`bg-[var(--color-bg-secondary)] rounded-2xl border border-[var(--color-border)]/60 shadow-sm overflow-hidden h-[440px] max-h-[500px] lg:h-auto lg:min-h-0 ${
             activeTab === 'trades' ? 'block' : 'hidden lg:block'
           }`}
         >
@@ -496,7 +496,7 @@ const OrderBookSwapUI = () => {
 
         {/* ============ ORDER TRADE FORM ============ */}
         <div
-          className={`bg-secondary lg:rounded-xl border border-color p-4 lg:p-6 ${
+          className={`bg-[var(--color-bg-secondary)] rounded-2xl border border-[var(--color-border)]/60 shadow-sm p-4 lg:p-6 ${
             activeTab === 'overview' ? 'block' : 'hidden lg:block'
           }`}
         >
@@ -990,7 +990,7 @@ const OrderBookSwapUI = () => {
         </div>
 
         <div
-          className={`bg-secondary lg:rounded-xl border border-color p-1 flex flex-col h-[440px] lg:h-auto lg:min-h-0 lg:overflow-hidden overflow-hidden ${
+          className={`bg-[var(--color-bg-secondary)] rounded-2xl border border-[var(--color-border)]/60 shadow-sm p-1 flex flex-col h-[440px] lg:h-auto lg:min-h-0 lg:overflow-hidden overflow-hidden ${
             activeTab === 'orderBook' ? '' : 'hidden lg:flex'
           }`}
         >

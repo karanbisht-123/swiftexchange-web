@@ -85,7 +85,7 @@ const StellarTradeScreen = () => {
   }, [stellarWallet?.address, hasCheckedClaims]);
 
   return (
-    <div className="bg-primary max-w-[100vw] lg:p-4 lg:pb-0 min-h-screen overflow-x-hidden relative">
+    <div className="bg-[var(--color-bg-primary)] max-w-[100vw] px-3 sm:px-4 md:px-6 py-2 sm:py-4 lg:p-4 lg:pb-0 min-h-screen overflow-x-hidden relative transition-colors">
       <StellarActivationBanner className="mb-2" />
       {activeTab !== 'assets' && <StellarTickerBar />}
       {showClaimModal && <ClaimableBalanceModal onClose={() => setShowClaimModal(false)} />}
@@ -101,11 +101,11 @@ const StellarTradeScreen = () => {
         }
       `}</style>
 
-      <div className="animate-fade-in pb-18">
+      <div className="animate-fade-in pb-20">
         <Suspense
           fallback={
-            <div className="w-full h-[400px] flex items-center justify-center bg-secondary lg:rounded-xl border border-color">
-              <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-full h-[400px] flex items-center justify-center bg-[var(--color-bg-secondary)] lg:rounded-2xl border border-[var(--color-border)]/60 shadow-xl">
+              <div className="w-8 h-8 border-3 border-[var(--color-brand-primary)] border-t-transparent rounded-full animate-spin"></div>
             </div>
           }
         >
@@ -118,24 +118,24 @@ const StellarTradeScreen = () => {
         </Suspense>
       </div>
 
-      {/* Desktop Floating Navigation Bar */}
-      <div className="hidden md:flex fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-secondary/90 backdrop-blur-lg rounded-full shadow-2xl border border-white/10 p-1.5 items-center gap-1">
+      {/* Desktop Floating Web3 Segmented Navigation Dock */}
+      <div className="hidden md:flex fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-[var(--color-bg-secondary)]/90 backdrop-blur-xl rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] border border-[var(--color-border)]/70 p-1.5 items-center gap-1.5 select-none">
         <button
           onClick={() => setActiveTab('amm')}
-          className={`px-6 py-2.5 rounded-full text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+          className={`px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
             activeTab === 'amm'
-              ? 'bg-brand text-white shadow-sm'
-              : 'text-muted hover:text-primary hover:bg-white/5'
+              ? 'bg-[var(--color-brand-primary)] text-white shadow-md shadow-blue-500/25'
+              : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]/70'
           }`}
         >
           AMM Swap
         </button>
         <button
           onClick={() => setActiveTab('orderbook')}
-          className={`px-6 py-2.5 rounded-full text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+          className={`px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
             activeTab === 'orderbook'
-              ? 'bg-brand text-white shadow-sm'
-              : 'text-muted hover:text-primary hover:bg-white/5'
+              ? 'bg-[var(--color-brand-primary)] text-white shadow-md shadow-blue-500/25'
+              : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]/70'
           }`}
         >
           Order Book
@@ -143,10 +143,10 @@ const StellarTradeScreen = () => {
 
         <button
           onClick={() => setActiveTab('assets')}
-          className={`px-6 py-2.5 rounded-full text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+          className={`px-5 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
             activeTab === 'assets'
-              ? 'bg-brand text-white shadow-sm'
-              : 'text-muted hover:text-primary hover:bg-white/5'
+              ? 'bg-[var(--color-brand-primary)] text-white shadow-md shadow-blue-500/25'
+              : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]/70'
           }`}
         >
           Assets
@@ -154,7 +154,7 @@ const StellarTradeScreen = () => {
         {stellarWallet?.address && (
           <button
             onClick={() => setShowClaimModal(true)}
-            className="flex items-center gap-1.5 px-6 py-2.5 rounded-full bg-pink-500 text-white shadow-lg shadow-pink-500/20 hover:bg-pink-600 active:scale-95 transition-all text-xs font-bold uppercase tracking-wider cursor-pointer"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500/25 active:scale-95 transition-all text-xs font-bold uppercase tracking-wider cursor-pointer shadow-xs"
           >
             <Gift className="w-3.5 h-3.5 animate-shake" />
             <span>Claims</span>
@@ -162,35 +162,51 @@ const StellarTradeScreen = () => {
         )}
       </div>
 
-      {/* Mobile Edge-to-edge Navigation Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden border-t border-white/10 bg-secondary/95 backdrop-blur-lg px-4 py-2 pb-safe">
+      {/* Mobile Edge-to-edge Glass Navigation Bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden border-t border-[var(--color-border)]/60 bg-[var(--color-bg-secondary)]/95 backdrop-blur-xl px-3 py-1.5 pb-safe">
         <div className="flex items-center gap-1">
           <button
             onClick={() => setActiveTab('amm')}
-            className="flex-1 flex flex-col items-center justify-center gap-1.5 py-2 rounded-xl transition-all"
+            className="flex-1 flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl transition-all cursor-pointer"
           >
             <span
-              className={`flex items-center justify-center w-9 h-7 rounded-md transition-colors ${activeTab === 'amm' ? 'bg-brand text-white' : 'text-muted'}`}
+              className={`flex items-center justify-center w-9 h-7 rounded-lg transition-all ${
+                activeTab === 'amm'
+                  ? 'bg-[var(--color-brand-primary)] text-white shadow-sm'
+                  : 'text-[var(--color-text-secondary)]'
+              }`}
             >
-              <ArrowLeftRight className="w-5 h-5" />
+              <ArrowLeftRight className="w-4 h-4" />
             </span>
             <span
-              className={`text-[10px] font-medium leading-none transition-colors ${activeTab === 'amm' ? 'text-brand' : 'text-muted'}`}
+              className={`text-[10px] font-semibold leading-none transition-colors ${
+                activeTab === 'amm'
+                  ? 'text-[var(--color-brand-primary)] font-bold'
+                  : 'text-[var(--color-text-secondary)]'
+              }`}
             >
               Swap
             </span>
           </button>
           <button
             onClick={() => setActiveTab('orderbook')}
-            className="flex-1 flex flex-col items-center justify-center gap-1.5 py-2 rounded-xl transition-all"
+            className="flex-1 flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl transition-all cursor-pointer"
           >
             <span
-              className={`flex items-center justify-center w-9 h-7 rounded-md transition-colors ${activeTab === 'orderbook' ? 'bg-brand text-white' : 'text-muted'}`}
+              className={`flex items-center justify-center w-9 h-7 rounded-lg transition-all ${
+                activeTab === 'orderbook'
+                  ? 'bg-[var(--color-brand-primary)] text-white shadow-sm'
+                  : 'text-[var(--color-text-secondary)]'
+              }`}
             >
-              <BookOpen className="w-5 h-5" />
+              <BookOpen className="w-4 h-4" />
             </span>
             <span
-              className={`text-[10px] font-medium leading-none transition-colors ${activeTab === 'orderbook' ? 'text-brand' : 'text-muted'}`}
+              className={`text-[10px] font-semibold leading-none transition-colors ${
+                activeTab === 'orderbook'
+                  ? 'text-[var(--color-brand-primary)] font-bold'
+                  : 'text-[var(--color-text-secondary)]'
+              }`}
             >
               Trade
             </span>
@@ -198,15 +214,23 @@ const StellarTradeScreen = () => {
 
           <button
             onClick={() => setActiveTab('assets')}
-            className="flex-1 flex flex-col items-center justify-center gap-1.5 py-2 rounded-xl transition-all"
+            className="flex-1 flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl transition-all cursor-pointer"
           >
             <span
-              className={`flex items-center justify-center w-9 h-7 rounded-md transition-colors ${activeTab === 'assets' ? 'bg-brand text-white' : 'text-muted'}`}
+              className={`flex items-center justify-center w-9 h-7 rounded-lg transition-all ${
+                activeTab === 'assets'
+                  ? 'bg-[var(--color-brand-primary)] text-white shadow-sm'
+                  : 'text-[var(--color-text-secondary)]'
+              }`}
             >
-              <Wallet className="w-5 h-5" />
+              <Wallet className="w-4 h-4" />
             </span>
             <span
-              className={`text-[10px] font-medium leading-none transition-colors ${activeTab === 'assets' ? 'text-brand' : 'text-muted'}`}
+              className={`text-[10px] font-semibold leading-none transition-colors ${
+                activeTab === 'assets'
+                  ? 'text-[var(--color-brand-primary)] font-bold'
+                  : 'text-[var(--color-text-secondary)]'
+              }`}
             >
               Assets
             </span>
@@ -214,12 +238,12 @@ const StellarTradeScreen = () => {
           {stellarWallet?.address && (
             <button
               onClick={() => setShowClaimModal(true)}
-              className="flex-1 flex flex-col items-center justify-center gap-1.5 py-2 rounded-xl transition-all text-pink-500 hover:text-pink-400"
+              className="flex-1 flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl transition-all text-rose-400 hover:text-rose-300 cursor-pointer"
             >
-              <span className="flex items-center justify-center w-9 h-7 rounded-md bg-pink-500/10 hover:bg-pink-500/20">
-                <Gift className="w-5 h-5 animate-shake" />
+              <span className="flex items-center justify-center w-9 h-7 rounded-lg bg-rose-500/15 border border-rose-500/25">
+                <Gift className="w-4 h-4 animate-shake" />
               </span>
-              <span className="text-[10px] font-medium leading-none">Claims</span>
+              <span className="text-[10px] font-semibold leading-none">Claims</span>
             </button>
           )}
         </div>
