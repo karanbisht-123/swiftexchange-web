@@ -4,14 +4,6 @@ import { useWalletStore } from '../walletConnectStore';
 
 // Removed deviceId mock
 
-vi.mock('@dydxprotocol/v4-client-js', () => ({
-  CompositeClient: vi.fn(),
-  tradingKeyUtils: {
-    createNewRandomDydxWallet: vi.fn(),
-    getAuthorizeNewTradingKeyArguments: vi.fn(),
-  },
-}));
-
 vi.mock('../../services/walletService', () => ({
   walletService: {
     connectChainWallet: vi.fn().mockResolvedValue({
@@ -42,6 +34,9 @@ vi.mock('../../services/Siweauthservice', () => ({
     refreshToken: 'mock-stellar-refresh',
   }),
   getCurrentTokenInfo: vi.fn().mockReturnValue(null),
+  getAccessToken: vi.fn().mockReturnValue(null),
+  clearAccessToken: vi.fn(),
+  isAuthenticated: vi.fn().mockReturnValue(false),
 }));
 
 describe('walletConnectStore', () => {

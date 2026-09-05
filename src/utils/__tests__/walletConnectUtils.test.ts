@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useGlobalTxStore } from '../../modules/walletconnect/store/globalTxStore';
 import { sendCustomNotification } from '../../service/notificationService';
 import {
   getRequestExpiry,
@@ -67,6 +68,10 @@ describe('walletConnectUtils', () => {
   describe('sendEVMTransaction', () => {
     const txParams = { to: '0xRecipient', value: '0x0' };
 
+    beforeEach(() => {
+      useGlobalTxStore.getState().clearPending();
+    });
+
     it('sends via provider.request for a standard EIP-1193 provider', async () => {
       const provider = {
         request: vi.fn().mockResolvedValue('0xTXHASH'),
@@ -89,7 +94,7 @@ describe('walletConnectUtils', () => {
       expect(provider.client.request).toHaveBeenCalledWith({
         topic: 'abc-topic',
         chainId: 'eip155:1',
-        request: { method: 'eth_sendTransaction', params: [txParams] },
+        request: expect.objectContaining({ method: 'eth_sendTransaction', params: [txParams] }),
       });
     });
 

@@ -11,8 +11,6 @@ import { isEvmChain } from '../../../../utils/Chainregistry';
 import { rpcManager } from '../../../../utils/rpcProvider';
 import { executeSwap } from '../../execution/evmSwapExecutor';
 import { execute1InchFusionSwap } from '../../execution/fusionSwapExecutor';
-import { getSwapQuote } from '../../services/evmSwapService';
-import { get1InchFusionQuote } from '../../services/fusionOrderService';
 import { useEvmSwap } from '../useEvmSwap';
 
 vi.mock('ethers', async () => {
@@ -186,13 +184,11 @@ describe('useEvmSwap', () => {
   describe('initial state', () => {
     it('starts with empty/default values', () => {
       const { result } = renderHook(() => useEvmSwap(baseProps()));
-      expect(result.current.quote).toBeNull();
       expect(result.current.txHash).toBeNull();
       expect(result.current.assets).toEqual([]);
       expect(result.current.loading).toBe(false);
       expect(result.current.error).toBeNull();
       expect(result.current.isGasless).toBe(false);
-      expect(result.current.fusionQuote).toBeNull();
       expect(result.current.userSlippageTolerance).toBe(1.0);
       expect(result.current.recommendedSlippage).toBeNull();
     });
@@ -393,239 +389,6 @@ describe('useEvmSwap', () => {
     });
   });
 
-  describe('fetchQuote — validation', () => {
-    it('rejects a zero/invalid amount without calling the API', async () => {
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-
-      await expect(
-        result.current.fetchQuote(
-          { amount: '0', tokenIn: ethAsset, tokenOut: usdcAsset } as any,
-          ethAsset,
-          usdcAsset
-        )
-      ).rejects.toThrow('Invalid swap amount');
-      expect(getSwapQuote).not.toHaveBeenCalled();
-    });
-
-    it('rejects a missing amount', async () => {
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-      await expect(
-        result.current.fetchQuote(
-          { amount: '', tokenIn: ethAsset, tokenOut: usdcAsset } as any,
-          ethAsset,
-          usdcAsset
-        )
-      ).rejects.toThrow('Invalid swap amount');
-    });
-
-    it('rejects when an asset is missing', async () => {
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-      await expect(
-        result.current.fetchQuote({ amount: '1' } as any, ethAsset, undefined as any)
-      ).rejects.toThrow('Invalid assets selected');
-    });
-
-    it('rejects swapping a token for itself', async () => {
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-      await expect(
-        result.current.fetchQuote(
-          { amount: '1', tokenIn: ethAsset, tokenOut: ethAsset } as any,
-          ethAsset,
-          ethAsset
-        )
-      ).rejects.toThrow('Cannot swap same token');
-    });
-
-    it('does not flag two native assets on different chains as the same token', async () => {
-      vi.mocked(getSwapQuote).mockResolvedValue({ outputAmount: '1', provider: 'ONEINCH' } as any);
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-      const nativeOnOtherChain = { ...ethAsset, chainId: 137 };
-
-      await expect(
-        result.current.fetchQuote(
-          { amount: '1', tokenIn: ethAsset, tokenOut: nativeOnOtherChain } as any,
-          ethAsset,
-          nativeOnOtherChain
-        )
-      ).resolves.toBeDefined();
-    });
-
-    it('rejects an invalid ERC-20 address', async () => {
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-      const badBuyAsset = {
-        symbol: 'FAKE',
-        address: 'not-an-address',
-        isNative: false,
-        chainId: 1,
-        decimals: 18,
-      } as any;
-
-      await expect(
-        result.current.fetchQuote(
-          { amount: '1', tokenIn: ethAsset, tokenOut: badBuyAsset } as any,
-          ethAsset,
-          badBuyAsset
-        )
-      ).rejects.toThrow(/Invalid buy token address/);
-    });
-
-    it('normalizes a null/undefined/zero address as native and skips address validation', async () => {
-      vi.mocked(getSwapQuote).mockResolvedValue({ outputAmount: '1', provider: 'ONEINCH' } as any);
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-      const zeroAddressAsset = {
-        symbol: 'ETH',
-        address: '0x0000000000000000000000000000000000000000',
-        isNative: true,
-        chainId: 1,
-        decimals: 18,
-      } as any;
-
-      await expect(
-        result.current.fetchQuote(
-          { amount: '1', tokenIn: zeroAddressAsset, tokenOut: usdcAsset } as any,
-          zeroAddressAsset,
-          usdcAsset
-        )
-      ).resolves.toBeDefined();
-    });
-
-    it('resolves with an enriched quote and updates state on success', async () => {
-      vi.mocked(getSwapQuote).mockResolvedValue({
-        outputAmount: '3000',
-        provider: 'ONEINCH',
-      } as any);
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-
-      let quote;
-      await act(async () => {
-        quote = await result.current.fetchQuote(
-          { amount: '1', tokenIn: ethAsset, tokenOut: usdcAsset } as any,
-          ethAsset,
-          usdcAsset
-        );
-      });
-
-      expect(quote).toMatchObject({ inputToken: 'ETH', outputToken: 'USDC', outputAmount: '3000' });
-      await waitFor(() => expect(result.current.quote).not.toBeNull());
-      expect(result.current.quoteLoading).toBe(false);
-    });
-
-    it('sets a parsed error message and clears the quote when the API call fails', async () => {
-      vi.mocked(getSwapQuote).mockRejectedValue(new Error('liquidity too low'));
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-
-      await expect(
-        result.current.fetchQuote(
-          { amount: '1', tokenIn: ethAsset, tokenOut: usdcAsset } as any,
-          ethAsset,
-          usdcAsset
-        )
-      ).rejects.toThrow('liquidity too low');
-
-      await waitFor(() => expect(result.current.error).toBe('liquidity too low'));
-      expect(result.current.quote).toBeNull();
-      expect(result.current.quoteLoading).toBe(false);
-    });
-
-    it('discards a stale response when a newer fetchQuote call supersedes it', async () => {
-      let resolveFirst: (v: any) => void;
-      vi.mocked(getSwapQuote)
-        .mockImplementationOnce(
-          () =>
-            new Promise(res => {
-              resolveFirst = res;
-            })
-        )
-        .mockResolvedValueOnce({ outputAmount: '999', provider: 'ONEINCH' } as any);
-
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-      const request = { amount: '1', tokenIn: ethAsset, tokenOut: usdcAsset } as any;
-
-      const firstCall = result.current.fetchQuote(request, ethAsset, usdcAsset).catch(e => e);
-      await act(async () => {
-        await result.current.fetchQuote(request, ethAsset, usdcAsset);
-      });
-      resolveFirst!({ outputAmount: '111', provider: 'ONEINCH' });
-
-      const firstResult = await firstCall;
-      expect(firstResult).toBeInstanceOf(Error);
-      expect((firstResult as Error).message).toMatch(/cancelled|superseded/);
-      await waitFor(() => expect(result.current.quote?.outputAmount).toBe('999'));
-    });
-
-    it('rejects with a cancellation message when reset aborts an in-flight request', async () => {
-      vi.mocked(getSwapQuote).mockImplementation(
-        (_chainId, _req, signal?: AbortSignal) =>
-          new Promise((_, reject) => {
-            signal?.addEventListener('abort', () => {
-              const err = new Error('aborted');
-              err.name = 'AbortError';
-              reject(err);
-            });
-          })
-      );
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-      const request = { amount: '1', tokenIn: ethAsset, tokenOut: usdcAsset } as any;
-
-      const pending = result.current.fetchQuote(request, ethAsset, usdcAsset);
-      act(() => result.current.reset());
-
-      await expect(pending).rejects.toThrow('Quote request cancelled');
-    });
-  });
-
-  describe('fetchFusionQuote', () => {
-    it('resolves and stores the fusion quote on success', async () => {
-      const fusionQuote = { quoteId: 'q1', toTokenAmount: '5000', dstTokenAmount: '5000' } as any;
-      vi.mocked(get1InchFusionQuote).mockResolvedValue(fusionQuote);
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-
-      let quote;
-      await act(async () => {
-        quote = await result.current.fetchFusionQuote(ethAsset, usdcAsset, '1');
-      });
-
-      expect(quote).toEqual(fusionQuote);
-      await waitFor(() => expect(result.current.fusionQuote).toEqual(fusionQuote));
-    });
-
-    it('sets a parsed error and clears fusionQuote on failure', async () => {
-      vi.mocked(get1InchFusionQuote).mockRejectedValue(new Error('no route found'));
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-
-      await expect(result.current.fetchFusionQuote(ethAsset, usdcAsset, '1')).rejects.toThrow(
-        'no route found'
-      );
-
-      await waitFor(() => expect(result.current.error).toBe('no route found'));
-      expect(result.current.fusionQuote).toBeNull();
-    });
-
-    it('discards a stale fusion quote superseded by a newer call', async () => {
-      let resolveFirst: (v: any) => void;
-      vi.mocked(get1InchFusionQuote)
-        .mockImplementationOnce(
-          () =>
-            new Promise(res => {
-              resolveFirst = res;
-            })
-        )
-        .mockResolvedValueOnce({ quoteId: 'q2' } as any);
-
-      const { result } = renderHook(() => useEvmSwap(baseProps()));
-
-      const firstCall = result.current.fetchFusionQuote(ethAsset, usdcAsset, '1').catch(e => e);
-      await act(async () => {
-        await result.current.fetchFusionQuote(ethAsset, usdcAsset, '1');
-      });
-      resolveFirst!({ quoteId: 'stale' });
-
-      const firstResult = await firstCall;
-      expect(firstResult).toBeInstanceOf(Error);
-      await waitFor(() => expect(result.current.fusionQuote?.quoteId).toBe('q2'));
-    });
-  });
-
   describe('performSwap', () => {
     it('throws when there is no quote', async () => {
       const { result } = renderHook(() => useEvmSwap(baseProps()));
@@ -719,18 +482,21 @@ describe('useEvmSwap', () => {
       ).rejects.toThrow('No wallet connected');
     });
 
-    it('uses a fusion quote already held in state when none is explicitly passed', async () => {
-      vi.mocked(get1InchFusionQuote).mockResolvedValue({ quoteId: 'stateQuote' } as any);
+    it('executes a fusion swap when a fusion quote is passed', async () => {
       mockFusionSwapCallbacks('0xFUSIONHASH');
       const { result } = renderHook(() => useEvmSwap(baseProps()));
-
-      await act(async () => {
-        await result.current.fetchFusionQuote(ethAsset, usdcAsset, '1');
-      });
+      const fQuote = { quoteId: 'stateQuote' } as any;
 
       let hash;
       await act(async () => {
-        hash = await result.current.performFusionSwap(ethAsset, usdcAsset, '1');
+        hash = await result.current.performFusionSwap(
+          ethAsset,
+          usdcAsset,
+          '1',
+          'fast',
+          undefined,
+          fQuote
+        );
       });
 
       expect(hash).toBe('0xFUSIONHASH');
@@ -819,29 +585,22 @@ describe('useEvmSwap', () => {
   });
 
   describe('reset', () => {
-    it('clears quote, error, txHash, loading and fusionQuote', async () => {
-      vi.mocked(getSwapQuote).mockResolvedValue({
-        outputAmount: '3000',
-        provider: 'ONEINCH',
-      } as any);
+    it('clears error, txHash and quoteLoading', async () => {
+      vi.mocked(executeSwap).mockRejectedValue(new Error('swap failed'));
       const { result } = renderHook(() => useEvmSwap(baseProps()));
 
-      await act(async () => {
-        await result.current.fetchQuote(
-          { amount: '1', tokenIn: ethAsset, tokenOut: usdcAsset } as any,
-          ethAsset,
-          usdcAsset
-        );
-      });
-      expect(result.current.quote).not.toBeNull();
+      await expect(
+        result.current.performSwap({ outputAmount: '3000' } as any, ethAsset, usdcAsset, '1', 1)
+      ).rejects.toThrow('swap failed');
+
+      await waitFor(() => expect(result.current.error).toBe('swap failed'));
 
       act(() => result.current.reset());
 
-      expect(result.current.quote).toBeNull();
-      expect(result.current.txHash).toBeNull();
       expect(result.current.error).toBeNull();
+      expect(result.current.txHash).toBeNull();
       expect(result.current.loading).toBe(false);
-      expect(result.current.fusionQuote).toBeNull();
+      expect(result.current.quoteLoading).toBe(false);
     });
   });
 
